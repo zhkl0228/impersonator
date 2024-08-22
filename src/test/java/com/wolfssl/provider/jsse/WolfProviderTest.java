@@ -25,7 +25,7 @@ public class WolfProviderTest extends SSLProviderTest {
         }
     }
 
-    public void testWolfHttp() throws Exception {
+    public void testHttp() throws Exception {
         doTestBrowserLeaks();
     }
 
