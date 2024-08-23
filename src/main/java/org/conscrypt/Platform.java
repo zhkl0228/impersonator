@@ -269,8 +269,9 @@ final class Platform {
             SSLParameters params, SSLParametersImpl impl, ConscryptEngine engine) {
         if (JAVA_VERSION >= 9) {
             Java9PlatformUtil.setSSLParameters(params, impl, engine);
-        } else if (JAVA_VERSION >= 8) {
+        } else if (JAVA_VERSION == 8) {
             Java8PlatformUtil.setSSLParameters(params, impl, engine);
+            Conscrypt.setApplicationProtocols(engine, params.getApplicationProtocols());
         } else {
             impl.setEndpointIdentificationAlgorithm(params.getEndpointIdentificationAlgorithm());
         }
