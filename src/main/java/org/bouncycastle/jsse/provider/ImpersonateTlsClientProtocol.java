@@ -1,5 +1,6 @@
 package org.bouncycastle.jsse.provider;
 
+import com.github.zhkl0228.impersonator.Impersonator;
 import org.bouncycastle.tls.TlsSession;
 
 import java.io.Closeable;

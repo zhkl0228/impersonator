@@ -49,7 +49,7 @@ class DisabledAlgorithmConstraints
             if (!addConstraint(disabledAlgorithms, constraintsMap, entries[i]))
             {
                 // TODO[jsse] Support a property to make this a strict failure?
-                LOG.warning("Ignoring unsupported entry in '" + propertyName + "': " + entries[i]);
+                LOG.fine("Ignoring unsupported entry in '" + propertyName + "': " + entries[i]);
             }
         }
 

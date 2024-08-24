@@ -1,9 +1,9 @@
-package org.bouncycastle.jsse.provider;
+package com.github.zhkl0228.impersonator;
 
 import java.io.IOException;
 import java.util.Map;
 
-interface Impersonator {
+public interface Impersonator {
 
     int[] getCipherSuites();
 

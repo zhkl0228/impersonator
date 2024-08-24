@@ -126,7 +126,7 @@ class PropertyUtils
         String propertyValue = getSecurityProperty(propertyName);
         if (null != propertyValue)
         {
-            LOG.info("Found string security property [" + propertyName + "]: " + propertyValue);
+            LOG.fine("Found string security property [" + propertyName + "]: " + propertyValue);
             return propertyValue;
         }
         return null;
@@ -137,7 +137,7 @@ class PropertyUtils
         String propertyValue = getSecurityProperty(propertyName);
         if (null != propertyValue)
         {
-            LOG.info("Found string security property [" + propertyName + "]: " + propertyValue);
+            LOG.fine("Found string security property [" + propertyName + "]: " + propertyValue);
             return propertyValue;
         }
         LOG.warning("String security property [" + propertyName + "] defaulted to: " + defaultValue);

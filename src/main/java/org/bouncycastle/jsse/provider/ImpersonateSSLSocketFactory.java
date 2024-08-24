@@ -1,33 +1,23 @@
 package org.bouncycastle.jsse.provider;
 
+import com.github.zhkl0228.impersonator.Impersonator;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.Socket;
-import java.util.Arrays;
-import java.util.List;
 
 class ImpersonateSSLSocketFactory extends ProvSSLSocketFactory {
 
-    private final ImpersonateSecureRandom secureRandom;
+    private final Impersonator secureRandom;
 
-    ImpersonateSSLSocketFactory(ContextData contextData, ImpersonateSecureRandom secureRandom) {
+    ImpersonateSSLSocketFactory(ContextData contextData, Impersonator impersonator) {
         super(contextData);
-        this.secureRandom = secureRandom;
+        this.secureRandom = impersonator;
     }
 
     @Override
     public Socket createSocket(Socket s, String host, int port, boolean autoClose) throws IOException {
-        ProvSSLContextSpi context = contextData.getContext();
-        List<String> supportedCipherSuites = Arrays.asList(context.getSupportedCipherSuites());
-        for (String name : secureRandom.cipherSuitesNames) {
-            if (name == null) {
-                continue;
-            }
-            if(!supportedCipherSuites.contains(name)) {
-                throw new IllegalStateException("supportedCipherSuites=" + supportedCipherSuites + ", name=" + name);
-            }
-        }
         return new ImpersonateSSLSocketWrap(contextData, s, host, port, autoClose, secureRandom);
     }
 

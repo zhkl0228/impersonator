@@ -3,7 +3,6 @@ package com.github.zhkl0228.impersonator;
 import cn.hutool.core.net.DefaultTrustManager;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
-import org.bouncycastle.jsse.provider.ImpersonateSecureRandom;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;

@@ -30,6 +30,7 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509KeyManager;
 import javax.net.ssl.X509TrustManager;
 
+import com.github.zhkl0228.impersonator.ImpersonateSecureRandom;
 import org.bouncycastle.jcajce.util.JcaJceHelper;
 import org.bouncycastle.jsse.BCX509ExtendedKeyManager;
 import org.bouncycastle.jsse.BCX509ExtendedTrustManager;
