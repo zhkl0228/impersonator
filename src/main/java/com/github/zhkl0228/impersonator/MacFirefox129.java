@@ -27,6 +27,9 @@ class MacFirefox129 extends ImpersonatorFactory {
 
     @Override
     public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+        clientExtensions.remove(ExtensionType.status_request_v2);
+        clientExtensions.remove(ExtensionType.encrypt_then_mac);
+        clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp521r1_sha512),
@@ -38,27 +41,16 @@ class MacFirefox129 extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1),
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
-        clientExtensions.remove(ExtensionType.status_request_v2);
-        clientExtensions.remove(ExtensionType.encrypt_then_mac);
-        TlsExtensionsUtils.addRecordSizeLimitExtension(clientExtensions, 0x4000);
-        clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         addDelegatedCredentialsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp521r1_sha512),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1));
+        addSupportedGroupsExtension(clientExtensions, NamedGroup.x25519, NamedGroup.secp256r1, NamedGroup.secp384r1,
+                NamedGroup.secp521r1, NamedGroup.ffdhe2048, NamedGroup.ffdhe3072);
+        TlsExtensionsUtils.addRecordSizeLimitExtension(clientExtensions, 0x4000);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         final int encrypted_client_hello = 0xfe0d;
         clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
-        {
-            Vector<Integer> supportedGroups = new Vector<>();
-            supportedGroups.add(NamedGroup.x25519);
-            supportedGroups.add(NamedGroup.secp256r1);
-            supportedGroups.add(NamedGroup.secp384r1);
-            supportedGroups.add(NamedGroup.secp521r1);
-            supportedGroups.add(NamedGroup.ffdhe2048);
-            supportedGroups.add(NamedGroup.ffdhe3072);
-            TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
-        }
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             byte[] keyExchange = new byte[65];

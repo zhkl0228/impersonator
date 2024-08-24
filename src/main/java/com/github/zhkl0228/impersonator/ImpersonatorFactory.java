@@ -16,6 +16,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.Security;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Vector;
 
@@ -62,6 +63,12 @@ public abstract class ImpersonatorFactory implements Impersonator {
         Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>(signatureAndHashAlgorithms.length);
         supportedSignatureAlgorithms.addAll(Arrays.asList(signatureAndHashAlgorithms));
         TlsExtensionsUtils.addDelegatedCredentialsExtension(clientExtensions, supportedSignatureAlgorithms);
+    }
+
+    protected final void addSupportedGroupsExtension(Map<Integer, byte[]> clientExtensions, Integer... groups) throws IOException {
+        Vector<Integer> supportedGroups = new Vector<>();
+        Collections.addAll(supportedGroups, groups);
+        TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
     }
 
     protected  final void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {

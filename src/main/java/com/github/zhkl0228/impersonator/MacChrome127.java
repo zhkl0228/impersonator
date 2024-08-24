@@ -34,15 +34,26 @@ class MacChrome127 extends ImpersonatorFactory {
 
     @Override
     public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+        clientExtensions.remove(ExtensionType.status_request_v2);
+        clientExtensions.remove(ExtensionType.encrypt_then_mac);
+        clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
+        clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, new ProtocolVersion[]{
                 ProtocolVersion.get(0x4a, 0x4a),
                 ProtocolVersion.TLSv13, ProtocolVersion.TLSv12
         });
-        clientExtensions.remove(ExtensionType.status_request_v2);
-        clientExtensions.remove(ExtensionType.encrypt_then_mac);
-        clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
+        addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
+                SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
+                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
+                SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
+                SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
+        final int X25519Kyber768Draft00 = 0x6399;
+        addSupportedGroupsExtension(clientExtensions, 0xcaca, X25519Kyber768Draft00, NamedGroup.x25519,
+                NamedGroup.secp256r1, NamedGroup.secp384r1);
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
-        clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream(16)) {
             DataOutput dataOutput = new DataOutputStream(baos);
@@ -55,24 +66,6 @@ class MacChrome127 extends ImpersonatorFactory {
         }
         final int encrypted_client_hello = 0xfe0d;
         clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
-        final int X25519Kyber768Draft00 = 0x6399;
-        {
-            Vector<Integer> supportedGroups = new Vector<>();
-            supportedGroups.add(0xcaca);
-            supportedGroups.add(X25519Kyber768Draft00);
-            supportedGroups.add(NamedGroup.x25519);
-            supportedGroups.add(NamedGroup.secp256r1);
-            supportedGroups.add(NamedGroup.secp384r1);
-            TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
-        }
-        addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
-                SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
-                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
-                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
-                SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
-                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
-                SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
-                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             keyShareEntries.add(0, new KeyShareEntry(X25519Kyber768Draft00, new byte[1]));

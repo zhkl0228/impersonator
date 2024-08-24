@@ -28,6 +28,9 @@ class MacSafari17 extends ImpersonatorFactory {
 
     @Override
     public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+        clientExtensions.remove(ExtensionType.status_request_v2);
+        clientExtensions.remove(ExtensionType.encrypt_then_mac);
+        clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
@@ -39,6 +42,8 @@ class MacSafari17 extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
+        addSupportedGroupsExtension(clientExtensions, 0x6a6a, NamedGroup.x25519, NamedGroup.secp256r1,
+                NamedGroup.secp384r1, NamedGroup.secp521r1);
         TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, new ProtocolVersion[]{
                 ProtocolVersion.get(0xda, 0xda),
                 ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10
@@ -48,21 +53,9 @@ class MacSafari17 extends ImpersonatorFactory {
             keyShareEntries.add(0, new KeyShareEntry(0x6a6a, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
-        clientExtensions.remove(ExtensionType.status_request_v2);
-        clientExtensions.remove(ExtensionType.encrypt_then_mac);
-        clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.zlib});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        {
-            Vector<Integer> supportedGroups = new Vector<>();
-            supportedGroups.add(0x6a6a);
-            supportedGroups.add(NamedGroup.x25519);
-            supportedGroups.add(NamedGroup.secp256r1);
-            supportedGroups.add(NamedGroup.secp384r1);
-            supportedGroups.add(NamedGroup.secp521r1);
-            TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
-        }
         {
             Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
             clientExtensions.clear();
