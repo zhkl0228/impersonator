@@ -5,7 +5,7 @@ import java.security.SecureRandom;
 public abstract class ImpersonateSecureRandom extends SecureRandom implements Impersonator {
 
     public static SecureRandom chrome() {
-        return new Chrome();
+        return new MacChrome();
     }
 
     private final int[] cipherSuites;

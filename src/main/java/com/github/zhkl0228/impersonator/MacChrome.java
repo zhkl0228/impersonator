@@ -26,9 +26,9 @@ import java.util.Vector;
  * Ja3: 771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281,25497-29-23-24,0
  * scrapfly_fp => version:772|ch_ciphers:GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281-GREASE|groups:GREASE-25497-29-23-24|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-25497-29|psk:1|signature_algs:1027-2052-1025-1283-2053-1281-2054-1537|early_data:0|
  */
-class Chrome extends ImpersonateSecureRandom {
+class MacChrome extends ImpersonateSecureRandom {
 
-    Chrome() {
+    MacChrome() {
         super("0x9a9a-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53");
     }
 
@@ -60,39 +60,45 @@ class Chrome extends ImpersonateSecureRandom {
         }
         final int encrypted_client_hello = 0xfe0d;
         clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
-        Vector<Integer> supportedGroups = new Vector<>();
         final int X25519Kyber768Draft00 = 0x6399;
-        supportedGroups.add(0xcaca);
-        supportedGroups.add(X25519Kyber768Draft00);
-        supportedGroups.add(NamedGroup.x25519);
-        supportedGroups.add(NamedGroup.secp256r1);
-        supportedGroups.add(NamedGroup.secp384r1);
-        TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
-        Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>();
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256));
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha256);
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256));
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384));
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha384);
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384));
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha512);
-        supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
-        TlsExtensionsUtils.addSignatureAlgorithmsExtension(clientExtensions, supportedSignatureAlgorithms);
+        {
+            Vector<Integer> supportedGroups = new Vector<>();
+            supportedGroups.add(0xcaca);
+            supportedGroups.add(X25519Kyber768Draft00);
+            supportedGroups.add(NamedGroup.x25519);
+            supportedGroups.add(NamedGroup.secp256r1);
+            supportedGroups.add(NamedGroup.secp384r1);
+            TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
+        }
+        {
+            Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>();
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256));
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha256);
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256));
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384));
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha384);
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384));
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha512);
+            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
+            TlsExtensionsUtils.addSignatureAlgorithmsExtension(clientExtensions, supportedSignatureAlgorithms);
+        }
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             keyShareEntries.add(0, new KeyShareEntry(X25519Kyber768Draft00, new byte[1]));
             keyShareEntries.add(0, new KeyShareEntry(0xcaca, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
-        Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
-        clientExtensions.clear();
-        List<Integer> keys = new ArrayList<>(copy.keySet());
-        Collections.shuffle(keys);
-        clientExtensions.put(0x1a1a, TlsUtils.EMPTY_BYTES);
-        for (Integer key : keys) {
-            byte[] data = copy.remove(key);
-            clientExtensions.put(key, data);
+        {
+            Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
+            clientExtensions.clear();
+            List<Integer> keys = new ArrayList<>(copy.keySet());
+            Collections.shuffle(keys);
+            clientExtensions.put(0x1a1a, TlsUtils.EMPTY_BYTES);
+            for (Integer key : keys) {
+                byte[] data = copy.remove(key);
+                clientExtensions.put(key, data);
+            }
+            clientExtensions.put(0xcaca, TlsUtils.EMPTY_BYTES);
         }
-        clientExtensions.put(0xcaca, TlsUtils.EMPTY_BYTES);
     }
 }
