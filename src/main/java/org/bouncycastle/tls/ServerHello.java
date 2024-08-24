@@ -1,11 +1,11 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.util.Arrays;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.Hashtable;
-
-import org.bouncycastle.util.Arrays;
+import java.util.Map;
 
 public class ServerHello
 {
@@ -20,14 +20,14 @@ public class ServerHello
     private final byte[] random;
     private final byte[] sessionID;
     private final int cipherSuite;
-    private final Hashtable extensions;
+    private final Map<Integer, byte[]> extensions;
 
-    public ServerHello(byte[] sessionID, int cipherSuite, Hashtable extensions)
+    public ServerHello(byte[] sessionID, int cipherSuite, Map<Integer, byte[]> extensions)
     {
         this(ProtocolVersion.TLSv12, Arrays.clone(HELLO_RETRY_REQUEST_MAGIC), sessionID, cipherSuite, extensions);
     }
 
-    public ServerHello(ProtocolVersion version, byte[] random, byte[] sessionID, int cipherSuite, Hashtable extensions)
+    public ServerHello(ProtocolVersion version, byte[] random, byte[] sessionID, int cipherSuite, Map<Integer, byte[]> extensions)
     {
         this.version = version;
         this.random = random;
@@ -41,7 +41,7 @@ public class ServerHello
         return cipherSuite;
     }
 
-    public Hashtable getExtensions()
+    public Map<Integer, byte[]> getExtensions()
     {
         return extensions;
     }
@@ -115,7 +115,7 @@ public class ServerHello
             throw new TlsFatalAlert(AlertDescription.illegal_parameter);
         }
 
-        Hashtable extensions = TlsProtocol.readExtensions(input);
+        Map<Integer, byte[]> extensions = TlsProtocol.readExtensions(input);
 
         return new ServerHello(version, random, sessionID, cipherSuite, extensions);
     }

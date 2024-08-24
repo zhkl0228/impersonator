@@ -1,16 +1,16 @@
 package org.bouncycastle.tls;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.Enumeration;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.tls.crypto.TlsStreamSigner;
 import org.bouncycastle.util.Arrays;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Vector;
 
 public class DTLSClientProtocol
     extends DTLSProtocol
@@ -737,7 +737,7 @@ public class DTLSClientProtocol
         ByteArrayInputStream buf = new ByteArrayInputStream(body);
         ServerHello serverHello = ServerHello.parse(buf);
 
-        Hashtable serverHelloExtensions = serverHello.getExtensions();
+        Map<Integer, byte[]> serverHelloExtensions = serverHello.getExtensions();
 
         ProtocolVersion legacy_version = serverHello.getVersion();
         ProtocolVersion supported_version = TlsExtensionsUtils.getSupportedVersionsExtensionServer(
@@ -834,11 +834,8 @@ public class DTLSClientProtocol
         state.serverExtensions = serverHelloExtensions;
         if (serverHelloExtensions != null)
         {
-            Enumeration e = serverHelloExtensions.keys();
-            while (e.hasMoreElements())
+            for(Integer extType : serverHelloExtensions.keySet())
             {
-                Integer extType = (Integer)e.nextElement();
-
                 /*
                  * RFC 5746 3.6. Note that sending a "renegotiation_info" extension in response to a
                  * ClientHello containing only the SCSV is an explicit exception to the prohibition
@@ -1001,7 +998,7 @@ public class DTLSClientProtocol
             }
         }
 
-        Hashtable sessionClientExtensions = state.clientExtensions, sessionServerExtensions = serverHelloExtensions;
+        Map<Integer, byte[]> sessionClientExtensions = state.clientExtensions, sessionServerExtensions = serverHelloExtensions;
 
         if (securityParameters.isResumedSession())
         {
@@ -1140,8 +1137,8 @@ public class DTLSClientProtocol
         TlsSecret sessionMasterSecret = null;
         SessionParameters.Builder sessionParametersBuilder = null;
         int[] offeredCipherSuites = null;
-        Hashtable clientExtensions = null;
-        Hashtable serverExtensions = null;
+        Map<Integer, byte[]> clientExtensions = null;
+        Map<Integer, byte[]> serverExtensions = null;
         boolean expectSessionTicket = false;
         Hashtable clientAgreements = null;
         OfferedPsks.BindersConfig clientBinders = null;

@@ -1,24 +1,24 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.util.BigIntegers;
+import org.bouncycastle.util.Integers;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
-import java.util.Hashtable;
-
-import org.bouncycastle.util.BigIntegers;
-import org.bouncycastle.util.Integers;
+import java.util.Map;
 
 public class TlsSRPUtils
 {
     public static final Integer EXT_SRP = Integers.valueOf(ExtensionType.srp);
 
-    public static void addSRPExtension(Hashtable extensions, byte[] identity) throws IOException
+    public static void addSRPExtension(Map<Integer, byte[]> extensions, byte[] identity) throws IOException
     {
         extensions.put(EXT_SRP, createSRPExtension(identity));
     }
 
-    public static byte[] getSRPExtension(Hashtable extensions) throws IOException
+    public static byte[] getSRPExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_SRP);
         return extensionData == null ? null : readSRPExtension(extensionData);

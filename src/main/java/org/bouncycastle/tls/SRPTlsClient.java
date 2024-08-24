@@ -1,9 +1,9 @@
 package org.bouncycastle.tls;
 
-import java.io.IOException;
-import java.util.Hashtable;
-
 import org.bouncycastle.tls.crypto.TlsCrypto;
+
+import java.io.IOException;
+import java.util.Map;
 
 public class SRPTlsClient
     extends AbstractTlsClient
@@ -43,15 +43,15 @@ public class SRPTlsClient
         return false;
     }
 
-    public Hashtable getClientExtensions()
+    public Map<Integer, byte[]> getClientExtensions()
         throws IOException
     {
-        Hashtable clientExtensions = TlsExtensionsUtils.ensureExtensionsInitialised(super.getClientExtensions());
+        Map<Integer, byte[]> clientExtensions = TlsExtensionsUtils.ensureExtensionsInitialised(super.getClientExtensions());
         TlsSRPUtils.addSRPExtension(clientExtensions, srpIdentity.getSRPIdentity());
         return clientExtensions;
     }
 
-    public void processServerExtensions(Hashtable serverExtensions)
+    public void processServerExtensions(Map<Integer, byte[]> serverExtensions)
         throws IOException
     {
         if (!TlsUtils.hasExpectedEmptyExtensionData(serverExtensions, TlsSRPUtils.EXT_SRP,

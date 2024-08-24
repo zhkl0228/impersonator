@@ -1,13 +1,5 @@
 package org.bouncycastle.tls;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.tls.crypto.TlsAgreement;
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.tls.crypto.TlsDHConfig;
@@ -15,6 +7,15 @@ import org.bouncycastle.tls.crypto.TlsECConfig;
 import org.bouncycastle.tls.crypto.TlsKemConfig;
 import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.util.Arrays;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Vector;
 
 public class TlsServerProtocol
     extends TlsProtocol
@@ -129,7 +130,7 @@ public class TlsServerProtocol
         SecurityParameters securityParameters = tlsServerContext.getSecurityParametersHandshake();
         ProtocolVersion serverVersion = securityParameters.getNegotiatedVersion();
 
-        Hashtable serverHelloExtensions = new Hashtable();
+        Map<Integer, byte[]> serverHelloExtensions = new LinkedHashMap<>();
         TlsExtensionsUtils.addSupportedVersionsExtensionServer(serverHelloExtensions, serverVersion);
         if (retryGroup >= 0)
         {
@@ -158,7 +159,7 @@ public class TlsServerProtocol
 
         byte[] legacy_session_id = clientHello.getSessionID();
 
-        Hashtable clientHelloExtensions = clientHello.getExtensions();
+        Map<Integer, byte[]> clientHelloExtensions = clientHello.getExtensions();
         if (null == clientHelloExtensions)
         {
             throw new TlsFatalAlert(AlertDescription.missing_extension);
@@ -332,8 +333,8 @@ public class TlsServerProtocol
         }
 
 
-        Hashtable serverHelloExtensions = new Hashtable();
-        Hashtable serverEncryptedExtensions = TlsExtensionsUtils.ensureExtensionsInitialised(tlsServer.getServerExtensions());
+        Map<Integer, byte[]> serverHelloExtensions = new LinkedHashMap<>();
+        Map<Integer, byte[]> serverEncryptedExtensions = TlsExtensionsUtils.ensureExtensionsInitialised(tlsServer.getServerExtensions());
 
         tlsServer.getServerExtensionsForConnection(serverEncryptedExtensions);
 
@@ -748,7 +749,7 @@ public class TlsServerProtocol
         tlsServerContext.setRSAPreMasterSecretVersion(clientLegacyVersion);
 
         {
-            Hashtable sessionServerExtensions = resumedSession
+            Map<Integer, byte[]> sessionServerExtensions = resumedSession
                 ?   sessionParameters.readServerExtensions()
                 :   tlsServer.getServerExtensions();
 
@@ -1554,7 +1555,7 @@ public class TlsServerProtocol
         }
     }
 
-    protected void send13EncryptedExtensionsMessage(Hashtable serverExtensions) throws IOException
+    protected void send13EncryptedExtensionsMessage(Map<Integer, byte[]> serverExtensions) throws IOException
     {
         // TODO[tls13] Avoid extra copy; use placeholder to write opaque-16 data directly to message buffer
 

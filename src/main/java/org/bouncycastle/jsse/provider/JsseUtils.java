@@ -1,24 +1,5 @@
 package org.bouncycastle.jsse.provider;
 
-import java.io.IOException;
-import java.security.Key;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.Hashtable;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.Vector;
-
-import javax.security.auth.x500.X500Principal;
-
 import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -64,6 +45,24 @@ import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCertificate;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
 import org.bouncycastle.tls.crypto.impl.jcajce.JceDefaultTlsCredentialedDecryptor;
 import org.bouncycastle.util.encoders.Hex;
+
+import javax.security.auth.x500.X500Principal;
+import java.io.IOException;
+import java.security.Key;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Vector;
 
 abstract class JsseUtils
 {
@@ -424,7 +423,7 @@ abstract class JsseUtils
             JcaTlsCertificate certificate = new JcaTlsCertificate(crypto, chain[i]);
 
             // TODO[tls13] Support various extensions
-            Hashtable<Integer, byte[]> extensions = null;
+            Map<Integer, byte[]> extensions = null;
 
             certificateEntryList[i] = new CertificateEntry(certificate, extensions);
         }

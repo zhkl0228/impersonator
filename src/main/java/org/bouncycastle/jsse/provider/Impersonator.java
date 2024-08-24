@@ -1,12 +1,12 @@
 package org.bouncycastle.jsse.provider;
 
 import java.io.IOException;
-import java.util.Hashtable;
+import java.util.Map;
 
 interface Impersonator {
 
     int[] getCipherSuites();
 
-    void onEstablishSession(Hashtable clientExtensions) throws IOException;
+    void onEstablishSession(Map<Integer, byte[]> clientExtensions) throws IOException;
 
 }

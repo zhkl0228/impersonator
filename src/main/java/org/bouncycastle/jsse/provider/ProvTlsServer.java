@@ -1,23 +1,5 @@
 package org.bouncycastle.jsse.provider;
 
-import java.io.IOException;
-import java.math.BigInteger;
-import java.security.Principal;
-import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.Hashtable;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Vector;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.jsse.BCSNIMatcher;
 import org.bouncycastle.jsse.BCSNIServerName;
@@ -51,6 +33,23 @@ import org.bouncycastle.tls.crypto.TlsDHConfig;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.encoders.Hex;
+
+import java.io.IOException;
+import java.math.BigInteger;
+import java.security.Principal;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Vector;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 class ProvTlsServer
     extends DefaultTlsServer
@@ -683,7 +682,7 @@ class ProvTlsServer
     }
 
     @Override
-    public Hashtable<Integer, byte[]> getServerExtensions() throws IOException
+    public Map<Integer, byte[]> getServerExtensions() throws IOException
     {
         super.getServerExtensions();
 
@@ -697,10 +696,7 @@ class ProvTlsServer
             TlsExtensionsUtils.addServerNameExtensionServer(serverExtensions);
         }
 
-        @SuppressWarnings("unchecked")
-        Hashtable<Integer, byte[]> result = serverExtensions;
-
-        return result;
+        return serverExtensions;
     }
 
     @Override
@@ -931,7 +927,7 @@ class ProvTlsServer
     }
 
     @Override
-    public void processClientExtensions(@SuppressWarnings("rawtypes") Hashtable clientExtensions) throws IOException
+    public void processClientExtensions(Map<Integer, byte[]> clientExtensions) throws IOException
     {
         super.processClientExtensions(clientExtensions);
 

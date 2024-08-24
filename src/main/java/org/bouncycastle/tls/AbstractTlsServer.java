@@ -1,13 +1,14 @@
 package org.bouncycastle.tls;
 
-import java.io.IOException;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.tls.crypto.TlsDHConfig;
 import org.bouncycastle.tls.crypto.TlsECConfig;
 import org.bouncycastle.util.Integers;
+
+import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Vector;
 
 /**
  * Base class for a TLS server.
@@ -21,7 +22,7 @@ public abstract class AbstractTlsServer
     protected int[] cipherSuites;
 
     protected int[] offeredCipherSuites;
-    protected Hashtable clientExtensions;
+    protected Map<Integer, byte[]> clientExtensions;
 
     protected boolean encryptThenMACOffered;
     protected short maxFragmentLengthOffered;
@@ -35,7 +36,7 @@ public abstract class AbstractTlsServer
     protected Vector clientProtocolNames;
     protected ProtocolName selectedProtocolName;
 
-    protected final Hashtable serverExtensions = new Hashtable();
+    protected final Map<Integer, byte[]> serverExtensions = new LinkedHashMap<>();
 
     public AbstractTlsServer(TlsCrypto crypto)
     {
@@ -68,7 +69,7 @@ public abstract class AbstractTlsServer
     }
 
     /** @deprecated Use 'serverExtensions' directly, it is now never null */
-    protected Hashtable checkServerExtensions()
+    protected Map<Integer, byte[]> checkServerExtensions()
     {
         return serverExtensions;
     }
@@ -394,7 +395,7 @@ public abstract class AbstractTlsServer
         this.offeredCipherSuites = offeredCipherSuites;
     }
 
-    public void processClientExtensions(Hashtable clientExtensions)
+    public void processClientExtensions(Map<Integer, byte[]> clientExtensions)
         throws IOException
     {
         this.clientExtensions = clientExtensions;
@@ -511,7 +512,7 @@ public abstract class AbstractTlsServer
     }
 
     // Hashtable is (Integer -> byte[])
-    public Hashtable getServerExtensions()
+    public Map<Integer, byte[]> getServerExtensions()
         throws IOException
     {
         final boolean isTLSv13 = TlsUtils.isTLSv13(context);
@@ -669,7 +670,8 @@ public abstract class AbstractTlsServer
         return serverExtensions;
     }
 
-    public void getServerExtensionsForConnection(Hashtable serverExtensions) throws IOException
+    @Override
+    public void getServerExtensionsForConnection(Map<Integer, byte[]> serverExtensions) throws IOException
     {
         if (!shouldSelectProtocolNameEarly())
         {

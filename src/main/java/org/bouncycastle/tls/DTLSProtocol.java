@@ -1,13 +1,13 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.util.Arrays;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.Hashtable;
+import java.util.Map;
 import java.util.Vector;
-
-import org.bouncycastle.util.Arrays;
 
 public abstract class DTLSProtocol
 {
@@ -48,8 +48,8 @@ public abstract class DTLSProtocol
     /**
      * @deprecated Will be removed.
      */
-    protected static short evaluateMaxFragmentLengthExtension(boolean resumedSession, Hashtable clientExtensions,
-        Hashtable serverExtensions, short alertDescription) throws IOException
+    protected static short evaluateMaxFragmentLengthExtension(boolean resumedSession, Map<Integer, byte[]> clientExtensions,
+                                                              Map<Integer, byte[]> serverExtensions, short alertDescription) throws IOException
     {
         return TlsUtils.processMaxFragmentLengthExtension(resumedSession ? null : clientExtensions, serverExtensions,
             alertDescription);

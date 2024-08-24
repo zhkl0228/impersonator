@@ -1,14 +1,14 @@
 package org.bouncycastle.tls;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.util.Arrays;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.Map;
+import java.util.Vector;
 
 public class DTLSServerProtocol
     extends DTLSProtocol
@@ -498,7 +498,7 @@ public class DTLSServerProtocol
             }
         }
 
-        Hashtable clientHelloExtensions = state.clientHello.getExtensions();
+        Map<Integer, byte[]> clientHelloExtensions = state.clientHello.getExtensions();
 
         TlsSession sessionToResume = server.getSessionToResume(state.clientHello.getSessionID());
 
@@ -587,7 +587,7 @@ public class DTLSServerProtocol
         }
 
         {
-            Hashtable sessionServerExtensions = resumedSession
+            Map<Integer, byte[]> sessionServerExtensions = resumedSession
                 ?   state.sessionParameters.readServerExtensions()
                 :   server.getServerExtensions();
 
@@ -843,7 +843,7 @@ public class DTLSServerProtocol
         // TODO Read RFCs for guidance on the expected record layer version number
         ProtocolVersion legacy_version = clientHello.getVersion();
         int[] offeredCipherSuites = clientHello.getCipherSuites();
-        Hashtable clientHelloExtensions = clientHello.getExtensions();
+        Map<Integer, byte[]> clientHelloExtensions = clientHello.getExtensions();
 
 
 
@@ -1019,7 +1019,7 @@ public class DTLSServerProtocol
         TlsSecret sessionMasterSecret = null;
         SessionParameters.Builder sessionParametersBuilder = null;
         ClientHello clientHello = null;
-        Hashtable serverExtensions = null;
+        Map<Integer, byte[]> serverExtensions = null;
         boolean expectSessionTicket = false;
         TlsKeyExchange keyExchange = null;
         TlsCredentials serverCredentials = null;

@@ -1,16 +1,17 @@
 package org.bouncycastle.tls;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.util.Arrays;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Vector;
 
 /**
  * Parsing and encoding of a <i>CertificateRequest</i> struct from RFC 4346:
@@ -173,7 +174,7 @@ public class CertificateRequest
         {
             TlsUtils.writeOpaque8(certificateRequestContext, output);
 
-            Hashtable extensions = new Hashtable();
+            Map<Integer, byte[]> extensions = new LinkedHashMap<>();
             TlsExtensionsUtils.addSignatureAlgorithmsExtension(extensions, supportedSignatureAlgorithms);
 
             if (null != supportedSignatureAlgorithmsCert)
@@ -256,7 +257,7 @@ public class CertificateRequest
 
             byte[] extEncoding = TlsUtils.readOpaque16(input);
 
-            Hashtable extensions = TlsProtocol.readExtensionsData13(HandshakeType.certificate_request, extEncoding);
+            Map<Integer, byte[]> extensions = TlsProtocol.readExtensionsData13(HandshakeType.certificate_request, extEncoding);
 
             Vector supportedSignatureAlgorithms = checkSupportedSignatureAlgorithms(
                 TlsExtensionsUtils.getSignatureAlgorithmsExtension(extensions), AlertDescription.missing_extension);

@@ -14,7 +14,10 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.security.SecureRandom;
-import java.util.Hashtable;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Vector;
 
 public abstract class ImpersonateSecureRandom extends SecureRandom implements Impersonator {
@@ -26,7 +29,7 @@ public abstract class ImpersonateSecureRandom extends SecureRandom implements Im
         // 771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281,29-23-24,0
         return new ImpersonateSecureRandom("4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53") {
             @Override
-            public void onEstablishSession(Hashtable clientExtensions) throws IOException {
+            public void onEstablishSession(Map<Integer, byte[]> clientExtensions) throws IOException {
                 clientExtensions.put(ExtensionType.renegotiation_info, TlsUtils.encodeOpaque8(TlsUtils.EMPTY_BYTES));
                 clientExtensions.remove(ExtensionType.status_request_v2);
                 clientExtensions.remove(ExtensionType.encrypt_then_mac);
@@ -45,13 +48,19 @@ public abstract class ImpersonateSecureRandom extends SecureRandom implements Im
                 }
                 final int encrypted_client_hello = 0xfe0d;
                 clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
-                Vector supportedGroups = new Vector();
+                Vector<Integer> supportedGroups = new Vector<>();
                 final int X25519Kyber768Draft00 = 0x6399;
                 supportedGroups.add(X25519Kyber768Draft00);
                 supportedGroups.add(NamedGroup.x25519);
                 supportedGroups.add(NamedGroup.secp256r1);
                 supportedGroups.add(NamedGroup.secp384r1);
                 TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
+                List<Integer> keys = new ArrayList<>(clientExtensions.keySet());
+                Collections.shuffle(keys);
+                for(Integer key : keys) {
+                    byte[] data = clientExtensions.remove(key);
+                    clientExtensions.put(key, data);
+                }
             }
         };
     }

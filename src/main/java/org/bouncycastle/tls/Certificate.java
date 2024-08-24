@@ -1,14 +1,14 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.tls.crypto.TlsCertificate;
+import org.bouncycastle.tls.crypto.TlsCrypto;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Hashtable;
+import java.util.Map;
 import java.util.Vector;
-
-import org.bouncycastle.tls.crypto.TlsCertificate;
-import org.bouncycastle.tls.crypto.TlsCrypto;
 
 /**
  * Parsing and encoding of a <i>Certificate</i> struct from RFC 4346.
@@ -201,7 +201,7 @@ public class Certificate
 
             if (isTLSv13)
             {
-                Hashtable extensions = entry.getExtensions();
+                Map<Integer, byte[]> extensions = entry.getExtensions();
                 byte[] extEncoding = (null == extensions)
                     ?   TlsUtils.EMPTY_BYTES
                     :   TlsProtocol.writeExtensionsData(extensions);
@@ -320,7 +320,7 @@ public class Certificate
                 calculateEndPointHash(context, cert, derEncoding, endPointHashOutput);
             }
 
-            Hashtable extensions = null;
+            Map<Integer, byte[]> extensions = null;
             if (isTLSv13)
             {
                 byte[] extEncoding = TlsUtils.readOpaque16(buf);

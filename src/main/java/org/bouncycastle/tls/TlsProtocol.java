@@ -1,5 +1,10 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.tls.crypto.TlsCrypto;
+import org.bouncycastle.tls.crypto.TlsSecret;
+import org.bouncycastle.util.Arrays;
+import org.bouncycastle.util.Integers;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
@@ -8,14 +13,9 @@ import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
-import java.util.Enumeration;
-import java.util.Hashtable;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Vector;
-
-import org.bouncycastle.tls.crypto.TlsCrypto;
-import org.bouncycastle.tls.crypto.TlsSecret;
-import org.bouncycastle.util.Arrays;
-import org.bouncycastle.util.Integers;
 
 public abstract class TlsProtocol
     implements TlsCloseable
@@ -159,8 +159,8 @@ public abstract class TlsProtocol
 
     protected byte[] retryCookie = null;
     protected int retryGroup = -1;
-    protected Hashtable clientExtensions = null;
-    protected Hashtable serverExtensions = null;
+    protected Map<Integer, byte[]> clientExtensions = null;
+    protected Map<Integer, byte[]> serverExtensions = null;
 
     protected short connection_state = CS_START;
     protected boolean selectedPSK13 = false;
@@ -1941,7 +1941,7 @@ public abstract class TlsProtocol
     /**
      * @deprecated Will be removed.
      */
-    protected short processMaxFragmentLengthExtension(Hashtable clientExtensions, Hashtable serverExtensions,
+    protected short processMaxFragmentLengthExtension(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
@@ -2017,7 +2017,7 @@ public abstract class TlsProtocol
         }
     }
 
-    protected static Hashtable readExtensions(ByteArrayInputStream input)
+    protected static Map<Integer, byte[]> readExtensions(ByteArrayInputStream input)
         throws IOException
     {
         if (input.available() < 1)
@@ -2032,11 +2032,11 @@ public abstract class TlsProtocol
         return readExtensionsData(extBytes);
     }
 
-    protected static Hashtable readExtensionsData(byte[] extBytes)
+    protected static Map<Integer, byte[]> readExtensionsData(byte[] extBytes)
         throws IOException
     {
         // Integer -> byte[]
-        Hashtable extensions = new Hashtable();
+        Map<Integer, byte[]> extensions = new LinkedHashMap<>();
 
         if (extBytes.length > 0)
         {
@@ -2062,11 +2062,11 @@ public abstract class TlsProtocol
         return extensions;
     }
 
-    protected static Hashtable readExtensionsData13(int handshakeType, byte[] extBytes)
+    protected static Map<Integer, byte[]> readExtensionsData13(int handshakeType, byte[] extBytes)
         throws IOException
     {
         // Integer -> byte[]
-        Hashtable extensions = new Hashtable();
+        Map<Integer, byte[]> extensions = new LinkedHashMap<>();
 
         if (extBytes.length > 0)
         {
@@ -2099,7 +2099,7 @@ public abstract class TlsProtocol
         return extensions;
     }
 
-    protected static Hashtable readExtensionsDataClientHello(byte[] extBytes)
+    protected static Map<Integer, byte[]> readExtensionsDataClientHello(byte[] extBytes)
         throws IOException
     {
         /*
@@ -2110,7 +2110,7 @@ public abstract class TlsProtocol
          */
 
         // Integer -> byte[]
-        Hashtable extensions = new Hashtable();
+        Map<Integer, byte[]> extensions = new LinkedHashMap<>();
 
         if (extBytes.length > 0)
         {
@@ -2169,12 +2169,12 @@ public abstract class TlsProtocol
         return supplementalData;
     }
 
-    protected static void writeExtensions(OutputStream output, Hashtable extensions) throws IOException
+    protected static void writeExtensions(OutputStream output, Map<Integer, byte[]> extensions) throws IOException
     {
         writeExtensions(output, extensions, 0);
     }
 
-    protected static void writeExtensions(OutputStream output, Hashtable extensions, int bindersSize) throws IOException
+    protected static void writeExtensions(OutputStream output, Map<Integer, byte[]> extensions, int bindersSize) throws IOException
     {
         if (null == extensions || extensions.isEmpty())
         {
@@ -2189,19 +2189,19 @@ public abstract class TlsProtocol
         output.write(extBytes);
     }
 
-    protected static byte[] writeExtensionsData(Hashtable extensions) throws IOException
+    protected static byte[] writeExtensionsData(Map<Integer, byte[]> extensions) throws IOException
     {
         return writeExtensionsData(extensions, 0);
     }
 
-    protected static byte[] writeExtensionsData(Hashtable extensions, int bindersSize) throws IOException
+    protected static byte[] writeExtensionsData(Map<Integer, byte[]> extensions, int bindersSize) throws IOException
     {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         writeExtensionsData(extensions, bindersSize, buf);
         return buf.toByteArray();
     }
 
-    protected static void writeExtensionsData(Hashtable extensions, int bindersSize, ByteArrayOutputStream buf)
+    protected static void writeExtensionsData(Map<Integer, byte[]> extensions, int bindersSize, ByteArrayOutputStream buf)
         throws IOException
     {
         /*
@@ -2213,7 +2213,7 @@ public abstract class TlsProtocol
         writePreSharedKeyExtension(buf, extensions, bindersSize);
     }
 
-    protected static void writePreSharedKeyExtension(OutputStream output, Hashtable extensions, int bindersSize)
+    protected static void writePreSharedKeyExtension(OutputStream output, Map<Integer, byte[]> extensions, int bindersSize)
         throws IOException
     {
         byte[] extension_data = (byte[])extensions.get(TlsExtensionsUtils.EXT_pre_shared_key);
@@ -2229,13 +2229,11 @@ public abstract class TlsProtocol
         }
     }
 
-    protected static void writeSelectedExtensions(OutputStream output, Hashtable extensions, boolean selectEmpty)
+    protected static void writeSelectedExtensions(OutputStream output, Map<Integer, byte[]> extensions, boolean selectEmpty)
         throws IOException
     {
-        Enumeration keys = extensions.keys();
-        while (keys.hasMoreElements())
+        for(Integer key : extensions.keySet())
         {
-            Integer key = (Integer)keys.nextElement();
             int extension_type = key.intValue();
 
             // NOTE: Must be last; handled by 'writePreSharedKeyExtension'

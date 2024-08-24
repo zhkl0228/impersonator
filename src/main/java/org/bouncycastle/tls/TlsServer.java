@@ -1,11 +1,11 @@
 package org.bouncycastle.tls;
 
-import java.io.IOException;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.tls.crypto.TlsDHConfig;
 import org.bouncycastle.tls.crypto.TlsECConfig;
+
+import java.io.IOException;
+import java.util.Map;
+import java.util.Vector;
 
 /**
  * Interface describing a TLS server endpoint.
@@ -49,7 +49,7 @@ public interface TlsServer
         throws IOException;
 
     // Hashtable is (Integer -> byte[])
-    void processClientExtensions(Hashtable clientExtensions)
+    void processClientExtensions(Map<Integer, byte[]> clientExtensions)
         throws IOException;
 
     ProtocolVersion getServerVersion()
@@ -62,11 +62,11 @@ public interface TlsServer
         throws IOException;
 
     // Hashtable is (Integer -> byte[])
-    Hashtable getServerExtensions()
+    Map<Integer, byte[]> getServerExtensions()
         throws IOException;
 
     // Hashtable is (Integer -> byte[])
-    void getServerExtensionsForConnection(Hashtable serverExtensions)
+    void getServerExtensionsForConnection(Map<Integer, byte[]> serverExtensions)
         throws IOException;
 
     // Vector is (SupplementalDataEntry)

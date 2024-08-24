@@ -1,7 +1,7 @@
 package org.bouncycastle.tls;
 
 import java.io.IOException;
-import java.util.Hashtable;
+import java.util.Map;
 import java.util.Vector;
 
 /**
@@ -35,7 +35,7 @@ public interface TlsClient
     boolean isFallback();
 
     // Hashtable is (Integer -> byte[])
-    Hashtable getClientExtensions()
+    Map<Integer, byte[]> getClientExtensions()
         throws IOException;
 
     /**
@@ -89,7 +89,7 @@ public interface TlsClient
      *            (Integer -&gt; byte[])
      * @throws IOException
      */
-    void processServerExtensions(Hashtable serverExtensions)
+    void processServerExtensions(Map<Integer, byte[]> serverExtensions)
         throws IOException;
 
     // Vector is (SupplementalDataEntry)

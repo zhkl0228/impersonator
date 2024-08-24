@@ -5,6 +5,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.Hashtable;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Vector;
 
 import org.bouncycastle.asn1.ASN1Encoding;
@@ -47,237 +49,237 @@ public class TlsExtensionsUtils
     public static final Integer EXT_truncated_hmac = Integers.valueOf(ExtensionType.truncated_hmac);
     public static final Integer EXT_trusted_ca_keys = Integers.valueOf(ExtensionType.trusted_ca_keys);
 
-    public static Hashtable ensureExtensionsInitialised(Hashtable extensions)
+    public static Map<Integer, byte[]> ensureExtensionsInitialised(Map<Integer, byte[]> extensions)
     {
-        return extensions == null ? new Hashtable() : extensions;
+        return extensions == null ? new LinkedHashMap<>() : extensions;
     }
 
     /**
      * @param protocolNameList a {@link Vector} of {@link ProtocolName}
      */
-    public static void addALPNExtensionClient(Hashtable extensions, Vector protocolNameList) throws IOException
+    public static void addALPNExtensionClient(Map<Integer, byte[]> extensions, Vector protocolNameList) throws IOException
     {
         extensions.put(EXT_application_layer_protocol_negotiation, createALPNExtensionClient(protocolNameList));
     }
 
-    public static void addALPNExtensionServer(Hashtable extensions, ProtocolName protocolName) throws IOException
+    public static void addALPNExtensionServer(Map<Integer, byte[]> extensions, ProtocolName protocolName) throws IOException
     {
         extensions.put(EXT_application_layer_protocol_negotiation, createALPNExtensionServer(protocolName));
     }
 
-    public static void addCertificateAuthoritiesExtension(Hashtable extensions, Vector authorities) throws IOException
+    public static void addCertificateAuthoritiesExtension(Map<Integer, byte[]> extensions, Vector authorities) throws IOException
     {
         extensions.put(EXT_certificate_authorities, createCertificateAuthoritiesExtension(authorities));
     }
 
-    public static void addClientCertificateTypeExtensionClient(Hashtable extensions, short[] certificateTypes)
+    public static void addClientCertificateTypeExtensionClient(Map<Integer, byte[]> extensions, short[] certificateTypes)
         throws IOException
     {
         extensions.put(EXT_client_certificate_type, createCertificateTypeExtensionClient(certificateTypes));
     }
 
-    public static void addClientCertificateTypeExtensionServer(Hashtable extensions, short certificateType)
+    public static void addClientCertificateTypeExtensionServer(Map<Integer, byte[]> extensions, short certificateType)
         throws IOException
     {
         extensions.put(EXT_client_certificate_type, createCertificateTypeExtensionServer(certificateType));
     }
 
-    public static void addClientCertificateURLExtension(Hashtable extensions)
+    public static void addClientCertificateURLExtension(Map<Integer, byte[]> extensions)
     {
         extensions.put(EXT_client_certificate_url, createClientCertificateURLExtension());
     }
 
-    public static void addCompressCertificateExtension(Hashtable extensions, int[] algorithms) throws IOException
+    public static void addCompressCertificateExtension(Map<Integer, byte[]> extensions, int[] algorithms) throws IOException
     {
         extensions.put(EXT_compress_certificate, createCompressCertificateExtension(algorithms));
     }
 
-    public static void addConnectionIDExtension(Hashtable extensions, byte[] connectionID) throws IOException
+    public static void addConnectionIDExtension(Map<Integer, byte[]> extensions, byte[] connectionID) throws IOException
     {
         extensions.put(EXT_connection_id, createConnectionIDExtension(connectionID));
     }
 
-    public static void addCookieExtension(Hashtable extensions, byte[] cookie) throws IOException
+    public static void addCookieExtension(Map<Integer, byte[]> extensions, byte[] cookie) throws IOException
     {
         extensions.put(EXT_cookie, createCookieExtension(cookie));
     }
 
-    public static void addEarlyDataIndication(Hashtable extensions)
+    public static void addEarlyDataIndication(Map<Integer, byte[]> extensions)
     {
         extensions.put(EXT_early_data, createEarlyDataIndication());
     }
 
-    public static void addEarlyDataMaxSize(Hashtable extensions, long maxSize) throws IOException
+    public static void addEarlyDataMaxSize(Map<Integer, byte[]> extensions, long maxSize) throws IOException
     {
         extensions.put(EXT_early_data, createEarlyDataMaxSize(maxSize));
     }
 
-    public static void addEmptyExtensionData(Hashtable extensions, Integer extType)
+    public static void addEmptyExtensionData(Map<Integer, byte[]> extensions, Integer extType)
     {
         extensions.put(extType, createEmptyExtensionData());
     }
 
-    public static void addEncryptThenMACExtension(Hashtable extensions)
+    public static void addEncryptThenMACExtension(Map<Integer, byte[]> extensions)
     {
         extensions.put(EXT_encrypt_then_mac, createEncryptThenMACExtension());
     }
 
-    public static void addExtendedMasterSecretExtension(Hashtable extensions)
+    public static void addExtendedMasterSecretExtension(Map<Integer, byte[]> extensions)
     {
         extensions.put(EXT_extended_master_secret, createExtendedMasterSecretExtension());
     }
 
-    public static void addHeartbeatExtension(Hashtable extensions, HeartbeatExtension heartbeatExtension)
+    public static void addHeartbeatExtension(Map<Integer, byte[]> extensions, HeartbeatExtension heartbeatExtension)
         throws IOException
     {
         extensions.put(EXT_heartbeat, createHeartbeatExtension(heartbeatExtension));
     }
 
-    public static void addKeyShareClientHello(Hashtable extensions, Vector clientShares)
+    public static void addKeyShareClientHello(Map<Integer, byte[]> extensions, Vector clientShares)
         throws IOException
     {
         extensions.put(EXT_key_share, createKeyShareClientHello(clientShares));
     }
 
-    public static void addKeyShareHelloRetryRequest(Hashtable extensions, int namedGroup)
+    public static void addKeyShareHelloRetryRequest(Map<Integer, byte[]> extensions, int namedGroup)
         throws IOException
     {
         extensions.put(EXT_key_share, createKeyShareHelloRetryRequest(namedGroup));
     }
 
-    public static void addKeyShareServerHello(Hashtable extensions, KeyShareEntry serverShare)
+    public static void addKeyShareServerHello(Map<Integer, byte[]> extensions, KeyShareEntry serverShare)
         throws IOException
     {
         extensions.put(EXT_key_share, createKeyShareServerHello(serverShare));
     }
 
-    public static void addMaxFragmentLengthExtension(Hashtable extensions, short maxFragmentLength)
+    public static void addMaxFragmentLengthExtension(Map<Integer, byte[]> extensions, short maxFragmentLength)
         throws IOException
     {
         extensions.put(EXT_max_fragment_length, createMaxFragmentLengthExtension(maxFragmentLength));
     }
 
-    public static void addOIDFiltersExtension(Hashtable extensions, Hashtable filters) throws IOException
+    public static void addOIDFiltersExtension(Map<Integer, byte[]> extensions, Hashtable filters) throws IOException
     {
         extensions.put(EXT_oid_filters, createOIDFiltersExtension(filters));
     }
 
-    public static void addPaddingExtension(Hashtable extensions, int dataLength)
+    public static void addPaddingExtension(Map<Integer, byte[]> extensions, int dataLength)
         throws IOException
     {
         extensions.put(EXT_padding, createPaddingExtension(dataLength));
     }
 
-    public static void addPostHandshakeAuthExtension(Hashtable extensions)
+    public static void addPostHandshakeAuthExtension(Map<Integer, byte[]> extensions)
     {
         extensions.put(EXT_post_handshake_auth, createPostHandshakeAuthExtension());
     }
 
-    public static void addPreSharedKeyClientHello(Hashtable extensions, OfferedPsks offeredPsks)
+    public static void addPreSharedKeyClientHello(Map<Integer, byte[]> extensions, OfferedPsks offeredPsks)
         throws IOException
     {
         extensions.put(EXT_pre_shared_key, createPreSharedKeyClientHello(offeredPsks));
     }
 
-    public static void addPreSharedKeyServerHello(Hashtable extensions, int selectedIdentity)
+    public static void addPreSharedKeyServerHello(Map<Integer, byte[]> extensions, int selectedIdentity)
         throws IOException
     {
         extensions.put(EXT_pre_shared_key, createPreSharedKeyServerHello(selectedIdentity));
     }
 
-    public static void addPSKKeyExchangeModesExtension(Hashtable extensions, short[] modes)
+    public static void addPSKKeyExchangeModesExtension(Map<Integer, byte[]> extensions, short[] modes)
         throws IOException
     {
         extensions.put(EXT_psk_key_exchange_modes, createPSKKeyExchangeModesExtension(modes));
     }
 
-    public static void addRecordSizeLimitExtension(Hashtable extensions, int recordSizeLimit)
+    public static void addRecordSizeLimitExtension(Map<Integer, byte[]> extensions, int recordSizeLimit)
         throws IOException
     {
         extensions.put(EXT_record_size_limit, createRecordSizeLimitExtension(recordSizeLimit));
     }
 
-    public static void addServerCertificateTypeExtensionClient(Hashtable extensions, short[] certificateTypes)
+    public static void addServerCertificateTypeExtensionClient(Map<Integer, byte[]> extensions, short[] certificateTypes)
         throws IOException
     {
         extensions.put(EXT_server_certificate_type, createCertificateTypeExtensionClient(certificateTypes));
     }
 
-    public static void addServerCertificateTypeExtensionServer(Hashtable extensions, short certificateType)
+    public static void addServerCertificateTypeExtensionServer(Map<Integer, byte[]> extensions, short certificateType)
         throws IOException
     {
         extensions.put(EXT_server_certificate_type, createCertificateTypeExtensionServer(certificateType));
     }
 
-    public static void addServerNameExtensionClient(Hashtable extensions, Vector serverNameList)
+    public static void addServerNameExtensionClient(Map<Integer, byte[]> extensions, Vector serverNameList)
         throws IOException
     {
         extensions.put(EXT_server_name, createServerNameExtensionClient(serverNameList));
     }
 
-    public static void addServerNameExtensionServer(Hashtable extensions)
+    public static void addServerNameExtensionServer(Map<Integer, byte[]> extensions)
         throws IOException
     {
         extensions.put(EXT_server_name, createServerNameExtensionServer());
     }
 
-    public static void addSignatureAlgorithmsExtension(Hashtable extensions, Vector supportedSignatureAlgorithms)
+    public static void addSignatureAlgorithmsExtension(Map<Integer, byte[]> extensions, Vector supportedSignatureAlgorithms)
         throws IOException
     {
         extensions.put(EXT_signature_algorithms, createSignatureAlgorithmsExtension(supportedSignatureAlgorithms));
     }
 
-    public static void addSignatureAlgorithmsCertExtension(Hashtable extensions, Vector supportedSignatureAlgorithms)
+    public static void addSignatureAlgorithmsCertExtension(Map<Integer, byte[]> extensions, Vector supportedSignatureAlgorithms)
         throws IOException
     {
         extensions.put(EXT_signature_algorithms_cert, createSignatureAlgorithmsCertExtension(supportedSignatureAlgorithms));
     }
 
-    public static void addStatusRequestExtension(Hashtable extensions, CertificateStatusRequest statusRequest)
+    public static void addStatusRequestExtension(Map<Integer, byte[]> extensions, CertificateStatusRequest statusRequest)
         throws IOException
     {
         extensions.put(EXT_status_request, createStatusRequestExtension(statusRequest));
     }
 
-    public static void addStatusRequestV2Extension(Hashtable extensions, Vector statusRequestV2)
+    public static void addStatusRequestV2Extension(Map<Integer, byte[]> extensions, Vector statusRequestV2)
         throws IOException
     {
         extensions.put(EXT_status_request_v2, createStatusRequestV2Extension(statusRequestV2));
     }
 
-    public static void addSupportedGroupsExtension(Hashtable extensions, Vector namedGroups) throws IOException
+    public static void addSupportedGroupsExtension(Map<Integer, byte[]> extensions, Vector namedGroups) throws IOException
     {
         extensions.put(EXT_supported_groups, createSupportedGroupsExtension(namedGroups));
     }
 
-    public static void addSupportedPointFormatsExtension(Hashtable extensions, short[] ecPointFormats)
+    public static void addSupportedPointFormatsExtension(Map<Integer, byte[]> extensions, short[] ecPointFormats)
         throws IOException
     {
         extensions.put(EXT_ec_point_formats, createSupportedPointFormatsExtension(ecPointFormats));
     }
 
-    public static void addSupportedVersionsExtensionClient(Hashtable extensions, ProtocolVersion[] versions) throws IOException
+    public static void addSupportedVersionsExtensionClient(Map<Integer, byte[]> extensions, ProtocolVersion[] versions) throws IOException
     {
         extensions.put(EXT_supported_versions, createSupportedVersionsExtensionClient(versions));
     }
 
-    public static void addSupportedVersionsExtensionServer(Hashtable extensions, ProtocolVersion selectedVersion) throws IOException
+    public static void addSupportedVersionsExtensionServer(Map<Integer, byte[]> extensions, ProtocolVersion selectedVersion) throws IOException
     {
         extensions.put(EXT_supported_versions, createSupportedVersionsExtensionServer(selectedVersion));
     }
 
-    public static void addTruncatedHMacExtension(Hashtable extensions)
+    public static void addTruncatedHMacExtension(Map<Integer, byte[]> extensions)
     {
         extensions.put(EXT_truncated_hmac, createTruncatedHMacExtension());
     }
 
-    public static void addTrustedCAKeysExtensionClient(Hashtable extensions, Vector trustedAuthoritiesList)
+    public static void addTrustedCAKeysExtensionClient(Map<Integer, byte[]> extensions, Vector trustedAuthoritiesList)
         throws IOException
     {
         extensions.put(EXT_trusted_ca_keys, createTrustedCAKeysExtensionClient(trustedAuthoritiesList));
     }
 
-    public static void addTrustedCAKeysExtensionServer(Hashtable extensions)
+    public static void addTrustedCAKeysExtensionServer(Map<Integer, byte[]> extensions)
     {
         extensions.put(EXT_trusted_ca_keys, createTrustedCAKeysExtensionServer());
     }
@@ -285,32 +287,32 @@ public class TlsExtensionsUtils
     /**
      * @return a {@link Vector} of {@link ProtocolName}
      */
-    public static Vector getALPNExtensionClient(Hashtable extensions) throws IOException
+    public static Vector getALPNExtensionClient(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_application_layer_protocol_negotiation);
         return extensionData == null ? null : readALPNExtensionClient(extensionData);
     }
 
-    public static ProtocolName getALPNExtensionServer(Hashtable extensions) throws IOException
+    public static ProtocolName getALPNExtensionServer(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_application_layer_protocol_negotiation);
         return extensionData == null ? null : readALPNExtensionServer(extensionData);
     }
 
-    public static Vector getCertificateAuthoritiesExtension(Hashtable extensions) throws IOException
+    public static Vector getCertificateAuthoritiesExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_certificate_authorities);
         return extensionData == null ? null : readCertificateAuthoritiesExtension(extensionData);
     }
 
-    public static short[] getClientCertificateTypeExtensionClient(Hashtable extensions)
+    public static short[] getClientCertificateTypeExtensionClient(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_client_certificate_type);
         return extensionData == null ? null : readCertificateTypeExtensionClient(extensionData);
     }
 
-    public static short getClientCertificateTypeExtensionServer(Hashtable extensions)
+    public static short getClientCertificateTypeExtensionServer(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_client_certificate_type);
@@ -320,124 +322,124 @@ public class TlsExtensionsUtils
     /**
      * @deprecated Use version without defaultValue instead
      */
-    public static short getClientCertificateTypeExtensionServer(Hashtable extensions, short defaultValue)
+    public static short getClientCertificateTypeExtensionServer(Map<Integer, byte[]> extensions, short defaultValue)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_client_certificate_type);
         return extensionData == null ? defaultValue : readCertificateTypeExtensionServer(extensionData);
     }
 
-    public static int[] getCompressCertificateExtension(Hashtable extensions)
+    public static int[] getCompressCertificateExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_compress_certificate);
         return extensionData == null ? null : readCompressCertificateExtension(extensionData);
     }
 
-    public static byte[] getConnectionIDExtension(Hashtable extensions) throws IOException
+    public static byte[] getConnectionIDExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_connection_id);
         return extensionData == null ? null : readConnectionIDExtension(extensionData);
     }
 
-    public static byte[] getCookieExtension(Hashtable extensions)
+    public static byte[] getCookieExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_cookie);
         return extensionData == null ? null : readCookieExtension(extensionData);
     }
 
-    public static long getEarlyDataMaxSize(Hashtable extensions) throws IOException
+    public static long getEarlyDataMaxSize(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_early_data);
         return extensionData == null ? -1L : readEarlyDataMaxSize(extensionData);
     }
 
-    public static HeartbeatExtension getHeartbeatExtension(Hashtable extensions)
+    public static HeartbeatExtension getHeartbeatExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_heartbeat);
         return extensionData == null ? null : readHeartbeatExtension(extensionData);
     }
 
-    public static Vector getKeyShareClientHello(Hashtable extensions)
+    public static Vector getKeyShareClientHello(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_key_share);
         return extensionData == null ? null : readKeyShareClientHello(extensionData);
     }
 
-    public static int getKeyShareHelloRetryRequest(Hashtable extensions)
+    public static int getKeyShareHelloRetryRequest(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_key_share);
         return extensionData == null ? -1 : readKeyShareHelloRetryRequest(extensionData);
     }
 
-    public static KeyShareEntry getKeyShareServerHello(Hashtable extensions)
+    public static KeyShareEntry getKeyShareServerHello(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_key_share);
         return extensionData == null ? null : readKeyShareServerHello(extensionData);
     }
 
-    public static short getMaxFragmentLengthExtension(Hashtable extensions)
+    public static short getMaxFragmentLengthExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_max_fragment_length);
         return extensionData == null ? -1 : readMaxFragmentLengthExtension(extensionData);
     }
 
-    public static Hashtable getOIDFiltersExtension(Hashtable extensions)
+    public static Hashtable getOIDFiltersExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_oid_filters);
         return extensionData == null ? null : readOIDFiltersExtension(extensionData);
     }
 
-    public static int getPaddingExtension(Hashtable extensions)
+    public static int getPaddingExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_padding);
         return extensionData == null ? -1 : readPaddingExtension(extensionData);
     }
 
-    public static OfferedPsks getPreSharedKeyClientHello(Hashtable extensions)
+    public static OfferedPsks getPreSharedKeyClientHello(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_pre_shared_key);
         return extensionData == null ? null : readPreSharedKeyClientHello(extensionData);
     }
 
-    public static int getPreSharedKeyServerHello(Hashtable extensions)
+    public static int getPreSharedKeyServerHello(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_pre_shared_key);
         return extensionData == null ? -1 : readPreSharedKeyServerHello(extensionData);
     }
 
-    public static short[] getPSKKeyExchangeModesExtension(Hashtable extensions)
+    public static short[] getPSKKeyExchangeModesExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_psk_key_exchange_modes);
         return extensionData == null ? null : readPSKKeyExchangeModesExtension(extensionData);
     }
 
-    public static int getRecordSizeLimitExtension(Hashtable extensions)
+    public static int getRecordSizeLimitExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_record_size_limit);
         return extensionData == null ? -1 : readRecordSizeLimitExtension(extensionData);
     }
 
-    public static short[] getServerCertificateTypeExtensionClient(Hashtable extensions)
+    public static short[] getServerCertificateTypeExtensionClient(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_server_certificate_type);
         return extensionData == null ? null : readCertificateTypeExtensionClient(extensionData);
     }
 
-    public static short getServerCertificateTypeExtensionServer(Hashtable extensions)
+    public static short getServerCertificateTypeExtensionServer(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_server_certificate_type);
@@ -447,123 +449,123 @@ public class TlsExtensionsUtils
     /**
      * @deprecated Use version without defaultValue instead
      */
-    public static short getServerCertificateTypeExtensionServer(Hashtable extensions, short defaultValue)
+    public static short getServerCertificateTypeExtensionServer(Map<Integer, byte[]> extensions, short defaultValue)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_server_certificate_type);
         return extensionData == null ? defaultValue : readCertificateTypeExtensionServer(extensionData);
     }
 
-    public static Vector getServerNameExtensionClient(Hashtable extensions)
+    public static Vector getServerNameExtensionClient(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_server_name);
         return extensionData == null ? null : readServerNameExtensionClient(extensionData);
     }
 
-    public static Vector getSignatureAlgorithmsExtension(Hashtable extensions)
+    public static Vector getSignatureAlgorithmsExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_signature_algorithms);
         return extensionData == null ? null : readSignatureAlgorithmsExtension(extensionData);
     }
 
-    public static Vector getSignatureAlgorithmsCertExtension(Hashtable extensions)
+    public static Vector getSignatureAlgorithmsCertExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_signature_algorithms_cert);
         return extensionData == null ? null : readSignatureAlgorithmsCertExtension(extensionData);
     }
 
-    public static CertificateStatusRequest getStatusRequestExtension(Hashtable extensions)
+    public static CertificateStatusRequest getStatusRequestExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_status_request);
         return extensionData == null ? null : readStatusRequestExtension(extensionData);
     }
 
-    public static Vector getStatusRequestV2Extension(Hashtable extensions)
+    public static Vector getStatusRequestV2Extension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_status_request_v2);
         return extensionData == null ? null : readStatusRequestV2Extension(extensionData);
     }
 
-    public static int[] getSupportedGroupsExtension(Hashtable extensions) throws IOException
+    public static int[] getSupportedGroupsExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_supported_groups);
         return extensionData == null ? null : readSupportedGroupsExtension(extensionData);
     }
 
-    public static short[] getSupportedPointFormatsExtension(Hashtable extensions) throws IOException
+    public static short[] getSupportedPointFormatsExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_ec_point_formats);
         return extensionData == null ? null : readSupportedPointFormatsExtension(extensionData);
     }
 
-    public static ProtocolVersion[] getSupportedVersionsExtensionClient(Hashtable extensions) throws IOException
+    public static ProtocolVersion[] getSupportedVersionsExtensionClient(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_supported_versions);
         return extensionData == null ? null : readSupportedVersionsExtensionClient(extensionData);
     }
 
-    public static ProtocolVersion getSupportedVersionsExtensionServer(Hashtable extensions) throws IOException
+    public static ProtocolVersion getSupportedVersionsExtensionServer(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_supported_versions);
         return extensionData == null ? null : readSupportedVersionsExtensionServer(extensionData);
     }
 
-    public static Vector getTrustedCAKeysExtensionClient(Hashtable extensions)
+    public static Vector getTrustedCAKeysExtensionClient(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_trusted_ca_keys);
         return extensionData == null ? null : readTrustedCAKeysExtensionClient(extensionData);
     }
 
-    public static boolean hasClientCertificateURLExtension(Hashtable extensions) throws IOException
+    public static boolean hasClientCertificateURLExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_client_certificate_url);
         return extensionData == null ? false : readClientCertificateURLExtension(extensionData);
     }
 
-    public static boolean hasEarlyDataIndication(Hashtable extensions) throws IOException
+    public static boolean hasEarlyDataIndication(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_early_data);
         return extensionData == null ? false : readEarlyDataIndication(extensionData);
     }
 
-    public static boolean hasEncryptThenMACExtension(Hashtable extensions) throws IOException
+    public static boolean hasEncryptThenMACExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_encrypt_then_mac);
         return extensionData == null ? false : readEncryptThenMACExtension(extensionData);
     }
 
-    public static boolean hasExtendedMasterSecretExtension(Hashtable extensions) throws IOException
+    public static boolean hasExtendedMasterSecretExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_extended_master_secret);
         return extensionData == null ? false : readExtendedMasterSecretExtension(extensionData);
     }
 
-    public static boolean hasServerNameExtensionServer(Hashtable extensions)
+    public static boolean hasServerNameExtensionServer(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_server_name);
         return extensionData == null ? false : readServerNameExtensionServer(extensionData);
     }
 
-    public static boolean hasPostHandshakeAuthExtension(Hashtable extensions) throws IOException
+    public static boolean hasPostHandshakeAuthExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_post_handshake_auth);
         return extensionData == null ? false : readPostHandshakeAuthExtension(extensionData);
     }
 
-    public static boolean hasTruncatedHMacExtension(Hashtable extensions) throws IOException
+    public static boolean hasTruncatedHMacExtension(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_truncated_hmac);
         return extensionData == null ? false : readTruncatedHMacExtension(extensionData);
     }
 
-    public static boolean hasTrustedCAKeysExtensionServer(Hashtable extensions) throws IOException
+    public static boolean hasTrustedCAKeysExtensionServer(Map<Integer, byte[]> extensions) throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_trusted_ca_keys);
         return extensionData == null ? false : readTrustedCAKeysExtensionServer(extensionData);

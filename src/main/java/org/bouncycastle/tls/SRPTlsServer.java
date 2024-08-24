@@ -1,9 +1,9 @@
 package org.bouncycastle.tls;
 
-import java.io.IOException;
-import java.util.Hashtable;
-
 import org.bouncycastle.tls.crypto.TlsCrypto;
+
+import java.io.IOException;
+import java.util.Map;
 
 public class SRPTlsServer
     extends AbstractTlsServer
@@ -52,7 +52,7 @@ public class SRPTlsServer
         return TlsUtils.getSupportedCipherSuites(getCrypto(), DEFAULT_CIPHER_SUITES);
     }
 
-    public void processClientExtensions(Hashtable clientExtensions) throws IOException
+    public void processClientExtensions(Map<Integer, byte[]> clientExtensions) throws IOException
     {
         super.processClientExtensions(clientExtensions);
 

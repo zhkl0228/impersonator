@@ -1,16 +1,5 @@
 package org.bouncycastle.tls;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.math.BigInteger;
-import java.util.Enumeration;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1InputStream;
 import org.bouncycastle.asn1.ASN1Integer;
@@ -50,6 +39,17 @@ import org.bouncycastle.util.Integers;
 import org.bouncycastle.util.Shorts;
 import org.bouncycastle.util.encoders.Hex;
 import org.bouncycastle.util.io.Streams;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.math.BigInteger;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Vector;
 
 /**
  * Some helper functions for the TLS API.
@@ -1268,12 +1268,12 @@ public class TlsUtils
         return signatureAndHashAlgorithm;
     }
 
-    public static byte[] getExtensionData(Hashtable extensions, Integer extensionType)
+    public static byte[] getExtensionData(Map<Integer, byte[]> extensions, Integer extensionType)
     {
-        return extensions == null ? null : (byte[])extensions.get(extensionType);
+        return extensions == null ? null : extensions.get(extensionType);
     }
 
-    public static boolean hasExpectedEmptyExtensionData(Hashtable extensions, Integer extensionType,
+    public static boolean hasExpectedEmptyExtensionData(Map<Integer, byte[]> extensions, Integer extensionType,
         short alertDescription) throws IOException
     {
         byte[] extension_data = getExtensionData(extensions, extensionType);
@@ -4749,7 +4749,7 @@ public class TlsUtils
         }
     }
 
-    static void checkTlsFeatures(Certificate serverCertificate, Hashtable clientExtensions, Hashtable serverExtensions) throws IOException
+    static void checkTlsFeatures(Certificate serverCertificate, Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions) throws IOException
     {
         /*
          * RFC 7633 4.3.3. A client MUST treat a certificate with a TLS feature extension as an
@@ -4828,8 +4828,8 @@ public class TlsUtils
     }
 
     static void processServerCertificate(TlsClientContext clientContext,
-        CertificateStatus serverCertificateStatus, TlsKeyExchange keyExchange, TlsAuthentication clientAuthentication,
-        Hashtable clientExtensions, Hashtable serverExtensions) throws IOException
+                                         CertificateStatus serverCertificateStatus, TlsKeyExchange keyExchange, TlsAuthentication clientAuthentication,
+                                         Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions) throws IOException
     {
         SecurityParameters securityParameters = clientContext.getSecurityParametersHandshake();
         boolean isTLSv13 = isTLSv13(securityParameters.getNegotiatedVersion());
@@ -5173,7 +5173,7 @@ public class TlsUtils
     }
 
     static TlsAuthentication receiveServerCertificate(TlsClientContext clientContext, TlsClient client,
-        ByteArrayInputStream buf, Hashtable serverExtensions) throws IOException
+        ByteArrayInputStream buf, Map<Integer, byte[]> serverExtensions) throws IOException
     {
         SecurityParameters securityParameters = clientContext.getSecurityParametersHandshake();
         if (KeyExchangeAlgorithm.isAnonymous(securityParameters.getKeyExchangeAlgorithm())
@@ -5217,7 +5217,7 @@ public class TlsUtils
     }
 
     static TlsAuthentication receive13ServerCertificate(TlsClientContext clientContext, TlsClient client,
-        ByteArrayInputStream buf, Hashtable serverExtensions) throws IOException
+        ByteArrayInputStream buf, Map<Integer, byte[]> serverExtensions) throws IOException
     {
         SecurityParameters securityParameters = clientContext.getSecurityParametersHandshake();
         if (null != securityParameters.getPeerCertificate())
@@ -5296,7 +5296,7 @@ public class TlsUtils
     }
 
     static Hashtable addKeyShareToClientHello(TlsClientContext clientContext, TlsClient client,
-        Hashtable clientExtensions) throws IOException
+                                              Map<Integer, byte[]> clientExtensions) throws IOException
     {
         /*
          * RFC 8446 9.2. If containing a "supported_groups" extension, it MUST also contain a
@@ -5322,7 +5322,7 @@ public class TlsUtils
         return clientAgreements;
     }
 
-    static Hashtable addKeyShareToClientHelloRetry(TlsClientContext clientContext, Hashtable clientExtensions,
+    static Hashtable addKeyShareToClientHelloRetry(TlsClientContext clientContext, Map<Integer, byte[]> clientExtensions,
         int keyShareGroup) throws IOException
     {
         int[] supportedGroups = new int[]{ keyShareGroup };
@@ -5558,7 +5558,7 @@ public class TlsUtils
         return validate13Credentials(clientAuthentication.getClientCredentials(certificateRequest));
     }
 
-    static void establishClientSigAlgs(SecurityParameters securityParameters, Hashtable clientExtensions)
+    static void establishClientSigAlgs(SecurityParameters securityParameters, Map<Integer, byte[]> clientExtensions)
         throws IOException
     {
         securityParameters.clientSigAlgs = TlsExtensionsUtils.getSignatureAlgorithmsExtension(clientExtensions);
@@ -5919,12 +5919,10 @@ public class TlsUtils
         }
     }
 
-    static void checkExtensionData13(Hashtable extensions, int handshakeType, short alertDescription) throws IOException
+    static void checkExtensionData13(Map<Integer, byte[]> extensions, int handshakeType, short alertDescription) throws IOException
     {
-        Enumeration e = extensions.keys();
-        while (e.hasMoreElements())
+        for(Integer extensionType : extensions.keySet())
         {
-            Integer extensionType = (Integer)e.nextElement();
             if (null == extensionType || !isPermittedExtensionType13(handshakeType, extensionType.intValue()))
             {
                 throw new TlsFatalAlert(alertDescription, "Invalid extension: " + ExtensionType.getText(extensionType.intValue()));
@@ -5945,7 +5943,7 @@ public class TlsUtils
         return preMasterSecret;
     }
 
-    static void addPreSharedKeyToClientExtensions(TlsPSK[] psks, Hashtable clientExtensions) throws IOException
+    static void addPreSharedKeyToClientExtensions(TlsPSK[] psks, Map<Integer, byte[]> clientExtensions) throws IOException
     {
         Vector identities = new Vector(psks.length);
         for (int i = 0; i < psks.length; ++i)
@@ -5960,7 +5958,7 @@ public class TlsUtils
     }
 
     static OfferedPsks.BindersConfig addPreSharedKeyToClientHello(TlsClientContext clientContext, TlsClient client,
-        Hashtable clientExtensions, int[] offeredCipherSuites) throws IOException
+                                                                  Map<Integer, byte[]> clientExtensions, int[] offeredCipherSuites) throws IOException
     {
         if (!isTLSv13(clientContext.getClientVersion()))
         {
@@ -5991,7 +5989,7 @@ public class TlsUtils
     }
 
     static OfferedPsks.BindersConfig addPreSharedKeyToClientHelloRetry(TlsClientContext clientContext,
-        OfferedPsks.BindersConfig clientBinders, Hashtable clientExtensions) throws IOException
+        OfferedPsks.BindersConfig clientBinders, Map<Integer, byte[]> clientExtensions) throws IOException
     {
         SecurityParameters securityParameters = clientContext.getSecurityParametersHandshake();
 
@@ -6031,7 +6029,7 @@ public class TlsUtils
     }
 
     static OfferedPsks.SelectedConfig selectPreSharedKey(TlsServerContext serverContext, TlsServer server,
-        Hashtable clientHelloExtensions, HandshakeMessageInput clientHelloMessage, TlsHandshakeHash handshakeHash,
+                                                         Map<Integer, byte[]> clientHelloExtensions, HandshakeMessageInput clientHelloMessage, TlsHandshakeHash handshakeHash,
         boolean afterHelloRetryRequest) throws IOException
     {
         boolean handshakeHashUpdated = false;
@@ -6172,7 +6170,7 @@ public class TlsUtils
         return v;
     }
 
-    static short processMaxFragmentLengthExtension(Hashtable clientExtensions, Hashtable serverExtensions,
+    static short processMaxFragmentLengthExtension(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
@@ -6189,7 +6187,7 @@ public class TlsUtils
         return maxFragmentLength;
     }
 
-    static short processClientCertificateTypeExtension(Hashtable clientExtensions, Hashtable serverExtensions,
+    static short processClientCertificateTypeExtension(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
@@ -6213,7 +6211,7 @@ public class TlsUtils
         return serverValue;
     }
 
-    static short processClientCertificateTypeExtension13(Hashtable clientExtensions, Hashtable serverExtensions,
+    static short processClientCertificateTypeExtension13(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
@@ -6223,7 +6221,7 @@ public class TlsUtils
         return validateCertificateType13(certificateType, alertDescription);
     }
 
-    static short processServerCertificateTypeExtension(Hashtable clientExtensions, Hashtable serverExtensions,
+    static short processServerCertificateTypeExtension(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
@@ -6247,7 +6245,7 @@ public class TlsUtils
         return serverValue;
     }
 
-    static short processServerCertificateTypeExtension13(Hashtable clientExtensions, Hashtable serverExtensions,
+    static short processServerCertificateTypeExtension13(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {

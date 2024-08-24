@@ -1,17 +1,5 @@
 package org.bouncycastle.jsse.provider;
 
-import java.io.IOException;
-import java.security.Principal;
-import java.security.cert.X509Certificate;
-import java.util.Collections;
-import java.util.Hashtable;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Vector;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.jsse.BCSNIHostName;
 import org.bouncycastle.jsse.BCSNIServerName;
@@ -47,6 +35,17 @@ import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.IPAddress;
 import org.bouncycastle.util.encoders.Hex;
+
+import java.io.IOException;
+import java.security.Principal;
+import java.security.cert.X509Certificate;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 class ProvTlsClient
     extends DefaultTlsClient
@@ -627,7 +626,7 @@ class ProvTlsClient
     }
 
     @Override
-    public void processServerExtensions(@SuppressWarnings("rawtypes") Hashtable serverExtensions) throws IOException
+    public void processServerExtensions(Map<Integer, byte[]> serverExtensions) throws IOException
     {
         super.processServerExtensions(serverExtensions);
 

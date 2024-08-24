@@ -1,18 +1,18 @@
 package org.bouncycastle.tls;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Enumeration;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.tls.crypto.TlsAgreement;
 import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.tls.crypto.TlsStreamSigner;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.Integers;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Vector;
 
 public class TlsClientProtocol
     extends TlsProtocol
@@ -837,7 +837,7 @@ public class TlsClientProtocol
             throw new TlsFatalAlert(AlertDescription.illegal_parameter);
         }
 
-        final Hashtable extensions = helloRetryRequest.getExtensions();
+        final Map<Integer, byte[]> extensions = helloRetryRequest.getExtensions();
         if (null == extensions)
         {
             throw new TlsFatalAlert(AlertDescription.illegal_parameter);
@@ -851,11 +851,8 @@ public class TlsClientProtocol
              * "cookie" extension in the HelloRetryRequest. Upon receiving such an extension, an
              * endpoint MUST abort the handshake with an "unsupported_extension" alert.
              */
-            Enumeration e = extensions.keys();
-            while (e.hasMoreElements())
+            for(Integer extType : extensions.keySet())
             {
-                Integer extType = (Integer)e.nextElement();
-
                 if (ExtensionType.cookie == extType.intValue())
                 {
                     continue;
@@ -942,7 +939,7 @@ public class TlsClientProtocol
             throw new TlsFatalAlert(AlertDescription.illegal_parameter);
         }
 
-        final Hashtable extensions = serverHello.getExtensions();
+        final Map<Integer, byte[]> extensions = serverHello.getExtensions();
         if (null == extensions)
         {
             throw new TlsFatalAlert(AlertDescription.illegal_parameter);
@@ -1096,7 +1093,7 @@ public class TlsClientProtocol
     protected void processServerHello(ServerHello serverHello)
         throws IOException
     {
-        Hashtable serverHelloExtensions = serverHello.getExtensions();
+        Map<Integer, byte[]> serverHelloExtensions = serverHello.getExtensions();
 
         final ProtocolVersion legacy_version = serverHello.getVersion();
         final ProtocolVersion supported_version = TlsExtensionsUtils.getSupportedVersionsExtensionServer(
@@ -1210,11 +1207,8 @@ public class TlsClientProtocol
         this.serverExtensions = serverHelloExtensions;
         if (serverHelloExtensions != null)
         {
-            Enumeration e = serverHelloExtensions.keys();
-            while (e.hasMoreElements())
+            for(Integer extType : serverHelloExtensions.keySet())
             {
-                Integer extType = (Integer)e.nextElement();
-
                 /*
                  * RFC 5746 3.6. Note that sending a "renegotiation_info" extension in response to a
                  * ClientHello containing only the SCSV is an explicit exception to the prohibition
@@ -1377,7 +1371,7 @@ public class TlsClientProtocol
         securityParameters.applicationProtocol = TlsExtensionsUtils.getALPNExtensionServer(serverHelloExtensions);
         securityParameters.applicationProtocolSet = true;
 
-        Hashtable sessionClientExtensions = clientExtensions, sessionServerExtensions = serverHelloExtensions;
+        Map<Integer, byte[]> sessionClientExtensions = clientExtensions, sessionServerExtensions = serverHelloExtensions;
         if (securityParameters.isResumedSession())
         {
             sessionClientExtensions = null;
@@ -1499,11 +1493,8 @@ public class TlsClientProtocol
              * "cookie" extension in the HelloRetryRequest. Upon receiving such an extension, an
              * endpoint MUST abort the handshake with an "unsupported_extension" alert.
              */
-            Enumeration e = serverExtensions.keys();
-            while (e.hasMoreElements())
+            for(Integer extType : serverExtensions.keySet())
             {
-                Integer extType = (Integer)e.nextElement();
-
                 if (null == TlsUtils.getExtensionData(clientExtensions, extType))
                 {
                     throw new TlsFatalAlert(AlertDescription.unsupported_extension);
@@ -1518,7 +1509,7 @@ public class TlsClientProtocol
         securityParameters.applicationProtocol = TlsExtensionsUtils.getALPNExtensionServer(serverExtensions);
         securityParameters.applicationProtocolSet = true;
 
-        Hashtable sessionClientExtensions = clientExtensions, sessionServerExtensions = serverExtensions;
+        Map<Integer, byte[]> sessionClientExtensions = clientExtensions, sessionServerExtensions = serverExtensions;
         if (securityParameters.isResumedSession())
         {
             sessionClientExtensions = null;
@@ -1655,7 +1646,7 @@ public class TlsClientProtocol
 
     protected void send13ClientHelloRetry() throws IOException
     {
-        Hashtable clientHelloExtensions = clientHello.getExtensions();
+        Map<Integer, byte[]> clientHelloExtensions = clientHello.getExtensions();
 
         clientHelloExtensions.remove(TlsExtensionsUtils.EXT_cookie);
         clientHelloExtensions.remove(TlsExtensionsUtils.EXT_early_data);

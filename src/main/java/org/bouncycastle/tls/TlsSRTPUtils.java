@@ -1,11 +1,11 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.util.Integers;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.Hashtable;
-
-import org.bouncycastle.util.Integers;
+import java.util.Map;
 
 /**
  * RFC 5764 DTLS Extension to Establish Keys for SRTP.
@@ -14,13 +14,13 @@ public class TlsSRTPUtils
 {
     public static final Integer EXT_use_srtp = Integers.valueOf(ExtensionType.use_srtp);
 
-    public static void addUseSRTPExtension(Hashtable extensions, UseSRTPData useSRTPData)
+    public static void addUseSRTPExtension(Map<Integer, byte[]> extensions, UseSRTPData useSRTPData)
         throws IOException
     {
         extensions.put(EXT_use_srtp, createUseSRTPExtension(useSRTPData));
     }
 
-    public static UseSRTPData getUseSRTPExtension(Hashtable extensions)
+    public static UseSRTPData getUseSRTPExtension(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_use_srtp);

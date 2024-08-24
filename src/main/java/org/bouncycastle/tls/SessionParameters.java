@@ -1,12 +1,12 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.tls.crypto.TlsSecret;
+import org.bouncycastle.util.Arrays;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.Hashtable;
-
-import org.bouncycastle.tls.crypto.TlsSecret;
-import org.bouncycastle.util.Arrays;
+import java.util.Map;
 
 public final class SessionParameters
 {
@@ -82,7 +82,7 @@ public final class SessionParameters
             return this;
         }
 
-        public Builder setServerExtensions(Hashtable serverExtensions) throws IOException
+        public Builder setServerExtensions(Map<Integer, byte[]> serverExtensions) throws IOException
         {
             if (serverExtensions == null || serverExtensions.isEmpty())
             {
@@ -185,7 +185,7 @@ public final class SessionParameters
         return extendedMasterSecret;
     }
 
-    public Hashtable readServerExtensions() throws IOException
+    public Map<Integer, byte[]> readServerExtensions() throws IOException
     {
         if (encodedServerExtensions == null)
         {

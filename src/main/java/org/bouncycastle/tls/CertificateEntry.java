@@ -1,15 +1,15 @@
 package org.bouncycastle.tls;
 
-import java.util.Hashtable;
-
 import org.bouncycastle.tls.crypto.TlsCertificate;
+
+import java.util.Map;
 
 public class CertificateEntry
 {
     protected final TlsCertificate certificate;
-    protected final Hashtable extensions;
+    protected final Map<Integer, byte[]> extensions;
 
-    public CertificateEntry(TlsCertificate certificate, Hashtable extensions)
+    public CertificateEntry(TlsCertificate certificate, Map<Integer, byte[]> extensions)
     {
         if (null == certificate)
         {
@@ -25,7 +25,7 @@ public class CertificateEntry
         return certificate;
     }
 
-    public Hashtable getExtensions()
+    public Map<Integer, byte[]> getExtensions()
     {
         return extensions;
     }

@@ -1,11 +1,12 @@
 package org.bouncycastle.tls;
 
-import java.io.IOException;
-import java.util.Hashtable;
-import java.util.Vector;
-
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.util.Integers;
+
+import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Vector;
 
 /**
  * Base class for a TLS client.
@@ -69,7 +70,7 @@ public abstract class AbstractTlsClient
         return namedGroupRoles;
     }
 
-    protected void checkForUnexpectedServerExtension(Hashtable serverExtensions, Integer extensionType)
+    protected void checkForUnexpectedServerExtension(Map<Integer, byte[]> serverExtensions, Integer extensionType)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(serverExtensions, extensionType);
@@ -249,10 +250,10 @@ public abstract class AbstractTlsClient
         return false;
     }
 
-    public Hashtable getClientExtensions()
+    public Map<Integer, byte[]> getClientExtensions()
         throws IOException
     {
-        Hashtable clientExtensions = new Hashtable();
+        Map<Integer, byte[]> clientExtensions = new LinkedHashMap<>();
 
         boolean offeringTLSv13Plus = false;
         boolean offeringPreTLSv13 = false;
@@ -456,7 +457,8 @@ public abstract class AbstractTlsClient
     {
     }
 
-    public void processServerExtensions(Hashtable serverExtensions)
+    @Override
+    public void processServerExtensions(Map<Integer, byte[]> serverExtensions)
         throws IOException
     {
         if (null == serverExtensions)

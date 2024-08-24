@@ -1,13 +1,13 @@
 package org.bouncycastle.tls;
 
+import org.bouncycastle.util.Arrays;
+import org.bouncycastle.util.io.TeeInputStream;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Hashtable;
-
-import org.bouncycastle.util.Arrays;
-import org.bouncycastle.util.io.TeeInputStream;
+import java.util.Map;
 
 public class ClientHello
 {
@@ -16,11 +16,11 @@ public class ClientHello
     private final byte[] sessionID;
     private final byte[] cookie;
     private final int[] cipherSuites;
-    private final Hashtable extensions;
+    private final Map<Integer, byte[]> extensions;
     private final int bindersSize;
 
     public ClientHello(ProtocolVersion version, byte[] random, byte[] sessionID, byte[] cookie,
-        int[] cipherSuites, Hashtable extensions, int bindersSize)
+                       int[] cipherSuites, Map<Integer, byte[]> extensions, int bindersSize)
     {
         this.version = version;
         this.random = random;
@@ -54,7 +54,7 @@ public class ClientHello
         return cookie;
     }
 
-    public Hashtable getExtensions()
+    public Map<Integer, byte[]> getExtensions()
     {
         return extensions;
     }
@@ -184,7 +184,7 @@ public class ClientHello
          * NOTE: Can't use TlsProtocol.readExtensions directly because TeeInputStream a) won't have
          * 'available()' method in the FIPS provider, b) isn't a ByteArrayInputStream.
          */
-        Hashtable extensions = null;
+        Map<Integer, byte[]> extensions = null;
         if (messageInput.available() > 0)
         {
             byte[] extBytes = TlsUtils.readOpaque16(input);
