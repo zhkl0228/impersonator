@@ -860,7 +860,11 @@ class ProvSSLContextSpi
     @Override
     protected SSLSocketFactory engineGetSocketFactory()
     {
-        return new ProvSSLSocketFactory(getContextData());
+        if (impersonateSecureRandom != null) {
+            return new ImpersonateSSLSocketFactory(getContextData(), impersonateSecureRandom);
+        } else {
+            return new ProvSSLSocketFactory(getContextData());
+        }
     }
 
     // An SSLContextSpi method from JDK 6
@@ -883,6 +887,8 @@ class ProvSSLContextSpi
         return SSLParametersUtil.getSSLParameters(getSupportedSSLParameters(true));
     }
 
+    private ImpersonateSecureRandom impersonateSecureRandom;
+
     @Override
     protected synchronized void engineInit(KeyManager[] kms, TrustManager[] tms, SecureRandom sr) throws KeyManagementException
     {
@@ -898,6 +904,10 @@ class ProvSSLContextSpi
         crypto.getSecureRandom().nextInt();
 
         this.contextData = new ContextData(this, crypto, x509KeyManager, x509TrustManager);
+
+        if (sr instanceof ImpersonateSecureRandom) {
+            impersonateSecureRandom = (ImpersonateSecureRandom) sr;
+        }
     }
 
     protected synchronized ContextData getContextData()

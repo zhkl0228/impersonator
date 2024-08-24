@@ -1,5 +1,6 @@
 package org.bouncycastle.jsse.provider;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -597,11 +598,11 @@ class ProvSSLSocketWrap
 
             if (this.useClientMode)
             {
-                TlsClientProtocol clientProtocol = new ProvTlsClientProtocol(input, output, socketCloser);
+                TlsClientProtocol clientProtocol = newProvTlsClientProtocol(input, output, socketCloser);
                 clientProtocol.setResumableHandshake(resumable);
                 this.protocol = clientProtocol;
 
-                ProvTlsClient client = new ProvTlsClient(this, sslParameters);
+                ProvTlsClient client = newProvTlsClient(sslParameters);
                 this.protocolPeer = client;
 
                 clientProtocol.connect(client);
@@ -627,6 +628,14 @@ class ProvSSLSocketWrap
         {
             throw new UnsupportedOperationException("Renegotiation not supported");
         }
+    }
+
+    protected TlsClientProtocol newProvTlsClientProtocol(InputStream input, OutputStream output, Closeable socketCloser) {
+        return new ProvTlsClientProtocol(input, output, socketCloser);
+    }
+
+    protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
+        return new ProvTlsClient(this, sslParameters);
     }
 
     @Override

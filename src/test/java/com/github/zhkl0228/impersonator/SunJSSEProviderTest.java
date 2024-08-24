@@ -8,8 +8,8 @@ import javax.net.ssl.TrustManager;
 
 public class SunJSSEProviderTest extends SSLProviderTest {
 
-    public void testHttp() throws Exception {
-        doTestBrowserLeaks();
+    public void testScrapFlyHttp2() throws Exception {
+        doTestURL("https://tools.scrapfly.io/api/http2");
     }
 
     @Override

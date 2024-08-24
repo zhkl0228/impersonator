@@ -40,7 +40,11 @@ public abstract class SSLProviderTest extends TestCase {
     }
 
     protected final void doTestBrowserLeaks() throws Exception {
-        Request request = new Request.Builder().url("https://tls.browserleaks.com/json").build();
+        doTestURL("https://tls.browserleaks.com/json");
+    }
+
+    protected final void doTestURL(String url) throws Exception {
+        Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
             ResponseBody body = response.body();
             assertNotNull(body);
