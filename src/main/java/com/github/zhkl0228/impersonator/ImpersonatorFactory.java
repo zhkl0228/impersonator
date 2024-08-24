@@ -28,26 +28,34 @@ public abstract class ImpersonatorFactory implements Impersonator {
     }
 
     public static SSLContext macChrome(KeyManager[] km, TrustManager[] tm) {
-        return new MacChrome127().newContext(km, tm);
+        return new MacChrome127().newSSLContext(km, tm);
     }
 
     public static SSLContext macSafari(KeyManager[] km, TrustManager[] tm) {
-        return new MacSafari17().newContext(km, tm);
+        return new MacSafari17().newSSLContext(km, tm);
     }
 
     public static SSLContext macFirefox(KeyManager[] km, TrustManager[] tm) {
-        return new MacFirefox129().newContext(km, tm);
+        return new MacFirefox129().newSSLContext(km, tm);
     }
 
     public static SSLContext ios(KeyManager[] km, TrustManager[] tm) {
-        return new IOS().newContext(km, tm);
+        return new IOS().newSSLContext(km, tm);
     }
 
     public static SSLContext android(KeyManager[] km, TrustManager[] tm) {
-        return new Android().newContext(km, tm);
+        return new Android().newSSLContext(km, tm);
     }
 
-    final SSLContext newContext(KeyManager[] km, TrustManager[] tm) {
+    public static SSLContext androidLINE(KeyManager[] km, TrustManager[] tm) {
+        return new AndroidLINE().newSSLContext(km, tm);
+    }
+
+    public static SSLContext iosLINE(KeyManager[] km, TrustManager[] tm) {
+        return new IOSLine().newSSLContext(km, tm);
+    }
+
+    SSLContext newSSLContext(KeyManager[] km, TrustManager[] tm) {
         try {
             SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);
             context.init(km, tm, new SecureRandomWrap(this));
