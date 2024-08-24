@@ -477,9 +477,9 @@ class ProvTlsClient
     {
         super.notifyConnectionClosed();
 
-        if (LOG.isLoggable(Level.INFO))
+        if (LOG.isLoggable(Level.FINE))
         {
-            LOG.info(clientID + " disconnected from " + JsseUtils.getPeerReport(manager));
+            LOG.fine(clientID + " disconnected from " + JsseUtils.getPeerReport(manager));
         }
     }
 

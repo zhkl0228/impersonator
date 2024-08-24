@@ -26,15 +26,10 @@ import java.util.Vector;
  * Ja3: 771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281,25497-29-23-24,0
  * scrapfly_fp => version:772|ch_ciphers:GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281-GREASE|groups:GREASE-25497-29-23-24|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-25497-29|psk:1|signature_algs:1027-2052-1025-1283-2053-1281-2054-1537|early_data:0|
  */
-class MacChrome extends ImpersonateSecureRandom {
+class MacChrome extends ImpersonatorFactory {
 
     MacChrome() {
         super("0x9a9a-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53");
-    }
-
-    @Override
-    public void onEstablishSession(Map<Integer, byte[]> clientExtensions) throws IOException {
-        clientExtensions.put(ExtensionType.renegotiation_info, TlsUtils.encodeOpaque8(TlsUtils.EMPTY_BYTES));
     }
 
     @Override
@@ -70,18 +65,14 @@ class MacChrome extends ImpersonateSecureRandom {
             supportedGroups.add(NamedGroup.secp384r1);
             TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
         }
-        {
-            Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>();
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256));
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha256);
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256));
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384));
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha384);
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384));
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.rsa_pss_rsae_sha512);
-            supportedSignatureAlgorithms.add(SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
-            TlsExtensionsUtils.addSignatureAlgorithmsExtension(clientExtensions, supportedSignatureAlgorithms);
-        }
+        addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
+                SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
+                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
+                SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
+                SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             keyShareEntries.add(0, new KeyShareEntry(X25519Kyber768Draft00, new byte[1]));

@@ -39,11 +39,11 @@ abstract class SSLProviderTest extends TestCase {
         return builder.build();
     }
 
-    protected final void doTestBrowserLeaks() throws Exception {
-        doTestURL("https://tls.browserleaks.com/json");
+    protected final JSONObject doTestBrowserLeaks() throws Exception {
+        return doTestURL("https://tls.browserleaks.com/json");
     }
 
-    protected final void doTestURL(String url) throws Exception {
+    protected final JSONObject doTestURL(String url) throws Exception {
         Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
             ResponseBody body = response.body();
@@ -51,6 +51,7 @@ abstract class SSLProviderTest extends TestCase {
             String json = body.string();
             JSONObject obj = JSON.parseObject(json, Feature.OrderedField);
             System.out.println(obj.toString(SerializerFeature.PrettyFormat));
+            return obj;
         }
     }
 

@@ -30,7 +30,7 @@ import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509KeyManager;
 import javax.net.ssl.X509TrustManager;
 
-import com.github.zhkl0228.impersonator.ImpersonateSecureRandom;
+import com.github.zhkl0228.impersonator.Impersonator;
 import org.bouncycastle.jcajce.util.JcaJceHelper;
 import org.bouncycastle.jsse.BCX509ExtendedKeyManager;
 import org.bouncycastle.jsse.BCX509ExtendedTrustManager;
@@ -861,8 +861,8 @@ class ProvSSLContextSpi
     @Override
     protected SSLSocketFactory engineGetSocketFactory()
     {
-        if (impersonateSecureRandom != null) {
-            return new ImpersonateSSLSocketFactory(getContextData(), impersonateSecureRandom);
+        if (impersonator != null) {
+            return new ImpersonateSSLSocketFactory(getContextData(), impersonator);
         } else {
             return new ProvSSLSocketFactory(getContextData());
         }
@@ -888,7 +888,7 @@ class ProvSSLContextSpi
         return SSLParametersUtil.getSSLParameters(getSupportedSSLParameters(true));
     }
 
-    private ImpersonateSecureRandom impersonateSecureRandom;
+    private Impersonator impersonator;
 
     @Override
     protected synchronized void engineInit(KeyManager[] kms, TrustManager[] tms, SecureRandom sr) throws KeyManagementException
@@ -906,8 +906,8 @@ class ProvSSLContextSpi
 
         this.contextData = new ContextData(this, crypto, x509KeyManager, x509TrustManager);
 
-        if (sr instanceof ImpersonateSecureRandom) {
-            impersonateSecureRandom = (ImpersonateSecureRandom) sr;
+        if (sr instanceof Impersonator) {
+            impersonator = (Impersonator) sr;
         }
     }
 
