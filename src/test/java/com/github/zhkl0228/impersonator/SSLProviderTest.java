@@ -55,6 +55,22 @@ abstract class SSLProviderTest extends TestCase {
         }
     }
 
+    protected void doTestBrowserLeaks(String ja3n_hash, String ja3n_text, String ja3_hash, String ja3_text) throws Exception {
+        JSONObject obj = doTestBrowserLeaks();
+        assertEquals(String.format("\n%s\n%s", ja3n_text, obj.getString("ja3n_text")),
+                ja3n_hash, obj.getString("ja3n_hash"));
+        if (ja3_hash != null) {
+            assertEquals(String.format("\n%s\n%s", ja3_text, obj.getString("ja3_text")),
+                    ja3_hash, obj.getString("ja3_hash"));
+        }
+    }
+
+    protected final void doTestScrapFlyJa3(String scrapfly_fp_digest, String scrapfly_fp) throws Exception {
+        JSONObject obj = doTestURL("https://tools.scrapfly.io/api/fp/ja3");
+        assertEquals(String.format("\n%s\n%s", scrapfly_fp, obj.getString("scrapfly_fp")),
+                scrapfly_fp_digest, obj.getString("scrapfly_fp_digest"));
+    }
+
     protected abstract SSLSocketFactory createSSLSocketFactory() throws Exception;
 
 }
