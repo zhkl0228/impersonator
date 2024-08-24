@@ -21,6 +21,9 @@ class ImpersonateSSLSocketFactory extends ProvSSLSocketFactory {
         ProvSSLContextSpi context = contextData.getContext();
         List<String> supportedCipherSuites = Arrays.asList(context.getSupportedCipherSuites());
         for (String name : secureRandom.cipherSuitesNames) {
+            if (name == null) {
+                continue;
+            }
             if(!supportedCipherSuites.contains(name)) {
                 throw new IllegalStateException("supportedCipherSuites=" + supportedCipherSuites + ", name=" + name);
             }

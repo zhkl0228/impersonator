@@ -1478,10 +1478,10 @@ public class TlsUtils
         return result;
     }
 
-    public static void encodeSupportedSignatureAlgorithms(Vector supportedSignatureAlgorithms, OutputStream output)
+    public static void encodeSupportedSignatureAlgorithms(Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms, OutputStream output)
         throws IOException
     {
-        if (supportedSignatureAlgorithms == null || supportedSignatureAlgorithms.size() < 1
+        if (supportedSignatureAlgorithms == null || supportedSignatureAlgorithms.isEmpty()
             || supportedSignatureAlgorithms.size() >= (1 << 15))
         {
             throw new IllegalArgumentException(
@@ -1494,7 +1494,7 @@ public class TlsUtils
         writeUint16(length, output);
         for (int i = 0; i < supportedSignatureAlgorithms.size(); ++i)
         {
-            SignatureAndHashAlgorithm entry = (SignatureAndHashAlgorithm)supportedSignatureAlgorithms.elementAt(i);
+            SignatureAndHashAlgorithm entry = supportedSignatureAlgorithms.elementAt(i);
             if (entry.getSignature() == SignatureAlgorithm.anonymous)
             {
                 /*

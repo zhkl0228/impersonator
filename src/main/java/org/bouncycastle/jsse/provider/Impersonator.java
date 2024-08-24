@@ -9,4 +9,6 @@ interface Impersonator {
 
     void onEstablishSession(Map<Integer, byte[]> clientExtensions) throws IOException;
 
+    void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException;
+
 }

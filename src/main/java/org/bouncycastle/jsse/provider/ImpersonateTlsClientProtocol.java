@@ -25,4 +25,14 @@ class ImpersonateTlsClientProtocol extends ProvTlsClientProtocol {
         }
         return super.establishSession(sessionToResume);
     }
+
+    @Override
+    protected void sendClientHelloMessage() throws IOException {
+        try {
+            impersonator.onSendClientHelloMessage(clientExtensions);
+        } catch (IOException e) {
+            throw new IllegalStateException("sendClientHelloMessage", e);
+        }
+        super.sendClientHelloMessage();
+    }
 }

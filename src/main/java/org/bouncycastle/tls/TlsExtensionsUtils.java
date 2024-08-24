@@ -135,7 +135,7 @@ public class TlsExtensionsUtils
         extensions.put(EXT_heartbeat, createHeartbeatExtension(heartbeatExtension));
     }
 
-    public static void addKeyShareClientHello(Map<Integer, byte[]> extensions, Vector clientShares)
+    public static void addKeyShareClientHello(Map<Integer, byte[]> extensions, Vector<KeyShareEntry> clientShares)
         throws IOException
     {
         extensions.put(EXT_key_share, createKeyShareClientHello(clientShares));
@@ -223,7 +223,7 @@ public class TlsExtensionsUtils
         extensions.put(EXT_server_name, createServerNameExtensionServer());
     }
 
-    public static void addSignatureAlgorithmsExtension(Map<Integer, byte[]> extensions, Vector supportedSignatureAlgorithms)
+    public static void addSignatureAlgorithmsExtension(Map<Integer, byte[]> extensions, Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms)
         throws IOException
     {
         extensions.put(EXT_signature_algorithms, createSignatureAlgorithmsExtension(supportedSignatureAlgorithms));
@@ -362,7 +362,7 @@ public class TlsExtensionsUtils
         return extensionData == null ? null : readHeartbeatExtension(extensionData);
     }
 
-    public static Vector getKeyShareClientHello(Map<Integer, byte[]> extensions)
+    public static Vector<KeyShareEntry> getKeyShareClientHello(Map<Integer, byte[]> extensions)
         throws IOException
     {
         byte[] extensionData = TlsUtils.getExtensionData(extensions, EXT_key_share);
@@ -714,7 +714,7 @@ public class TlsExtensionsUtils
         return buf.toByteArray();
     }
 
-    public static byte[] createKeyShareClientHello(Vector clientShares)
+    public static byte[] createKeyShareClientHello(Vector<KeyShareEntry> clientShares)
         throws IOException
     {
         if (clientShares == null || clientShares.isEmpty())
@@ -866,7 +866,7 @@ public class TlsExtensionsUtils
         return createEmptyExtensionData();
     }
 
-    public static byte[] createSignatureAlgorithmsExtension(Vector supportedSignatureAlgorithms)
+    public static byte[] createSignatureAlgorithmsExtension(Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms)
         throws IOException
     {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -1166,7 +1166,7 @@ public class TlsExtensionsUtils
         return heartbeatExtension;
     }
 
-    public static Vector readKeyShareClientHello(byte[] extensionData)
+    public static Vector<KeyShareEntry> readKeyShareClientHello(byte[] extensionData)
         throws IOException
     {
         if (extensionData == null)
@@ -1189,7 +1189,7 @@ public class TlsExtensionsUtils
             throw new TlsFatalAlert(AlertDescription.decode_error);
         }
 
-        Vector clientShares = new Vector();
+        Vector<KeyShareEntry> clientShares = new Vector<>();
         while (buf.available() > 0)
         {
             KeyShareEntry clientShare = KeyShareEntry.parse(buf);

@@ -82,7 +82,7 @@ public class SignatureAndHashAlgorithm
         }
     }
 
-    private static SignatureAndHashAlgorithm create(int signatureScheme)
+    public static SignatureAndHashAlgorithm create(int signatureScheme)
     {
         short hashAlgorithm = SignatureScheme.getHashAlgorithm(signatureScheme);
         short signatureAlgorithm = SignatureScheme.getSignatureAlgorithm(signatureScheme);

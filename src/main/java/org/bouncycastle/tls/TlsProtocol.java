@@ -2208,8 +2208,7 @@ public abstract class TlsProtocol
          * NOTE: There are reports of servers that don't accept a zero-length extension as the last
          * one, so we write out any zero-length ones first as a best-effort workaround.
          */
-        writeSelectedExtensions(buf, extensions, true);
-        writeSelectedExtensions(buf, extensions, false);
+        writeSelectedExtensions(buf, extensions);
         writePreSharedKeyExtension(buf, extensions, bindersSize);
     }
 
@@ -2229,27 +2228,21 @@ public abstract class TlsProtocol
         }
     }
 
-    protected static void writeSelectedExtensions(OutputStream output, Map<Integer, byte[]> extensions, boolean selectEmpty)
+    protected static void writeSelectedExtensions(OutputStream output, Map<Integer, byte[]> extensions)
         throws IOException
     {
-        for(Integer key : extensions.keySet())
+        for(Integer extension_type : extensions.keySet())
         {
-            int extension_type = key.intValue();
-
             // NOTE: Must be last; handled by 'writePreSharedKeyExtension'
             if (ExtensionType.pre_shared_key == extension_type)
             {
                 continue;
             }
 
-            byte[] extension_data = (byte[])extensions.get(key);
-
-            if (selectEmpty == (extension_data.length == 0))
-            {
-                TlsUtils.checkUint16(extension_type);
-                TlsUtils.writeUint16(extension_type, output);
-                TlsUtils.writeOpaque16(extension_data, output);
-            }
+            byte[] extension_data = extensions.get(extension_type);
+            TlsUtils.checkUint16(extension_type);
+            TlsUtils.writeUint16(extension_type, output);
+            TlsUtils.writeOpaque16(extension_data, output);
         }
     }
 

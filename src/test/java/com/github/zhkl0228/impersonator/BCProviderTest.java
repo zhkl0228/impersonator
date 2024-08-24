@@ -25,6 +25,10 @@ public class BCProviderTest extends SSLProviderTest {
         doTestURL("https://tools.scrapfly.io/api/fp/ja3");
     }
 
+    public void testScrapFlyHttp2() throws Exception {
+        doTestURL("https://tools.scrapfly.io/api/http2");
+    }
+
     @Override
     protected SSLSocketFactory createSSLSocketFactory() throws Exception {
         SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);

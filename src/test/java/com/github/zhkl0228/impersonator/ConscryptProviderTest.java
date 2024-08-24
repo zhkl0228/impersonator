@@ -1,7 +1,7 @@
-package org.conscrypt;
+package com.github.zhkl0228.impersonator;
 
 import cn.hutool.core.net.DefaultTrustManager;
-import com.github.zhkl0228.impersonator.SSLProviderTest;
+import org.conscrypt.OpenSSLProvider;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
