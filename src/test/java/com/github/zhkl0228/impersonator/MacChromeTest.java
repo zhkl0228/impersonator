@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import cn.hutool.core.net.DefaultTrustManager;
-import com.alibaba.fastjson.JSONObject;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;

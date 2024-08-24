@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
+ * Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15
  * v17.5 (18618.2.12.111.5, 18618)
  */
 class MacSafari17 extends ImpersonatorFactory {

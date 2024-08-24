@@ -14,7 +14,7 @@ import okhttp3.ResponseBody;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.X509TrustManager;
 
-abstract class SSLProviderTest extends TestCase {
+public abstract class SSLProviderTest extends TestCase {
 
     protected OkHttpClient client;
 

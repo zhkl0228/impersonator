@@ -38,6 +38,10 @@ public abstract class ImpersonatorFactory implements Impersonator {
         return new MacFirefox129().newContext(km, tm);
     }
 
+    public static SSLContext ios(KeyManager[] km, TrustManager[] tm) {
+        return new IOS().newContext(km, tm);
+    }
+
     final SSLContext newContext(KeyManager[] km, TrustManager[] tm) {
         try {
             SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);

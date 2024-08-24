@@ -11,85 +11,65 @@ import org.bouncycastle.tls.SignatureScheme;
 import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutput;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Vector;
 
 /**
- * Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36
- * v127.0.6533.120
+ * for ios chrome and safari
+ * Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.108 Mobile/15E148 Safari/604.1
+ * v126.0.6478.108
  */
-class MacChrome127 extends ImpersonatorFactory {
+class IOS extends ImpersonatorFactory {
 
-    MacChrome127() {
-        super("0x9a9a-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53");
+    IOS() {
+        super("0x6a6a-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10");
     }
 
     @Override
     public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+        TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
         TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, new ProtocolVersion[]{
-                ProtocolVersion.get(0x4a, 0x4a),
-                ProtocolVersion.TLSv13, ProtocolVersion.TLSv12
+                ProtocolVersion.get(0x7a, 0x7a),
+                ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10
         });
         clientExtensions.remove(ExtensionType.status_request_v2);
         clientExtensions.remove(ExtensionType.encrypt_then_mac);
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
-        clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream(16)) {
-            DataOutput dataOutput = new DataOutputStream(baos);
-            dataOutput.writeShort(3);
-            byte[] bytes = "h2".getBytes();
-            dataOutput.writeByte(bytes.length);
-            dataOutput.write(bytes);
-            final int application_settings = 0x4469;
-            clientExtensions.put(application_settings, baos.toByteArray());
-        }
-        final int encrypted_client_hello = 0xfe0d;
-        clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
-        final int X25519Kyber768Draft00 = 0x6399;
         {
             Vector<Integer> supportedGroups = new Vector<>();
             supportedGroups.add(0xcaca);
-            supportedGroups.add(X25519Kyber768Draft00);
             supportedGroups.add(NamedGroup.x25519);
             supportedGroups.add(NamedGroup.secp256r1);
             supportedGroups.add(NamedGroup.secp384r1);
+            supportedGroups.add(NamedGroup.secp521r1);
             TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
         }
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
+                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1),
+                SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
-                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
+                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
-            keyShareEntries.add(0, new KeyShareEntry(X25519Kyber768Draft00, new byte[1]));
             keyShareEntries.add(0, new KeyShareEntry(0xcaca, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
         {
             Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
             clientExtensions.clear();
-            List<Integer> keys = new ArrayList<>(copy.keySet());
-            Collections.shuffle(keys);
-            clientExtensions.put(0x1a1a, TlsUtils.EMPTY_BYTES);
-            for (Integer key : keys) {
-                byte[] data = copy.remove(key);
-                clientExtensions.put(key, data);
-            }
-            clientExtensions.put(0xcaca, TlsUtils.EMPTY_BYTES);
+            clientExtensions.put(0x5a5a, TlsUtils.EMPTY_BYTES);
+            sortExtensions(clientExtensions, copy, "0-23-65281-10-11-16-5-13-18-51-45-43-27-21");
+            clientExtensions.put(0x4a4a, TlsUtils.EMPTY_BYTES);
         }
     }
 }

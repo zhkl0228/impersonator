@@ -10,11 +10,13 @@ import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Vector;
 
 /**
+ * Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:129.0) Gecko/20100101 Firefox/129.0
  * v129.0.2
  */
 class MacFirefox129 extends ImpersonatorFactory {
@@ -59,7 +61,9 @@ class MacFirefox129 extends ImpersonatorFactory {
         }
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
-            keyShareEntries.add(new KeyShareEntry(NamedGroup.secp256r1, new byte[65]));
+            byte[] keyExchange = new byte[65];
+            new SecureRandom().nextBytes(keyExchange);
+            keyShareEntries.add(new KeyShareEntry(NamedGroup.secp256r1, keyExchange));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
         Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);

@@ -1,6 +1,7 @@
-package com.github.zhkl0228.impersonator;
+package com.github.zhkl0228.impersonator.other;
 
 import cn.hutool.core.net.DefaultTrustManager;
+import com.github.zhkl0228.impersonator.SSLProviderTest;
 import com.wolfssl.provider.jsse.WolfSSLProvider;
 import org.scijava.nativelib.NativeLoader;
 
