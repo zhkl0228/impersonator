@@ -39,8 +39,7 @@ class MacChrome127 extends ImpersonatorFactory {
             byte[] bytes = "h2".getBytes();
             dataOutput.writeByte(bytes.length);
             dataOutput.write(bytes);
-            final int application_settings = 0x4469;
-            clientExtensions.put(application_settings, baos.toByteArray());
+            clientExtensions.put(ExtensionType.application_settings, baos.toByteArray());
         }
     }
 
@@ -81,8 +80,7 @@ class MacChrome127 extends ImpersonatorFactory {
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         addApplicationSettingsExtension(clientExtensions);
-        final int encrypted_client_hello = 0xfe0d;
-        clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
+        clientExtensions.put(ExtensionType.encrypted_client_hello, TlsUtils.EMPTY_BYTES);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             keyShareEntries.add(0, new KeyShareEntry(X25519Kyber768Draft00, new byte[1]));

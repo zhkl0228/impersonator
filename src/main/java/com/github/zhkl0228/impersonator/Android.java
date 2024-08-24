@@ -47,8 +47,7 @@ class Android extends ImpersonatorFactory {
                 NamedGroup.secp256r1, NamedGroup.secp384r1);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
-        final int encrypted_client_hello = 0xfe0d;
-        clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
+        clientExtensions.put(ExtensionType.encrypted_client_hello, TlsUtils.EMPTY_BYTES);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         MacChrome127.addApplicationSettingsExtension(clientExtensions);
         if (keyShareEntries != null) {

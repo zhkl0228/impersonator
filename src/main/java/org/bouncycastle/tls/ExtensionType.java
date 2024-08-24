@@ -140,10 +140,14 @@ public class ExtensionType
      */
     public static final int connection_id = 54;
 
+    public static final int application_settings = 0x4469;
+
     /*
      * RFC 5746 3.2.
      */
     public static final int renegotiation_info = 0xff01;
+
+    public static final int encrypted_client_hello = 0xfe0d;
 
     public static String getName(int extensionType)
     {

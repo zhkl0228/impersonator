@@ -49,8 +49,7 @@ class MacFirefox129 extends ImpersonatorFactory {
                 NamedGroup.secp521r1, NamedGroup.ffdhe2048, NamedGroup.ffdhe3072);
         TlsExtensionsUtils.addRecordSizeLimitExtension(clientExtensions, 0x4000);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        final int encrypted_client_hello = 0xfe0d;
-        clientExtensions.put(encrypted_client_hello, TlsUtils.EMPTY_BYTES);
+        clientExtensions.put(ExtensionType.encrypted_client_hello, TlsUtils.EMPTY_BYTES);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             byte[] keyExchange = new byte[65];
