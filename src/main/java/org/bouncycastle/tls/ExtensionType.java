@@ -114,6 +114,8 @@ public class ExtensionType
      */
     public static final int record_size_limit = 28;
 
+    public static final int delegated_credentials = 34;
+
     /*
      * RFC 5077 7.
      */

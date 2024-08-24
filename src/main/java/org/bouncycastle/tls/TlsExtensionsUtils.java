@@ -41,6 +41,7 @@ public class TlsExtensionsUtils
     public static final Integer EXT_server_certificate_type = Integers.valueOf(ExtensionType.server_certificate_type);
     public static final Integer EXT_server_name = Integers.valueOf(ExtensionType.server_name);
     public static final Integer EXT_signature_algorithms = Integers.valueOf(ExtensionType.signature_algorithms);
+    public static final Integer EXT_delegated_credentials = Integers.valueOf(ExtensionType.delegated_credentials);
     public static final Integer EXT_signature_algorithms_cert = Integers.valueOf(ExtensionType.signature_algorithms_cert);
     public static final Integer EXT_status_request = Integers.valueOf(ExtensionType.status_request);
     public static final Integer EXT_status_request_v2 = Integers.valueOf(ExtensionType.status_request_v2);
@@ -227,6 +228,12 @@ public class TlsExtensionsUtils
         throws IOException
     {
         extensions.put(EXT_signature_algorithms, createSignatureAlgorithmsExtension(supportedSignatureAlgorithms));
+    }
+
+    public static void addDelegatedCredentialsExtension(Map<Integer, byte[]> extensions, Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms)
+            throws IOException
+    {
+        extensions.put(EXT_delegated_credentials, createSignatureAlgorithmsExtension(supportedSignatureAlgorithms));
     }
 
     public static void addSignatureAlgorithmsCertExtension(Map<Integer, byte[]> extensions, Vector supportedSignatureAlgorithms)

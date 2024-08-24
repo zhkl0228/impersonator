@@ -13,6 +13,8 @@ public class MacSafariTest extends SSLProviderTest {
         JSONObject obj = doTestBrowserLeaks();
         String ja3n_hash = obj.getString("ja3n_hash");
         assertEquals("44f7ed5185d22c92b96da72dbe68d307", ja3n_hash);
+        String ja3_hash = obj.getString("ja3_hash");
+        assertEquals("773906b0efdefa24a7f2b8eb6985bf37", ja3_hash);
     }
 
     public void testScrapFlyJa3() throws Exception {

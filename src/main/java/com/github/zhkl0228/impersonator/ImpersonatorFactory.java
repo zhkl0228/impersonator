@@ -27,11 +27,15 @@ public abstract class ImpersonatorFactory implements Impersonator {
     }
 
     public static SSLContext macChrome(KeyManager[] km, TrustManager[] tm) {
-        return new MacChrome().newContext(km, tm);
+        return new MacChrome127().newContext(km, tm);
     }
 
     public static SSLContext macSafari(KeyManager[] km, TrustManager[] tm) {
-        return new MacSafari().newContext(km, tm);
+        return new MacSafari17().newContext(km, tm);
+    }
+
+    public static SSLContext macFirefox(KeyManager[] km, TrustManager[] tm) {
+        return new MacFirefox129().newContext(km, tm);
     }
 
     final SSLContext newContext(KeyManager[] km, TrustManager[] tm) {
@@ -48,6 +52,12 @@ public abstract class ImpersonatorFactory implements Impersonator {
         Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>(signatureAndHashAlgorithms.length);
         supportedSignatureAlgorithms.addAll(Arrays.asList(signatureAndHashAlgorithms));
         TlsExtensionsUtils.addSignatureAlgorithmsExtension(clientExtensions, supportedSignatureAlgorithms);
+    }
+
+    protected final void addDelegatedCredentialsExtension(Map<Integer, byte[]> clientExtensions, SignatureAndHashAlgorithm... signatureAndHashAlgorithms) throws IOException {
+        Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>(signatureAndHashAlgorithms.length);
+        supportedSignatureAlgorithms.addAll(Arrays.asList(signatureAndHashAlgorithms));
+        TlsExtensionsUtils.addDelegatedCredentialsExtension(clientExtensions, supportedSignatureAlgorithms);
     }
 
     protected  final void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {

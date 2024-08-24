@@ -17,12 +17,11 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
- * 771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-5-10-11-13-16-18-21-23-27-43-45-51-65281,29-23-24-25,0
- * version:772|ch_ciphers:GREASE-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-43-45-51-65281-GREASE|groups:GREASE-29-23-24-25|points:0|compression:0|supported_versions:GREASE-772-771-770-769|supported_protocols:h2-http11|key_shares:GREASE-29|psk:1|signature_algs:1027-2052-1025-1283-515-2053-2053-1281-2054-1537-513|early_data:0|
+ * v17.5 (18618.2.12.111.5, 18618)
  */
-class MacSafari extends ImpersonatorFactory {
+class MacSafari17 extends ImpersonatorFactory {
 
-    MacSafari() {
+    MacSafari17() {
         super("0x8a8a-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10");
     }
 
