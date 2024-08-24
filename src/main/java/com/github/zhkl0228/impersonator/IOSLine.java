@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import org.bouncycastle.tls.ExtensionType;
-import org.bouncycastle.tls.KeyShareEntry;
 import org.bouncycastle.tls.NamedGroup;
 import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.PskKeyExchangeMode;
@@ -13,7 +12,6 @@ import org.bouncycastle.tls.TlsUtils;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Vector;
 
 class IOSLine extends ImpersonatorFactory {
 
@@ -42,10 +40,6 @@ class IOSLine extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
-        if (keyShareEntries != null) {
-            TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
-        }
         TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
         {
             Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
