@@ -13,6 +13,26 @@
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
+    <name>impersonator</name>
+    <description>A java SSL context that can impersonate browser tls/ja3 fingerprints.</description>
+    <url>https://github.com/zhkl0228/impersonator</url>
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <name>zhkl0228</name>
+            <email>zhkl0228@gmail.com</email>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:git@github.com:zhkl0228/impersonator.git</connection>
+        <developerConnection>scm:git:git@github.com:zhkl0228/impersonator.git</developerConnection>
+        <url>git@github.com:zhkl0228/impersonator.git</url>
+    </scm>
     <build>
         <plugins>
             <plugin>
@@ -140,5 +160,15 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+    <distributionManagement>
+        <snapshotRepository>
+            <id>oss</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </snapshotRepository>
+        <repository>
+            <id>oss</id>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
 
 </project>
