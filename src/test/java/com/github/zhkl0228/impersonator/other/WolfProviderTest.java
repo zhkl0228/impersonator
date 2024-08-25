@@ -1,6 +1,5 @@
 package com.github.zhkl0228.impersonator.other;
 
-import cn.hutool.core.net.DefaultTrustManager;
 import com.github.zhkl0228.impersonator.SSLProviderTest;
 import com.wolfssl.provider.jsse.WolfSSLProvider;
 import org.scijava.nativelib.NativeLoader;
@@ -8,7 +7,6 @@ import org.scijava.nativelib.NativeLoader;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.security.Security;
 
@@ -23,7 +21,7 @@ public class WolfProviderTest extends SSLProviderTest {
         }
     }
 
-    public void testHttp() throws Exception {
+    public void testBrowserLeaks() throws Exception {
         doTestBrowserLeaks();
     }
 
@@ -31,8 +29,7 @@ public class WolfProviderTest extends SSLProviderTest {
     protected final SSLSocketFactory createSSLSocketFactory() throws Exception {
         SSLContext context = SSLContext.getInstance("TLSv1.3", "wolfJSSE");
         assertNotNull(context);
-        X509TrustManager trustManager = new DefaultTrustManager();
-        context.init(null, new TrustManager[]{trustManager}, null);
+        context.init(null, new TrustManager[]{this}, null);
         return context.getSocketFactory();
     }
 

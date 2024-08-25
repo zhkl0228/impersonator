@@ -25,33 +25,39 @@ import java.util.Map;
 import java.util.Vector;
 import java.util.concurrent.ThreadLocalRandom;
 
-public abstract class ImpersonatorFactory implements Impersonator {
+public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorApi {
 
     static {
         Security.addProvider(new BouncyCastleProvider());
         Security.addProvider(new BouncyCastleJsseProvider());
     }
 
-    public static SSLContext macChrome(KeyManager[] km, TrustManager[] tm) {
-        return new MacChrome127().newSSLContext(km, tm);
+    public static ImpersonatorApi macChrome() {
+        return new MacChrome127();
     }
 
-    public static SSLContext macSafari(KeyManager[] km, TrustManager[] tm) {
-        return new MacSafari17().newSSLContext(km, tm);
+    public static ImpersonatorApi macSafari() {
+        return new MacSafari17();
     }
 
-    public static SSLContext macFirefox(KeyManager[] km, TrustManager[] tm) {
-        return new MacFirefox129().newSSLContext(km, tm);
+    public static ImpersonatorApi macFirefox() {
+        return new MacFirefox129();
     }
 
-    public static SSLContext ios(KeyManager[] km, TrustManager[] tm) {
-        return new MacSafari17().newSSLContext(km, tm);
+    public static ImpersonatorApi ios() {
+        return new MacSafari17();
     }
 
-    public static SSLContext android(KeyManager[] km, TrustManager[] tm) {
-        return new Android().newSSLContext(km, tm);
+    public static ImpersonatorApi android() {
+        return new Android();
     }
 
+    @Override
+    public final SSLContext newSSLContext() {
+        return newSSLContext(null, null);
+    }
+
+    @Override
     public SSLContext newSSLContext(KeyManager[] km, TrustManager[] tm) {
         try {
             SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);

@@ -1,6 +1,5 @@
 package com.github.zhkl0228.impersonator;
 
-import cn.hutool.core.net.DefaultTrustManager;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.parser.Feature;
@@ -13,8 +12,10 @@ import okhttp3.ResponseBody;
 
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.X509TrustManager;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 
-public abstract class SSLProviderTest extends TestCase {
+public abstract class SSLProviderTest extends TestCase implements X509TrustManager {
 
     protected OkHttpClient client;
 
@@ -33,9 +34,8 @@ public abstract class SSLProviderTest extends TestCase {
     }
 
     private OkHttpClient buildHttpClient() throws Exception {
-        X509TrustManager trustManager = new DefaultTrustManager();
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
-        builder.sslSocketFactory(createSSLSocketFactory(), trustManager);
+        builder.sslSocketFactory(createSSLSocketFactory(), this);
         return builder.build();
     }
 
@@ -73,4 +73,16 @@ public abstract class SSLProviderTest extends TestCase {
 
     protected abstract SSLSocketFactory createSSLSocketFactory() throws Exception;
 
+    @Override
+    public final void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+    }
+
+    @Override
+    public final void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+    }
+
+    @Override
+    public final X509Certificate[] getAcceptedIssuers() {
+        return new X509Certificate[0];
+    }
 }

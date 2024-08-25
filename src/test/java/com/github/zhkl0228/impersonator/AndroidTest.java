@@ -1,10 +1,7 @@
 package com.github.zhkl0228.impersonator;
 
-import cn.hutool.core.net.DefaultTrustManager;
-
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
 
 public class AndroidTest extends SSLProviderTest {
 
@@ -19,7 +16,7 @@ public class AndroidTest extends SSLProviderTest {
 
     @Override
     protected SSLSocketFactory createSSLSocketFactory() {
-        SSLContext context = ImpersonatorFactory.android(null, new TrustManager[]{DefaultTrustManager.INSTANCE});
+        SSLContext context = ImpersonatorFactory.android().newSSLContext();
         return context.getSocketFactory();
     }
 
