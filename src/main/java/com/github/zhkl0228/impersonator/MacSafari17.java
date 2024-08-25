@@ -12,7 +12,6 @@ import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Vector;
 
@@ -23,13 +22,12 @@ import java.util.Vector;
 class MacSafari17 extends ImpersonatorFactory {
 
     MacSafari17() {
-        super("0x8a8a-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10");
+        super("0x" + Integer.toHexString(randomGrease()) + "-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10");
     }
 
     @Override
     public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
-        clientExtensions.remove(ExtensionType.status_request_v2);
-        clientExtensions.remove(ExtensionType.encrypt_then_mac);
+        super.onSendClientHelloMessage(clientExtensions);
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
@@ -42,27 +40,18 @@ class MacSafari17 extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
-        addSupportedGroupsExtension(clientExtensions, 0x6a6a, NamedGroup.x25519, NamedGroup.secp256r1,
+        addSupportedGroupsExtension(clientExtensions, randomGrease(), NamedGroup.x25519, NamedGroup.secp256r1,
                 NamedGroup.secp384r1, NamedGroup.secp521r1);
-        TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, new ProtocolVersion[]{
-                ProtocolVersion.get(0xda, 0xda),
-                ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10
-        });
+        randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
-            keyShareEntries.add(0, new KeyShareEntry(0x6a6a, new byte[1]));
+            keyShareEntries.add(0, new KeyShareEntry(randomGrease(), new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
         TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.zlib});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        {
-            Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
-            clientExtensions.clear();
-            clientExtensions.put(0x6a6a, TlsUtils.EMPTY_BYTES);
-            sortExtensions(clientExtensions, copy, "0-23-65281-10-11-16-5-13-18-51-45-43-27-21");
-            clientExtensions.put(0x1a1a, TlsUtils.EMPTY_BYTES);
-        }
+        randomExtension(clientExtensions, "0-23-65281-10-11-16-5-13-18-51-45-43-27-21", true);
     }
 
 }

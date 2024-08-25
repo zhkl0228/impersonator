@@ -1,6 +1,7 @@
 package org.bouncycastle.jsse.provider;
 
 import com.github.zhkl0228.impersonator.Impersonator;
+import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 import org.bouncycastle.tls.TlsClientProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,29 +30,13 @@ class ImpersonateSSLSocketWrap extends ProvSSLSocketWrap {
         return new ImpersonateTlsClientProtocol(input, output, socketCloser, impersonator);
     }
 
-    /**
-     * Values to account for GREASE (Generate Random Extensions And Sustain Extensibility) as described here:
-     * <a href="https://tools.ietf.org/html/draft-davidben-tls-grease-01">draft-davidben-tls-grease-01</a>.
-     */
-    private static final int[] GREASE = new int[] { 0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a, 0x8a8a, 0x9a9a, 0xaaaa, 0xbaba,
-            0xcaca, 0xdada, 0xeaea, 0xfafa };
-
-    private static boolean isGrease(int value) {
-        for (int grease : GREASE) {
-            if (grease == value) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     @Override
     protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
         ProvSSLContextSpi context = contextData.getContext();
         List<String> supportedCipherSuites = Arrays.asList(context.getSupportedCipherSuites());
         int[] cipherSuites = impersonator.getCipherSuites();
         for (int cipherSuite : cipherSuites) {
-            if (isGrease(cipherSuite)) {
+            if (ImpersonatorFactory.isGrease(cipherSuite)) {
                 continue;
             }
             String name = ProvSSLContextSpi.getCipherSuiteName(cipherSuite);

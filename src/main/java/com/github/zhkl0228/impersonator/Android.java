@@ -22,19 +22,15 @@ import java.util.Vector;
 class Android extends ImpersonatorFactory {
 
     Android() {
-        super("0xdada-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53");
+        super("0x" + Integer.toHexString(randomGrease()) + "-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53");
     }
 
     @Override
     public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
-        clientExtensions.remove(ExtensionType.status_request_v2);
-        clientExtensions.remove(ExtensionType.encrypt_then_mac);
+        super.onSendClientHelloMessage(clientExtensions);
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
-        TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, new ProtocolVersion[]{
-                ProtocolVersion.get(0xda, 0xda),
-                ProtocolVersion.TLSv13, ProtocolVersion.TLSv12
-        });
+        randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
@@ -43,7 +39,7 @@ class Android extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
-        addSupportedGroupsExtension(clientExtensions, 0x8a8a, NamedGroup.x25519,
+        addSupportedGroupsExtension(clientExtensions, randomGrease(), NamedGroup.x25519,
                 NamedGroup.secp256r1, NamedGroup.secp384r1);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
@@ -51,9 +47,9 @@ class Android extends ImpersonatorFactory {
         MacChrome127.addApplicationSettingsExtension(clientExtensions);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
-            keyShareEntries.add(0, new KeyShareEntry(0x8a8a, new byte[1]));
+            keyShareEntries.add(0, new KeyShareEntry(randomGrease(), new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
-        MacChrome127.randomExtension(clientExtensions);
+        MacChrome127.randomExtension(clientExtensions, null, true);
     }
 }
