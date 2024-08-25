@@ -10,28 +10,13 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
+import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.X509TrustManager;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 
 public abstract class SSLProviderTest extends TestCase implements X509TrustManager {
-
-    protected OkHttpClient client;
-
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
-
-        client = buildHttpClient();
-    }
-
-    @Override
-    protected void tearDown() throws Exception {
-        super.tearDown();
-
-        client = null;
-    }
 
     private OkHttpClient buildHttpClient() throws Exception {
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
@@ -44,6 +29,7 @@ public abstract class SSLProviderTest extends TestCase implements X509TrustManag
     }
 
     protected final JSONObject doTestURL(String url) throws Exception {
+        OkHttpClient client = buildHttpClient();
         Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
             ResponseBody body = response.body();
@@ -71,7 +57,11 @@ public abstract class SSLProviderTest extends TestCase implements X509TrustManag
                 scrapfly_fp_digest, obj.getString("scrapfly_fp_digest"));
     }
 
-    protected abstract SSLSocketFactory createSSLSocketFactory() throws Exception;
+    private SSLSocketFactory createSSLSocketFactory() throws Exception {
+        return createSSLContext().getSocketFactory();
+    }
+
+    protected abstract SSLContext createSSLContext() throws Exception;
 
     @Override
     public final void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {

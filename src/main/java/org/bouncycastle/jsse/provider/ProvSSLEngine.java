@@ -102,10 +102,10 @@ class ProvSSLEngine
         {
             if (this.useClientMode)
             {
-                TlsClientProtocol clientProtocol = new TlsClientProtocol();
+                TlsClientProtocol clientProtocol = newTlsClientProtocol();
                 this.protocol = clientProtocol;
 
-                ProvTlsClient client = new ProvTlsClient(this, sslParameters);
+                ProvTlsClient client = newProvTlsClient(sslParameters);
                 this.protocolPeer = client;
 
                 clientProtocol.connect(client);
@@ -129,6 +129,14 @@ class ProvSSLEngine
         {
             throw new SSLException(e);
         }
+    }
+
+    protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
+        return new ProvTlsClient(this, sslParameters);
+    }
+
+    protected TlsClientProtocol newTlsClientProtocol() {
+        return new TlsClientProtocol();
     }
 
     public void checkClientTrusted(X509Certificate[] chain, String authType) throws IOException

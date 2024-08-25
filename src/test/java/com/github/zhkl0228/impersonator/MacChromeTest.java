@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
 
 public class MacChromeTest extends SSLProviderTest {
 
@@ -18,9 +17,7 @@ public class MacChromeTest extends SSLProviderTest {
     }
 
     @Override
-    protected SSLSocketFactory createSSLSocketFactory() {
-        SSLContext context = ImpersonatorFactory.macChrome().newSSLContext();
-        return context.getSocketFactory();
+    protected SSLContext createSSLContext() {
+        return ImpersonatorFactory.macChrome().newSSLContext();
     }
-
 }

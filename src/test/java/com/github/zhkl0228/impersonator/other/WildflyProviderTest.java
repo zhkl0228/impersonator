@@ -5,7 +5,6 @@ import org.wildfly.openssl.OpenSSLProvider;
 import org.wildfly.openssl.SSL;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import java.io.File;
 
@@ -22,10 +21,9 @@ public class WildflyProviderTest extends SSLProviderTest {
     }
 
     @Override
-    protected SSLSocketFactory createSSLSocketFactory() throws Exception {
+    protected SSLContext createSSLContext() throws Exception {
         SSLContext context = SSLContext.getInstance("openssl.TLS");
         context.init(null, new TrustManager[]{this}, null);
-        return context.getSocketFactory();
+        return context;
     }
-
 }

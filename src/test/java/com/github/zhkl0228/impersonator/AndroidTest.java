@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
 
 public class AndroidTest extends SSLProviderTest {
 
@@ -15,9 +14,7 @@ public class AndroidTest extends SSLProviderTest {
     }
 
     @Override
-    protected SSLSocketFactory createSSLSocketFactory() {
-        SSLContext context = ImpersonatorFactory.android().newSSLContext();
-        return context.getSocketFactory();
+    protected SSLContext createSSLContext() throws Exception {
+        return ImpersonatorFactory.android().newSSLContext();
     }
-
 }

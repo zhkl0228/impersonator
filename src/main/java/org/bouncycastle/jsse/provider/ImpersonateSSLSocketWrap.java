@@ -27,14 +27,12 @@ class ImpersonateSSLSocketWrap extends ProvSSLSocketWrap {
 
     @Override
     protected TlsClientProtocol newProvTlsClientProtocol(InputStream input, OutputStream output, Closeable socketCloser) {
-        return new ImpersonateTlsClientProtocol(input, output, socketCloser, impersonator);
+        return new ImpersonateProvTlsClientProtocol(input, output, socketCloser, impersonator);
     }
 
-    @Override
-    protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
+    static void checkCipherSuites(ContextData contextData, int[] cipherSuites) {
         ProvSSLContextSpi context = contextData.getContext();
         List<String> supportedCipherSuites = Arrays.asList(context.getSupportedCipherSuites());
-        int[] cipherSuites = impersonator.getCipherSuites();
         for (int cipherSuite : cipherSuites) {
             if (ImpersonatorFactory.isGrease(cipherSuite)) {
                 continue;
@@ -48,6 +46,12 @@ class ImpersonateSSLSocketWrap extends ProvSSLSocketWrap {
                 log.warn("newProvTlsClient name={}, supportedCipherSuites={}", name, supportedCipherSuites);
             }
         }
+    }
+
+    @Override
+    protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
+        int[] cipherSuites = impersonator.getCipherSuites();
+        checkCipherSuites(contextData, cipherSuites);
         return new ImpersonateTlsClient(this, sslParameters, cipherSuites);
     }
 }

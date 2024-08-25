@@ -1,16 +1,19 @@
 package org.bouncycastle.jsse.provider;
 
 import com.github.zhkl0228.impersonator.Impersonator;
-import org.bouncycastle.tls.TlsClientProtocol;
 import org.bouncycastle.tls.TlsSession;
 
+import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
-class ImpersonateTlsClientProtocol extends TlsClientProtocol {
+class ImpersonateProvTlsClientProtocol extends ProvTlsClientProtocol {
 
     private final Impersonator impersonator;
 
-    ImpersonateTlsClientProtocol(Impersonator impersonator) {
+    ImpersonateProvTlsClientProtocol(InputStream input, OutputStream output, Closeable closeable, Impersonator impersonator) {
+        super(input, output, closeable);
         this.impersonator = impersonator;
     }
 

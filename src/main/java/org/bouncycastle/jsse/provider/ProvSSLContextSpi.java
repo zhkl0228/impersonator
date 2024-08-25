@@ -831,13 +831,18 @@ class ProvSSLContextSpi
     @Override
     protected synchronized SSLEngine engineCreateSSLEngine()
     {
-        return SSLEngineUtil.create(getContextData());
+//        return SSLEngineUtil.create(getContextData());
+        throw new UnsupportedOperationException();
     }
 
     @Override
     protected synchronized SSLEngine engineCreateSSLEngine(String host, int port)
     {
-        return SSLEngineUtil.create(getContextData(), host, port);
+        if (impersonator != null) {
+            return new ImpersonateSSLEngine(getContextData(), host, port, impersonator);
+        } else {
+            return SSLEngineUtil.create(getContextData(), host, port);
+        }
     }
 
     @Override

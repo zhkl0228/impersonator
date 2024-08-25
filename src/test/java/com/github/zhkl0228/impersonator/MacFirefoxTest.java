@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
 
 public class MacFirefoxTest extends SSLProviderTest {
 
@@ -15,8 +14,7 @@ public class MacFirefoxTest extends SSLProviderTest {
     }
 
     @Override
-    protected SSLSocketFactory createSSLSocketFactory() {
-        SSLContext context = ImpersonatorFactory.macFirefox().newSSLContext();
-        return context.getSocketFactory();
+    protected SSLContext createSSLContext() {
+        return ImpersonatorFactory.macFirefox().newSSLContext();
     }
 }

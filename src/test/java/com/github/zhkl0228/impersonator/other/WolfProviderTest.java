@@ -5,7 +5,6 @@ import com.wolfssl.provider.jsse.WolfSSLProvider;
 import org.scijava.nativelib.NativeLoader;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import java.io.IOException;
 import java.security.Security;
@@ -26,11 +25,10 @@ public class WolfProviderTest extends SSLProviderTest {
     }
 
     @Override
-    protected final SSLSocketFactory createSSLSocketFactory() throws Exception {
+    protected SSLContext createSSLContext() throws Exception {
         SSLContext context = SSLContext.getInstance("TLSv1.3", "wolfJSSE");
         assertNotNull(context);
         context.init(null, new TrustManager[]{this}, null);
-        return context.getSocketFactory();
+        return context;
     }
-
 }
