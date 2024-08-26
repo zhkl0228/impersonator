@@ -68,4 +68,18 @@ abstract class SSLProviderTest extends TestCase {
                     headers_fp_digest, obj.getString("headers_fp_digest"));
         }
     }
+
+    protected final void doTestBrowserScan(String ja4, String fp_hash, String fp) throws Exception {
+        JSONObject obj = doTestURL("https://tls.browserscan.net/api/tls");
+        JSONObject tls = obj.getJSONObject("tls");
+        assertNotNull(tls);
+        if(fp_hash != null) {
+            assertEquals(String.format("\n%s\n%s", fp, tls.getString("fp")),
+                    fp_hash, tls.getString("fp_hash"));
+        }
+        if (ja4 != null) {
+            assertEquals(String.format("\n%s\n%s", ja4, tls.getString("ja4")),
+                    ja4, tls.getString("ja4"));
+        }
+    }
 }

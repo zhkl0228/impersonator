@@ -6,7 +6,7 @@
 
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator</artifactId>
-    <version>1.0.3</version>
+    <version>1.0.4</version>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -16,7 +16,7 @@
         <kotlin.version>1.9.10</kotlin.version>
     </properties>
     <name>impersonator</name>
-    <description>Spoof TLS/JA3 and HTTP/2 fingerprints in Java</description>
+    <description>Spoof TLS/JA3/JA4 and HTTP/2 fingerprints in Java</description>
     <url>https://github.com/zhkl0228/impersonator</url>
     <licenses>
         <license>

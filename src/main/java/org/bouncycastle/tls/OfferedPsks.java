@@ -55,7 +55,7 @@ public class OfferedPsks
         this(identities, null, -1);
     }
 
-    private OfferedPsks(Vector identities, Vector binders, int bindersSize)
+    public OfferedPsks(Vector identities, Vector binders, int bindersSize)
     {
         if (null == identities || identities.isEmpty())
         {

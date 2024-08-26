@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
- * Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15
  * v17.5 (18618.2.12.111.5, 18618)
  */
 class MacSafari17 extends ImpersonatorFactory {
@@ -47,19 +46,11 @@ class MacSafari17 extends ImpersonatorFactory {
 
     @Override
     protected void onInterceptRequest(Request.Builder builder) {
-        if (type == Type.MacSafari) {
-            builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-            builder.header("Accept-Language", "zh-CN,zh-Hans;q=0.9");
-            builder.header("Sec-Fetch-Dest", "document");
-            builder.header("Sec-Fetch-Mode", "navigate");
-            builder.header("Sec-Fetch-Site", "none");
-        } else if (type == Type.iOS) {
-            builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-            builder.header("Accept-Language", "zh-CN,zh-Hans;q=0.9");
-            builder.header("Sec-Fetch-Dest", "document");
-            builder.header("Sec-Fetch-Mode", "navigate");
-            builder.header("Sec-Fetch-Site", "none");
-        }
+        builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        builder.header("Accept-Language", "zh-CN,zh-Hans;q=0.9");
+        builder.header("Sec-Fetch-Dest", "document");
+        builder.header("Sec-Fetch-Mode", "navigate");
+        builder.header("Sec-Fetch-Site", "none");
     }
 
     @Override
@@ -86,8 +77,7 @@ class MacSafari17 extends ImpersonatorFactory {
     }
 
     @Override
-    public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
-        super.onSendClientHelloMessage(clientExtensions);
+    protected void onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,

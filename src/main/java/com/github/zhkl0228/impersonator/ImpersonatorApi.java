@@ -14,4 +14,6 @@ public interface ImpersonatorApi {
 
     OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm);
 
+    void setExtensionListener(ExtensionListener extensionListener);
+
 }

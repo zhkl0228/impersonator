@@ -20,6 +20,11 @@ public class MacSafariTest extends SSLProviderTest {
                 "Accept,Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,User-Agent");
     }
 
+    public void testBrowserScan() throws Exception {
+        doTestBrowserScan("t13d2014h2_a09f3c656075_87f85be62a52",
+                "e1730e79f9b04a90f132376a68c013ad", "GREASE-772-771-770-769|2-1.1|1027-2052-1025-1283-515-2053-2053-1281-2054-1537-513|1|1|GREASE-29-23-24-25|GREASE-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10|0-10-11-13-16-18-21-23-27-43-45-5-51-65281-GREASE-GREASE");
+    }
+
     @Override
     protected ImpersonatorApi createImpersonatorApi() {
         return ImpersonatorFactory.macSafari();

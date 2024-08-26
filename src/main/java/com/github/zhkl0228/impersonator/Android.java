@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
- * Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36
  * v127.0.6533.120
  */
 class Android extends ImpersonatorFactory {
@@ -48,8 +47,7 @@ class Android extends ImpersonatorFactory {
     }
 
     @Override
-    public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
-        super.onSendClientHelloMessage(clientExtensions);
+    protected void onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);

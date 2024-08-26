@@ -5,7 +5,7 @@ impersonate browsers' TLS/JA3 and HTTP/2 fingerprints. If you are blocked by som
 website for no obvious reason, you can give `impersonator` a try.
 
 ## Features
-- Supports JA3/TLS fingerprints impersonation.
+- Supports TLS/JA3/JA4 fingerprints impersonation.
 - Supports HTTP/2 fingerprints impersonation.
 
 ## Usage

@@ -1,5 +1,11 @@
 package com.github.zhkl0228.impersonator;
 
+import org.bouncycastle.tls.OfferedPsks;
+import org.bouncycastle.tls.PskIdentity;
+import org.bouncycastle.tls.TlsExtensionsUtils;
+
+import java.util.Vector;
+
 public class AndroidTest extends SSLProviderTest {
 
     public void testBrowserLeaks() throws Exception {
@@ -20,8 +26,30 @@ public class AndroidTest extends SSLProviderTest {
                 "Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,User-Agent");
     }
 
+    private ExtensionListener extensionListener;
+
+    public void testBrowserScan() throws Exception {
+        try {
+            extensionListener = clientExtensions -> {
+                Vector<PskIdentity> identities = new Vector<>();
+                identities.add(new PskIdentity(new byte[113], 1));
+                Vector<byte[]> binders = new Vector<>();
+                binders.add(new byte[33]);
+                TlsExtensionsUtils.addPreSharedKeyClientHello(clientExtensions, new OfferedPsks(identities, binders, 1));
+            };
+            doTestBrowserScan("t13d1517h2_8daaf6152771_00af0ad20359",
+                    "fc74547072f11256f8c59f904a3b8ba2", "GREASE-772-771|2-1.1|1027-2052-1025-1283-2053-1281-2054-1537|1|2|GREASE-29-23-24|GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|0-10-11-13-16-17513-18-23-27-35-41-43-45-5-51-65037-65281-GREASE-GREASE");
+        } finally {
+            extensionListener = null;
+        }
+    }
+
     @Override
     protected ImpersonatorApi createImpersonatorApi() {
-        return ImpersonatorFactory.android();
+        ImpersonatorApi api = ImpersonatorFactory.android();
+        if (extensionListener != null) {
+            api.setExtensionListener(extensionListener);
+        }
+        return api;
     }
 }

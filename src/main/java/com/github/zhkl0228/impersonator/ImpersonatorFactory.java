@@ -177,7 +177,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         }
     }
 
-    private static void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {
+    public static void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {
         String[] tokens = order.split("-");
         for(String token : tokens) {
             int type = Integer.parseInt(token);
@@ -194,10 +194,23 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     @Override
-    public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+    public final void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.remove(ExtensionType.status_request_v2);
         clientExtensions.remove(ExtensionType.encrypt_then_mac);
+        onSendClientHelloMessageInternal(clientExtensions);
+        if (extensionListener != null) {
+            extensionListener.onClientExtensionsBuilt(clientExtensions);
+        }
     }
+
+    private ExtensionListener extensionListener;
+
+    @Override
+    public void setExtensionListener(ExtensionListener extensionListener) {
+        this.extensionListener = extensionListener;
+    }
+
+    protected abstract void onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException;
 
     private final int[] cipherSuites;
     private final String userAgent;

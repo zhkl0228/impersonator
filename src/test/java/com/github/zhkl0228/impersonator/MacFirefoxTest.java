@@ -1,5 +1,12 @@
 package com.github.zhkl0228.impersonator;
 
+import org.bouncycastle.tls.ExtensionType;
+import org.bouncycastle.tls.OfferedPsks;
+import org.bouncycastle.tls.PskIdentity;
+import org.bouncycastle.tls.TlsExtensionsUtils;
+
+import java.util.Vector;
+
 public class MacFirefoxTest extends SSLProviderTest {
 
     public void testBrowserLeaks() throws Exception {
@@ -20,8 +27,31 @@ public class MacFirefoxTest extends SSLProviderTest {
                 "Accept,Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-Fetch-User,Upgrade-Insecure-Requests,User-Agent");
     }
 
+    private ExtensionListener extensionListener;
+
+    public void testBrowserScan() throws Exception {
+        try {
+            extensionListener = clientExtensions -> {
+                Vector<PskIdentity> identities = new Vector<>();
+                identities.add(new PskIdentity(new byte[113], 1));
+                Vector<byte[]> binders = new Vector<>();
+                binders.add(new byte[33]);
+                TlsExtensionsUtils.addPreSharedKeyClientHello(clientExtensions, new OfferedPsks(identities, binders, 1));
+                clientExtensions.remove(ExtensionType.session_ticket);
+            };
+            doTestBrowserScan("t13d1715h2_5b57614c22b0_b783cf897974",
+                    "ff1204efe089d7f732723ac52a644713", "772-771|2-1.1|1027-1283-1539-2052-2053-2054-1025-1281-1537-515-513|1||29-23-24-25-256-257|4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53|0-10-11-13-16-23-28-34-41-43-45-5-51-65037-65281");
+        } finally {
+            extensionListener = null;
+        }
+    }
+
     @Override
     protected ImpersonatorApi createImpersonatorApi() {
-        return ImpersonatorFactory.macFirefox();
+        ImpersonatorApi api = ImpersonatorFactory.macFirefox();
+        if (extensionListener != null) {
+            api.setExtensionListener(extensionListener);
+        }
+        return api;
     }
 }

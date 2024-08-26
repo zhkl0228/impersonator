@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
- * Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:129.0) Gecko/20100101 Firefox/129.0
  * v129.0.2
  */
 class MacFirefox129 extends ImpersonatorFactory {
@@ -55,8 +54,7 @@ class MacFirefox129 extends ImpersonatorFactory {
     }
 
     @Override
-    public void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
-        super.onSendClientHelloMessage(clientExtensions);
+    protected void onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
