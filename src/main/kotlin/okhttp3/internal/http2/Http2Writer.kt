@@ -15,6 +15,7 @@
  */
 package okhttp3.internal.http2
 
+import okhttp3.PriorityFrame
 import java.io.Closeable
 import java.io.IOException
 import java.util.logging.Level.FINE
@@ -31,6 +32,7 @@ import okhttp3.internal.http2.Http2.TYPE_DATA
 import okhttp3.internal.http2.Http2.TYPE_GOAWAY
 import okhttp3.internal.http2.Http2.TYPE_HEADERS
 import okhttp3.internal.http2.Http2.TYPE_PING
+import okhttp3.internal.http2.Http2.TYPE_PRIORITY
 import okhttp3.internal.http2.Http2.TYPE_PUSH_PROMISE
 import okhttp3.internal.http2.Http2.TYPE_RST_STREAM
 import okhttp3.internal.http2.Http2.TYPE_SETTINGS
@@ -164,6 +166,20 @@ class Http2Writer(
     if (byteCount > 0) {
       sink.write(buffer!!, byteCount.toLong())
     }
+  }
+
+  @Synchronized @Throws(IOException::class)
+  fun priority(frame : PriorityFrame) {
+    if (closed) throw IOException("closed")
+    frameHeader(
+      streamId = frame.streamId,
+      length = 5,
+      type = TYPE_PRIORITY,
+      flags = FLAG_NONE
+    )
+    sink.writeInt(frame.streamDependency)
+    sink.writeByte(frame.weight)
+    sink.flush()
   }
 
   /** Write okhttp's settings to the peer. */

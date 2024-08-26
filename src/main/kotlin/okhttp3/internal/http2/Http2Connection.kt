@@ -15,6 +15,7 @@
  */
 package okhttp3.internal.http2
 
+import okhttp3.PriorityFrame
 import okhttp3.Request
 import java.io.Closeable
 import java.io.IOException
@@ -48,7 +49,6 @@ import okio.ByteString
 import okio.buffer
 import okio.sink
 import okio.source
-import java.util.ArrayList
 
 /**
  * A socket connection to a remote peer. A connection hosts streams which can send and receive
@@ -532,6 +532,11 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     windowSizeIncrement = windowUpdate;
   }
 
+  private var priorityFrames = ArrayList<PriorityFrame>(10)
+  override fun addPriorityFrame(frame: PriorityFrame) {
+    priorityFrames.add(frame)
+  }
+
   /**
    * Sends any initial frames and starts reading frames from the remote peer. This should be called
    * after [Builder.build] for all new connections.
@@ -552,6 +557,9 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
         if (windowSize != DEFAULT_INITIAL_WINDOW_SIZE) {
           writer.windowUpdate(0, (windowSize - DEFAULT_INITIAL_WINDOW_SIZE).toLong())
         }
+      }
+      for(frame in priorityFrames) {
+        writer.priority(frame)
       }
     }
     // Thread doesn't use client Dispatcher, since it is scoped potentially across clients via

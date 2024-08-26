@@ -1,5 +1,8 @@
 package com.github.zhkl0228.impersonator;
 
+import okhttp3.Http2Connection;
+import okhttp3.PriorityFrame;
+import okhttp3.internal.http2.Settings;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.KeyShareEntry;
 import org.bouncycastle.tls.NamedGroup;
@@ -23,6 +26,20 @@ class MacFirefox129 extends ImpersonatorFactory {
     MacFirefox129() {
         super("4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53",
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:129.0) Gecko/20100101 Firefox/129.0");
+    }
+
+    @Override
+    protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+        http2Connection.setSetting(Settings.HEADER_TABLE_SIZE, 65536);
+        http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 131072);
+        http2Connection.setSetting(Settings.MAX_FRAME_SIZE, 16384);
+        http2Connection.setWindowSizeIncrement(12517377L);
+        http2Connection.addPriorityFrame(new PriorityFrame(3, 0, 200));
+        http2Connection.addPriorityFrame(new PriorityFrame(5, 0, 100));
+        http2Connection.addPriorityFrame(new PriorityFrame(7, 0, 0));
+        http2Connection.addPriorityFrame(new PriorityFrame(9, 7, 0));
+        http2Connection.addPriorityFrame(new PriorityFrame(11, 3, 0));
+        http2Connection.addPriorityFrame(new PriorityFrame(13, 0, 240));
     }
 
     @Override

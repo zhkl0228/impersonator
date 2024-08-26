@@ -13,6 +13,11 @@ public class MacSafariTest extends SSLProviderTest {
         doTestScrapFlyJa3("f638ee5bf20fa34a65437016daa32cf7", "version:772|ch_ciphers:GREASE-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-43-45-51-65281-GREASE|groups:GREASE-29-23-24-25|points:0|compression:0|supported_versions:GREASE-772-771-770-769|supported_protocols:h2-http11|key_shares:GREASE-29|psk:1|signature_algs:1027-2052-1025-1283-515-2053-2053-1281-2054-1537-513|early_data:0|");
     }
 
+    public void testScrapFlyHttp2() throws Exception {
+        doTestScrapFlyHttp2("dda308d35f4e5db7b52a61720ca1b122",
+                "4:4194304;3:100|10485760|0|m,s,p,a");
+    }
+
     @Override
     protected ImpersonatorApi createImpersonatorApi() {
         return ImpersonatorFactory.macSafari();

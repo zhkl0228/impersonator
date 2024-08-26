@@ -11,4 +11,6 @@ public interface Http2Connection {
      */
     void setHeaderOrder(String order);
 
+    void addPriorityFrame(PriorityFrame frame);
+
 }

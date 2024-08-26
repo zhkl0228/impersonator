@@ -31,10 +31,6 @@ abstract class SSLProviderTest extends TestCase {
         }
     }
 
-    protected void doTestBrowserLeaks(String ja3n_hash, String ja3n_text, String ja3_hash, String ja3_text) throws Exception {
-        doTestBrowserLeaks(ja3n_hash, ja3n_text, ja3_hash, ja3_text, null, null, null);
-    }
-
     protected void doTestBrowserLeaks(String ja3n_hash, String ja3n_text, String ja3_hash, String ja3_text,
                                       String userAgent,
                                       String akamai_hash, String akamai_text) throws Exception {
@@ -58,5 +54,11 @@ abstract class SSLProviderTest extends TestCase {
         JSONObject obj = doTestURL("https://tools.scrapfly.io/api/fp/ja3");
         assertEquals(String.format("\n%s\n%s", scrapfly_fp, obj.getString("scrapfly_fp")),
                 scrapfly_fp_digest, obj.getString("scrapfly_fp_digest"));
+    }
+
+    protected final void doTestScrapFlyHttp2(String http2_digest, String http2_fingerprint) throws Exception {
+        JSONObject obj = doTestURL("https://tools.scrapfly.io/api/http2");
+        assertEquals(String.format("\n%s\n%s", http2_fingerprint, obj.getString("http2_fingerprint")),
+                http2_digest, obj.getString("http2_digest"));
     }
 }
