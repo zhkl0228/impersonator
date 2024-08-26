@@ -82,4 +82,29 @@ abstract class SSLProviderTest extends TestCase {
                     ja4, tls.getString("ja4"));
         }
     }
+
+    protected final void doTestPeetPrint(String ja4, String peetprint_hash, String peetprint,
+                                         String akamai_fingerprint_hash, String akamai_fingerprint,
+                                         String ja3_hash, String ja3) throws Exception {
+        JSONObject obj = doTestURL("https://tls.peet.ws/api/all");
+        JSONObject tls = obj.getJSONObject("tls");
+        assertNotNull(tls);
+        if(peetprint_hash != null) {
+            assertEquals(String.format("\n%s\n%s", peetprint, tls.getString("peetprint")),
+                    peetprint_hash, tls.getString("peetprint_hash"));
+        }
+        if(ja3_hash != null) {
+            assertEquals(String.format("\n%s\n%s", ja3, tls.getString("ja3")),
+                    ja3_hash, tls.getString("ja3_hash"));
+        }
+        if (ja4 != null) {
+            assertEquals(String.format("\n%s\n%s", ja4, tls.getString("ja4")),
+                    ja4, tls.getString("ja4"));
+        }
+        JSONObject http2 = obj.getJSONObject("http2");
+        if(akamai_fingerprint_hash != null) {
+            assertEquals(String.format("\n%s\n%s", akamai_fingerprint, http2.getString("akamai_fingerprint")),
+                    akamai_fingerprint_hash, http2.getString("akamai_fingerprint_hash"));
+        }
+    }
 }
