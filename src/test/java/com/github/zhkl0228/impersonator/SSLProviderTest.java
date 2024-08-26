@@ -56,9 +56,16 @@ abstract class SSLProviderTest extends TestCase {
                 scrapfly_fp_digest, obj.getString("scrapfly_fp_digest"));
     }
 
-    protected final void doTestScrapFlyHttp2(String http2_digest, String http2_fingerprint) throws Exception {
+    protected final void doTestScrapFlyHttp2(String http2_digest, String http2_fingerprint,
+                                             String headers_fp_digest, String headers_fp) throws Exception {
         JSONObject obj = doTestURL("https://tools.scrapfly.io/api/http2");
-        assertEquals(String.format("\n%s\n%s", http2_fingerprint, obj.getString("http2_fingerprint")),
-                http2_digest, obj.getString("http2_digest"));
+        if (http2_digest != null) {
+            assertEquals(String.format("\n%s\n%s", http2_fingerprint, obj.getString("http2_fingerprint")),
+                    http2_digest, obj.getString("http2_digest"));
+        }
+        if (headers_fp_digest != null) {
+            assertEquals(String.format("\n%s\n%s", headers_fp, obj.getString("headers_fp")),
+                    headers_fp_digest, obj.getString("headers_fp_digest"));
+        }
     }
 }

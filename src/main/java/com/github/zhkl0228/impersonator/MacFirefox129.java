@@ -2,6 +2,7 @@ package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
 import okhttp3.PriorityFrame;
+import okhttp3.Request;
 import okhttp3.internal.http2.Settings;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.KeyShareEntry;
@@ -26,6 +27,17 @@ class MacFirefox129 extends ImpersonatorFactory {
     MacFirefox129() {
         super("4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53",
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:129.0) Gecko/20100101 Firefox/129.0");
+    }
+
+    @Override
+    protected void onInterceptRequest(Request.Builder builder) {
+        builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8");
+        builder.header("Accept-Language", "en-US,en;q=0.5");
+        builder.header("Sec-Fetch-Dest", "document");
+        builder.header("Sec-Fetch-Mode", "navigate");
+        builder.header("Sec-Fetch-Site", "none");
+        builder.header("Sec-Fetch-User", "?1");
+        builder.header("Upgrade-Insecure-Requests", "1");
     }
 
     @Override

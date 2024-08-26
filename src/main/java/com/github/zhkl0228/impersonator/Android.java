@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
+import okhttp3.Request;
 import okhttp3.internal.http2.Settings;
 import org.bouncycastle.tls.CertificateCompressionAlgorithm;
 import org.bouncycastle.tls.ExtensionType;
@@ -36,6 +37,14 @@ class Android extends ImpersonatorFactory {
         http2Connection.setSetting(Settings.MAX_HEADER_LIST_SIZE, 262144);
         http2Connection.setWindowSizeIncrement(15663105L);
         http2Connection.setHeaderOrder("m,a,s,p");
+    }
+
+    @Override
+    protected void onInterceptRequest(Request.Builder builder) {
+        builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7");
+        builder.header("Sec-Fetch-Dest", "empty");
+        builder.header("Sec-Fetch-Mode", "navigate");
+        builder.header("Sec-Fetch-Site", "none");
     }
 
     @Override

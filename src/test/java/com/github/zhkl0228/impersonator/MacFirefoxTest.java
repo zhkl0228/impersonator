@@ -15,7 +15,9 @@ public class MacFirefoxTest extends SSLProviderTest {
 
     public void testScrapFlyHttp2() throws Exception {
         doTestScrapFlyHttp2("465f406497853d8675907d5be901caca",
-                "1:65536;4:131072;5:16384|12517377|3:1:0:201,5:1:0:101,7:1:0:1,9:1:7:1,11:1:3:1,13:1:0:241|m,p,a,s");
+                "1:65536;4:131072;5:16384|12517377|3:1:0:201,5:1:0:101,7:1:0:1,9:1:7:1,11:1:3:1,13:1:0:241|m,p,a,s",
+                "2b6a1c350e51992d57062af44641929f",
+                "Accept,Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-Fetch-User,Upgrade-Insecure-Requests,User-Agent");
     }
 
     @Override

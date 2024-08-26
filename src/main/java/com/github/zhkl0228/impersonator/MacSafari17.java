@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
+import okhttp3.Request;
 import okhttp3.internal.http2.Settings;
 import org.bouncycastle.tls.CertificateCompressionAlgorithm;
 import org.bouncycastle.tls.ExtensionType;
@@ -42,6 +43,23 @@ class MacSafari17 extends ImpersonatorFactory {
         super("0x" + Integer.toHexString(randomGrease()) + "-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10",
                 userAgent);
         this.type = type;
+    }
+
+    @Override
+    protected void onInterceptRequest(Request.Builder builder) {
+        if (type == Type.MacSafari) {
+            builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            builder.header("Accept-Language", "zh-CN,zh-Hans;q=0.9");
+            builder.header("Sec-Fetch-Dest", "document");
+            builder.header("Sec-Fetch-Mode", "navigate");
+            builder.header("Sec-Fetch-Site", "none");
+        } else if (type == Type.iOS) {
+            builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            builder.header("Accept-Language", "zh-CN,zh-Hans;q=0.9");
+            builder.header("Sec-Fetch-Dest", "document");
+            builder.header("Sec-Fetch-Mode", "navigate");
+            builder.header("Sec-Fetch-Site", "none");
+        }
     }
 
     @Override

@@ -15,7 +15,9 @@ public class MacSafariTest extends SSLProviderTest {
 
     public void testScrapFlyHttp2() throws Exception {
         doTestScrapFlyHttp2("dda308d35f4e5db7b52a61720ca1b122",
-                "4:4194304;3:100|10485760|0|m,s,p,a");
+                "4:4194304;3:100|10485760|0|m,s,p,a",
+                "03910fa9e244d2d43cffc2409166e663",
+                "Accept,Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,User-Agent");
     }
 
     @Override

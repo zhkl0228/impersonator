@@ -13,7 +13,9 @@ public class MacChromeTest extends SSLProviderTest {
     }
 
     public void testScrapFlyHttp2() throws Exception {
-        doTestURL("https://tools.scrapfly.io/api/http2");
+        doTestScrapFlyHttp2(null, null,
+                "4ce4894f9f13c1bd779df7c16ee5ec31",
+                "Accept,Accept-Encoding,Accept-Language,Cache-Control,Cookie,Sec-Ch-Ua,Sec-Ch-Ua-Mobile,Sec-Ch-Ua-Platform,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-Fetch-User,Upgrade-Insecure-Requests,User-Agent");
     }
 
     @Override

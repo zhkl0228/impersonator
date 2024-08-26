@@ -8,7 +8,7 @@ class SecureRandomWrap extends SecureRandom implements Impersonator {
 
     private final Impersonator impersonator;
 
-    public SecureRandomWrap(Impersonator impersonator) {
+    SecureRandomWrap(Impersonator impersonator) {
         this.impersonator = impersonator;
     }
 

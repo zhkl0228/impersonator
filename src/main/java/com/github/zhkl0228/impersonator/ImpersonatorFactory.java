@@ -24,7 +24,6 @@ import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.Security;
-import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,11 +62,6 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     @Override
-    public final SSLContext newSSLContext() {
-        return newSSLContext(null, null);
-    }
-
-    @Override
     public SSLContext newSSLContext(KeyManager[] km, TrustManager[] tm) {
         try {
             SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);
@@ -85,23 +79,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
 
     @Override
     public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm) {
-        X509TrustManager trustManager;
-        if(tm != null && tm.length > 0) {
-            trustManager = (X509TrustManager) tm[0];
-        } else {
-            trustManager = new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                }
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                }
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            };
-        }
+        X509TrustManager trustManager = getX509KeyManager(tm);
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
         builder.sslSocketFactory(newSSLContext(km, tm).getSocketFactory(), trustManager);
         builder.addInterceptor(new Interceptor() {
@@ -126,6 +104,16 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         return builder.build();
     }
 
+    private static X509TrustManager getX509KeyManager(TrustManager[] tm) {
+        X509TrustManager trustManager;
+        if(tm != null && tm.length > 0) {
+            trustManager = (X509TrustManager) tm[0];
+        } else {
+            trustManager = new DummyX509KeyManager();
+        }
+        return trustManager;
+    }
+
     /**
      * 4 -> 3 // SETTINGS_MAX_CONCURRENT_STREAMS renumbered.
      * 7 -> 4 // SETTINGS_INITIAL_WINDOW_SIZE renumbered.
@@ -133,7 +121,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
     }
 
-    protected void onInterceptRequest(Request.Builder builder) {}
+    protected abstract void onInterceptRequest(Request.Builder builder);
 
     protected final void addSignatureAlgorithmsExtension(Map<Integer, byte[]> clientExtensions, SignatureAndHashAlgorithm... signatureAndHashAlgorithms) throws IOException {
         Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>(signatureAndHashAlgorithms.length);
@@ -219,10 +207,6 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         return cipherSuites;
     }
 
-    ImpersonatorFactory(String cipherSuites) {
-        this(cipherSuites, null);
-    }
-
     ImpersonatorFactory(String cipherSuites, String userAgent) {
         this.userAgent = userAgent;
         String[] tokens = cipherSuites.split("-");
@@ -258,4 +242,18 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         return false;
     }
 
+    private static class DummyX509KeyManager implements X509TrustManager {
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType) {
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType) {
+        }
+
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return new X509Certificate[0];
+        }
+    }
 }

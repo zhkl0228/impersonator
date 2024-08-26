@@ -8,8 +8,6 @@ import javax.net.ssl.TrustManager;
 
 public interface ImpersonatorApi {
 
-    SSLContext newSSLContext();
-
     SSLContext newSSLContext(KeyManager[] km, TrustManager[] tm);
 
     OkHttpClient newHttpClient();
