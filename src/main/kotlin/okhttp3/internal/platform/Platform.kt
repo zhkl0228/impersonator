@@ -230,14 +230,6 @@ open class Platform {
         }
       }
 
-      if (isOpenJSSEPreferred) {
-        val openJSSE = OpenJSSEPlatform.buildIfSupported()
-
-        if (openJSSE != null) {
-          return openJSSE
-        }
-      }
-
       // An Oracle JDK 9 like OpenJDK, or JDK 8 251+.
       val jdk9 = Jdk9Platform.buildIfSupported()
 
