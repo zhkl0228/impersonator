@@ -1,6 +1,5 @@
 package com.github.zhkl0228.impersonator.other;
 
-import com.github.zhkl0228.impersonator.SSLProviderTest;
 import com.wolfssl.provider.jsse.WolfSSLProvider;
 import org.scijava.nativelib.NativeLoader;
 
@@ -9,7 +8,7 @@ import javax.net.ssl.TrustManager;
 import java.io.IOException;
 import java.security.Security;
 
-public class WolfProviderTest extends SSLProviderTest {
+public class WolfProviderTest extends OtherProviderTest {
 
     static {
         try {

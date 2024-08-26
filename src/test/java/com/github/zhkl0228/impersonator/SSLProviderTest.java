@@ -10,26 +10,16 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.X509TrustManager;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-
-public abstract class SSLProviderTest extends TestCase implements X509TrustManager {
-
-    private OkHttpClient buildHttpClient() throws Exception {
-        OkHttpClient.Builder builder = new OkHttpClient.Builder();
-        builder.sslSocketFactory(createSSLSocketFactory(), this);
-        return builder.build();
-    }
+abstract class SSLProviderTest extends TestCase {
 
     protected final JSONObject doTestBrowserLeaks() throws Exception {
         return doTestURL("https://tls.browserleaks.com/json");
     }
 
+    protected abstract ImpersonatorApi createImpersonatorApi();
+
     protected final JSONObject doTestURL(String url) throws Exception {
-        OkHttpClient client = buildHttpClient();
+        OkHttpClient client = createImpersonatorApi().newHttpClient();
         Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
             ResponseBody body = response.body();
@@ -42,6 +32,12 @@ public abstract class SSLProviderTest extends TestCase implements X509TrustManag
     }
 
     protected void doTestBrowserLeaks(String ja3n_hash, String ja3n_text, String ja3_hash, String ja3_text) throws Exception {
+        doTestBrowserLeaks(ja3n_hash, ja3n_text, ja3_hash, ja3_text, null, null, null);
+    }
+
+    protected void doTestBrowserLeaks(String ja3n_hash, String ja3n_text, String ja3_hash, String ja3_text,
+                                      String userAgent,
+                                      String akamai_hash, String akamai_text) throws Exception {
         JSONObject obj = doTestBrowserLeaks();
         assertEquals(String.format("\n%s\n%s", ja3n_text, obj.getString("ja3n_text")),
                 ja3n_hash, obj.getString("ja3n_hash"));
@@ -49,30 +45,18 @@ public abstract class SSLProviderTest extends TestCase implements X509TrustManag
             assertEquals(String.format("\n%s\n%s", ja3_text, obj.getString("ja3_text")),
                     ja3_hash, obj.getString("ja3_hash"));
         }
+        if (userAgent != null) {
+            assertEquals(String.format("\n%s\n%s", userAgent, obj.getString("user_agent")), userAgent, obj.getString("user_agent"));
+        }
+        if (akamai_hash != null) {
+            assertEquals(String.format("\n%s\n%s", akamai_text, obj.getString("akamai_text")),
+                    akamai_hash, obj.getString("akamai_hash"));
+        }
     }
 
     protected final void doTestScrapFlyJa3(String scrapfly_fp_digest, String scrapfly_fp) throws Exception {
         JSONObject obj = doTestURL("https://tools.scrapfly.io/api/fp/ja3");
         assertEquals(String.format("\n%s\n%s", scrapfly_fp, obj.getString("scrapfly_fp")),
                 scrapfly_fp_digest, obj.getString("scrapfly_fp_digest"));
-    }
-
-    private SSLSocketFactory createSSLSocketFactory() throws Exception {
-        return createSSLContext().getSocketFactory();
-    }
-
-    protected abstract SSLContext createSSLContext() throws Exception;
-
-    @Override
-    public final void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-    }
-
-    @Override
-    public final void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-    }
-
-    @Override
-    public final X509Certificate[] getAcceptedIssuers() {
-        return new X509Certificate[0];
     }
 }

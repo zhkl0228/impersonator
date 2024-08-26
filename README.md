@@ -1,7 +1,7 @@
 # impersonator
 
 `impersonator` can
-impersonate browsers' TLS/JA3 fingerprints. If you are blocked by some
+impersonate browsers' TLS/JA3 and HTTP/2 fingerprints. If you are blocked by some
 website for no obvious reason, you can give `impersonator` a try.
 
 ## Features

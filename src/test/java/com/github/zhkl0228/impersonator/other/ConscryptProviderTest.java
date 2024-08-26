@@ -1,13 +1,12 @@
 package com.github.zhkl0228.impersonator.other;
 
-import com.github.zhkl0228.impersonator.SSLProviderTest;
 import org.conscrypt.OpenSSLProvider;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import java.security.Security;
 
-public class ConscryptProviderTest extends SSLProviderTest {
+public class ConscryptProviderTest extends OtherProviderTest {
 
     static {
         Security.addProvider(new OpenSSLProvider());

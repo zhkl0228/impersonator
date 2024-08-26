@@ -1,12 +1,12 @@
 package com.github.zhkl0228.impersonator;
 
-import javax.net.ssl.SSLContext;
-
 public class IOSTest extends SSLProviderTest {
 
     public void testBrowserLeaks() throws Exception {
         doTestBrowserLeaks("44f7ed5185d22c92b96da72dbe68d307", "771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-5-10-11-13-16-18-21-23-27-43-45-51-65281,29-23-24-25,0",
-                "773906b0efdefa24a7f2b8eb6985bf37", "771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-23-65281-10-11-16-5-13-18-51-45-43-27-21,29-23-24-25,0");
+                "773906b0efdefa24a7f2b8eb6985bf37", "771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-23-65281-10-11-16-5-13-18-51-45-43-27-21,29-23-24-25,0",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.108 Mobile/15E148 Safari/604.1",
+                "ad8424af1cc590e09f7b0c499bf7fcdb", "2:0;4:2097152;3:100|10485760|0|m,s,p,a");
     }
 
     public void testScrapFlyJa3() throws Exception {
@@ -14,7 +14,7 @@ public class IOSTest extends SSLProviderTest {
     }
 
     @Override
-    protected SSLContext createSSLContext() {
-        return ImpersonatorFactory.ios().newSSLContext();
+    protected ImpersonatorApi createImpersonatorApi() {
+        return ImpersonatorFactory.ios();
     }
 }

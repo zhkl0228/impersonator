@@ -20,8 +20,9 @@ import java.util.Vector;
  */
 class MacFirefox129 extends ImpersonatorFactory {
 
-    public MacFirefox129() {
-        super("4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53");
+    MacFirefox129() {
+        super("4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:129.0) Gecko/20100101 Firefox/129.0");
     }
 
     @Override

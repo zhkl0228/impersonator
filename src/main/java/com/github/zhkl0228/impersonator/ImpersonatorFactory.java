@@ -1,5 +1,11 @@
 package com.github.zhkl0228.impersonator;
 
+import okhttp3.EventListener;
+import okhttp3.Http2Connection;
+import okhttp3.Interceptor;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
 import org.bouncycastle.tls.ExtensionType;
@@ -7,15 +13,19 @@ import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.SignatureAndHashAlgorithm;
 import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
+import org.jetbrains.annotations.NotNull;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.Security;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -37,7 +47,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     public static ImpersonatorApi macSafari() {
-        return new MacSafari17();
+        return MacSafari17.newMacSafari();
     }
 
     public static ImpersonatorApi macFirefox() {
@@ -45,7 +55,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     public static ImpersonatorApi ios() {
-        return new MacSafari17();
+        return MacSafari17.newIOS();
     }
 
     public static ImpersonatorApi android() {
@@ -67,6 +77,63 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
             throw new IllegalStateException("newContext", e);
         }
     }
+
+    @Override
+    public OkHttpClient newHttpClient() {
+        return newHttpClient(null, null);
+    }
+
+    @Override
+    public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm) {
+        X509TrustManager trustManager;
+        if(tm != null && tm.length > 0) {
+            trustManager = (X509TrustManager) tm[0];
+        } else {
+            trustManager = new X509TrustManager() {
+                @Override
+                public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                }
+                @Override
+                public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                }
+                @Override
+                public X509Certificate[] getAcceptedIssuers() {
+                    return new X509Certificate[0];
+                }
+            };
+        }
+        OkHttpClient.Builder builder = new OkHttpClient.Builder();
+        builder.sslSocketFactory(newSSLContext(km, tm).getSocketFactory(), trustManager);
+        builder.addInterceptor(new Interceptor() {
+            @NotNull
+            @Override
+            public Response intercept(@NotNull Chain chain) throws IOException {
+                Request request = chain.request();
+                Request.Builder builder = request.newBuilder();
+                if (userAgent != null) {
+                    builder.header("User-Agent", userAgent);
+                }
+                onInterceptRequest(builder);
+                return chain.proceed(builder.build());
+            }
+        });
+        builder.eventListener(new EventListener() {
+            @Override
+            public void onHttp2ConnectionInit(@NotNull Http2Connection http2Connection) {
+                ImpersonatorFactory.this.onHttp2ConnectionInit(http2Connection);
+            }
+        });
+        return builder.build();
+    }
+
+    /**
+     * 4 -> 3 // SETTINGS_MAX_CONCURRENT_STREAMS renumbered.
+     * 7 -> 4 // SETTINGS_INITIAL_WINDOW_SIZE renumbered.
+     */
+    protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+    }
+
+    protected void onInterceptRequest(Request.Builder builder) {}
 
     protected final void addSignatureAlgorithmsExtension(Map<Integer, byte[]> clientExtensions, SignatureAndHashAlgorithm... signatureAndHashAlgorithms) throws IOException {
         Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>(signatureAndHashAlgorithms.length);
@@ -145,6 +212,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     private final int[] cipherSuites;
+    private final String userAgent;
 
     @Override
     public int[] getCipherSuites() {
@@ -152,6 +220,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     ImpersonatorFactory(String cipherSuites) {
+        this(cipherSuites, null);
+    }
+
+    ImpersonatorFactory(String cipherSuites, String userAgent) {
+        this.userAgent = userAgent;
         String[] tokens = cipherSuites.split("-");
         this.cipherSuites = new int[tokens.length];
         for (int i = 0; i < tokens.length; i++) {
