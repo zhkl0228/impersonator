@@ -55,6 +55,7 @@ class MacSafari17 extends ImpersonatorFactory {
 
     @Override
     protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+        http2Connection.removeSetting(Settings.INITIAL_WINDOW_SIZE);
         switch (type) {
             case MacSafari: {
                 http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 4194304);

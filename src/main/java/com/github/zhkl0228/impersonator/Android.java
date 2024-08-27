@@ -2,7 +2,6 @@ package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
 import okhttp3.Request;
-import okhttp3.internal.http2.Settings;
 import org.bouncycastle.tls.CertificateCompressionAlgorithm;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.KeyShareEntry;
@@ -30,12 +29,7 @@ class Android extends ImpersonatorFactory {
 
     @Override
     protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
-        http2Connection.setSetting(Settings.HEADER_TABLE_SIZE, 65536);
-        http2Connection.setSetting(Settings.ENABLE_PUSH, 0);
-        http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 6291456);
-        http2Connection.setSetting(Settings.MAX_HEADER_LIST_SIZE, 262144);
-        http2Connection.setWindowSizeIncrement(15663105L);
-        http2Connection.setHeaderOrder("m,a,s,p");
+        MacChrome127.configChromeHttp2Settings(http2Connection);
     }
 
     @Override

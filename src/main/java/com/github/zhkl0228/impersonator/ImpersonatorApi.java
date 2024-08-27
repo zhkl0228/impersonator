@@ -12,7 +12,9 @@ public interface ImpersonatorApi {
 
     OkHttpClient newHttpClient();
 
-    OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm);
+    OkHttpClient newHttpClient(String userAgent);
+
+    OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent);
 
     void setExtensionListener(ExtensionListener extensionListener);
 

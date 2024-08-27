@@ -2,6 +2,10 @@ package okhttp3;
 
 public interface Http2Connection {
 
+    default void removeSetting(int id) {
+        setSetting(id, -1);
+    }
+
     void setSetting(int id, int value);
 
     void setWindowSizeIncrement(long windowSizeIncrement);

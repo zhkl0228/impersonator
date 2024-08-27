@@ -41,6 +41,7 @@ class MacFirefox129 extends ImpersonatorFactory {
 
     @Override
     protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+        http2Connection.removeSetting(Settings.INITIAL_WINDOW_SIZE);
         http2Connection.setSetting(Settings.HEADER_TABLE_SIZE, 65536);
         http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 131072);
         http2Connection.setSetting(Settings.MAX_FRAME_SIZE, 16384);

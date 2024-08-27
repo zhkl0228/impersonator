@@ -526,7 +526,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     }
   }
 
-  private var windowSizeIncrement = 0L
+  private var windowSizeIncrement = -1L
 
   override fun setWindowSizeIncrement(windowUpdate: Long) {
     windowSizeIncrement = windowUpdate;
@@ -550,8 +550,10 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     if (sendConnectionPreface) {
       writer.connectionPreface()
       writer.settings(okHttpSettings)
-      if(windowSizeIncrement > 0) {
-        writer.windowUpdate(0, windowSizeIncrement)
+      if(windowSizeIncrement >= 0) {
+        if (windowSizeIncrement > 0) {
+          writer.windowUpdate(0, windowSizeIncrement)
+        }
       } else {
         val windowSize = okHttpSettings.initialWindowSize
         if (windowSize != DEFAULT_INITIAL_WINDOW_SIZE) {

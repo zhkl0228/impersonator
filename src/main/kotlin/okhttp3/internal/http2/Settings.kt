@@ -40,11 +40,14 @@ class Settings {
   }
 
   operator fun set(id: Int, value: Int): Settings {
+    if(value == -1) {
+      values.remove(id)
+      return this
+    }
     if (id < 0 || id >= COUNT) {
       return this // Discard unknown settings.
     }
 
-    values.remove(id)
     values[id] = value
     return this
   }

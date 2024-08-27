@@ -74,27 +74,40 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
 
     @Override
     public OkHttpClient newHttpClient() {
-        return newHttpClient(null, null);
+        return newHttpClient(null);
     }
 
     @Override
-    public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm) {
-        X509TrustManager trustManager = getX509KeyManager(tm);
-        OkHttpClient.Builder builder = new OkHttpClient.Builder();
-        builder.sslSocketFactory(newSSLContext(km, tm).getSocketFactory(), trustManager);
-        builder.addInterceptor(new Interceptor() {
-            @NotNull
-            @Override
-            public Response intercept(@NotNull Chain chain) throws IOException {
-                Request request = chain.request();
-                Request.Builder builder = request.newBuilder();
-                if (userAgent != null) {
-                    builder.header("User-Agent", userAgent);
-                }
-                onInterceptRequest(builder);
-                return chain.proceed(builder.build());
+    public OkHttpClient newHttpClient(String userAgent) {
+        return newHttpClient(null, new TrustManager[]{
+                new DummyX509KeyManager()
+        }, userAgent);
+    }
+
+    private class ImpersonatorInterceptor implements Interceptor {
+        private final String userAgent;
+        ImpersonatorInterceptor(String userAgent) {
+            this.userAgent = userAgent;
+        }
+        @NotNull
+        @Override
+        public Response intercept(@NotNull Chain chain) throws IOException {
+            Request request = chain.request();
+            Request.Builder builder = request.newBuilder();
+            if (userAgent != null) {
+                builder.header("User-Agent", userAgent);
             }
-        });
+            onInterceptRequest(builder);
+            return chain.proceed(builder.build());
+        }
+    }
+
+    @Override
+    public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent) {
+        OkHttpClient.Builder builder = newOkHttpClientBuilder();
+        X509TrustManager trustManager = getX509KeyManager(tm);
+        builder.sslSocketFactory(newSSLContext(km, tm).getSocketFactory(), trustManager);
+        builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? this.userAgent : userAgent));
         builder.eventListener(new EventListener() {
             @Override
             public void onHttp2ConnectionInit(@NotNull Http2Connection http2Connection) {
@@ -102,6 +115,10 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
             }
         });
         return builder.build();
+    }
+
+    protected OkHttpClient.Builder newOkHttpClientBuilder() {
+        return new OkHttpClient.Builder();
     }
 
     private static X509TrustManager getX509KeyManager(TrustManager[] tm) {

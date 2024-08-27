@@ -47,14 +47,19 @@ class MacChrome127 extends ImpersonatorFactory {
         builder.header("Upgrade-Insecure-Requests", "1");
     }
 
-    @Override
-    protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+    static void configChromeHttp2Settings(Http2Connection http2Connection) {
+        http2Connection.removeSetting(Settings.INITIAL_WINDOW_SIZE);
         http2Connection.setSetting(Settings.HEADER_TABLE_SIZE, 65536);
         http2Connection.setSetting(Settings.ENABLE_PUSH, 0);
         http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 6291456);
         http2Connection.setSetting(Settings.MAX_HEADER_LIST_SIZE, 262144);
         http2Connection.setWindowSizeIncrement(15663105L);
         http2Connection.setHeaderOrder("m,a,s,p");
+    }
+
+    @Override
+    protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+        configChromeHttp2Settings(http2Connection);
     }
 
     static void addApplicationSettingsExtension(Map<Integer, byte[]> clientExtensions) throws IOException {

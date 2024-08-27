@@ -14,7 +14,7 @@ website for no obvious reason, you can give `impersonator` a try.
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator</artifactId>
-    <version>1.0.4</version>
+    <version>1.0.5</version>
 </dependency>
 ```
 - [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
