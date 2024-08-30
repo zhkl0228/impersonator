@@ -64,6 +64,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     @Override
     public SSLContext newSSLContext(KeyManager[] km, TrustManager[] tm) {
         try {
+            if (tm == null || tm.length == 0) {
+                tm = new TrustManager[]{
+                        new DummyX509KeyManager()
+                };
+            }
             SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);
             context.init(km, tm, new SecureRandomWrap(this));
             return context;
@@ -106,7 +111,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent) {
         OkHttpClient.Builder builder = newOkHttpClientBuilder();
         X509TrustManager trustManager = getX509KeyManager(tm);
-        builder.sslSocketFactory(newSSLContext(km, tm).getSocketFactory(), trustManager);
+        builder.sslSocketFactory(newSSLContext(km, new TrustManager[] { trustManager }).getSocketFactory(), trustManager);
         builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? this.userAgent : userAgent));
         builder.eventListener(new EventListener() {
             @Override
@@ -166,7 +171,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, list.toArray(new ProtocolVersion[0]));
     }
 
-    static void randomExtension(Map<Integer, byte[]> clientExtensions, String order, boolean needGrease) {
+    protected static void randomExtension(Map<Integer, byte[]> clientExtensions, String order, boolean needGrease) {
         Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
         clientExtensions.clear();
         int grease = randomGrease();
@@ -194,7 +199,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         }
     }
 
-    public static void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {
+    protected static void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {
+        if (copy == null) {
+            copy = new HashMap<>(clientExtensions);
+            clientExtensions.clear();
+        }
         String[] tokens = order.split("-");
         for(String token : tokens) {
             int type = Integer.parseInt(token);
@@ -237,14 +246,14 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         return cipherSuites;
     }
 
-    ImpersonatorFactory(String cipherSuites, String userAgent) {
+    protected ImpersonatorFactory(String cipherSuites, String userAgent) {
         this.userAgent = userAgent;
         String[] tokens = cipherSuites.split("-");
         this.cipherSuites = new int[tokens.length];
         for (int i = 0; i < tokens.length; i++) {
             String token = tokens[i];
-            if (token.startsWith("0x")) {
-                this.cipherSuites[i] = Integer.parseInt(token.substring(2), 16);
+            if ("GREASE".equalsIgnoreCase(token)) {
+                this.cipherSuites[i] = randomGrease();
             } else {
                 int cipherSuite = Integer.parseInt(token);
                 this.cipherSuites[i] = cipherSuite;
@@ -259,7 +268,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     private static final int[] GREASE = new int[] { 0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a, 0x8a8a, 0x9a9a, 0xaaaa, 0xbaba,
             0xcaca, 0xdada, 0xeaea, 0xfafa };
 
-    static int randomGrease() {
+    protected static int randomGrease() {
         return GREASE[ThreadLocalRandom.current().nextInt(GREASE.length)];
     }
 

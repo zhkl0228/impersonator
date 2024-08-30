@@ -23,7 +23,7 @@ import java.util.Vector;
 class Android extends ImpersonatorFactory {
 
     Android() {
-        super("0x" + Integer.toHexString(randomGrease()) + "-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53",
+        super("GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53",
                 "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36");
     }
 

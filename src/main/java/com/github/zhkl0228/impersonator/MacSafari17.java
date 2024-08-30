@@ -39,7 +39,7 @@ class MacSafari17 extends ImpersonatorFactory {
     private final Type type;
 
     private MacSafari17(Type type, String userAgent) {
-        super("0x" + Integer.toHexString(randomGrease()) + "-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10",
+        super("GREASE-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10",
                 userAgent);
         this.type = type;
     }
