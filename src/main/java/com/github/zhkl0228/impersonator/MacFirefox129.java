@@ -2,7 +2,6 @@ package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
 import okhttp3.PriorityFrame;
-import okhttp3.Request;
 import okhttp3.internal.http2.Settings;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.KeyShareEntry;
@@ -15,6 +14,7 @@ import org.bouncycastle.tls.TlsUtils;
 
 import java.io.IOException;
 import java.security.SecureRandom;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Vector;
 
@@ -29,14 +29,15 @@ class MacFirefox129 extends ImpersonatorFactory {
     }
 
     @Override
-    protected void onInterceptRequest(Request.Builder builder) {
-        builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8");
-        builder.header("Accept-Language", "en-US,en;q=0.5");
-        builder.header("Sec-Fetch-Dest", "document");
-        builder.header("Sec-Fetch-Mode", "navigate");
-        builder.header("Sec-Fetch-Site", "none");
-        builder.header("Sec-Fetch-User", "?1");
-        builder.header("Upgrade-Insecure-Requests", "1");
+    protected void fillRequestHeaders(Map<String, String> headers) {
+        Locale locale = Locale.getDefault();
+        headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8");
+        headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
+        headers.put("Sec-Fetch-Dest", "document");
+        headers.put("Sec-Fetch-Mode", "navigate");
+        headers.put("Sec-Fetch-Site", "none");
+        headers.put("Sec-Fetch-User", "?1");
+        headers.put("Upgrade-Insecure-Requests", "1");
     }
 
     @Override

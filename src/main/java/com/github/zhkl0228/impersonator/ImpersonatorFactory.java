@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Vector;
@@ -42,11 +43,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     public static ImpersonatorApi macChrome() {
-        return new MacChrome127();
+        return new MacChrome();
     }
 
     public static ImpersonatorApi macSafari() {
-        return MacSafari17.newMacSafari();
+        return MacSafari.newMacSafari();
     }
 
     public static ImpersonatorApi macFirefox() {
@@ -54,7 +55,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     public static ImpersonatorApi ios() {
-        return MacSafari17.newIOS();
+        return MacSafari.newIOS();
     }
 
     public static ImpersonatorApi android() {
@@ -100,10 +101,16 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
             Request request = chain.request();
             Request.Builder builder = request.newBuilder();
             if (userAgent != null) {
-                builder.header("User-Agent", userAgent);
+                addHeader(request, builder, "User-Agent", userAgent);
             }
-            onInterceptRequest(builder);
+            onInterceptRequest(request, builder);
             return chain.proceed(builder.build());
+        }
+    }
+
+    private void addHeader(Request request, Request.Builder builder, String name, String value) {
+        if (request.header(name) == null) {
+            builder.header(name, value);
         }
     }
 
@@ -143,7 +150,15 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
     }
 
-    protected abstract void onInterceptRequest(Request.Builder builder);
+    private void onInterceptRequest(Request request, Request.Builder builder) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        fillRequestHeaders(headers);
+        for(Map.Entry<String, String> entry : headers.entrySet()) {
+            addHeader(request, builder, entry.getKey(), entry.getValue());
+        }
+    }
+
+    protected abstract void fillRequestHeaders(Map<String, String> headers);
 
     protected final void addSignatureAlgorithmsExtension(Map<Integer, byte[]> clientExtensions, SignatureAndHashAlgorithm... signatureAndHashAlgorithms) throws IOException {
         Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>(signatureAndHashAlgorithms.length);

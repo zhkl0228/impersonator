@@ -12,10 +12,6 @@ import okhttp3.ResponseBody;
 
 abstract class SSLProviderTest extends TestCase {
 
-    protected final JSONObject doTestBrowserLeaks() throws Exception {
-        return doTestURL("https://tls.browserleaks.com/json");
-    }
-
     protected abstract ImpersonatorApi createImpersonatorApi();
 
     protected final JSONObject doTestURL(String url) throws Exception {
@@ -34,7 +30,7 @@ abstract class SSLProviderTest extends TestCase {
     protected void doTestBrowserLeaks(String ja3n_hash, String ja3n_text, String ja3_hash, String ja3_text,
                                       String userAgent,
                                       String akamai_hash, String akamai_text) throws Exception {
-        JSONObject obj = doTestBrowserLeaks();
+        JSONObject obj = doTestURL("https://tls.browserleaks.com/json");
         assertEquals(String.format("\n%s\n%s", ja3n_text, obj.getString("ja3n_text")),
                 ja3n_hash, obj.getString("ja3n_hash"));
         if (ja3_hash != null) {

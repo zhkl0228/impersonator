@@ -5,7 +5,7 @@ public class MacSafariTest extends SSLProviderTest {
     public void testBrowserLeaks() throws Exception {
         doTestBrowserLeaks("44f7ed5185d22c92b96da72dbe68d307", "771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-5-10-11-13-16-18-21-23-27-43-45-51-65281,29-23-24-25,0",
                 "773906b0efdefa24a7f2b8eb6985bf37", "771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-23-65281-10-11-16-5-13-18-51-45-43-27-21,29-23-24-25,0",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
                 "dda308d35f4e5db7b52a61720ca1b122", "4:4194304;3:100|10485760|0|m,s,p,a");
     }
 

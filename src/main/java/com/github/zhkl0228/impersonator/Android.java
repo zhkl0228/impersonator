@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
-import okhttp3.Request;
 import org.bouncycastle.tls.CertificateCompressionAlgorithm;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.KeyShareEntry;
@@ -14,6 +13,7 @@ import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Vector;
 
@@ -29,15 +29,16 @@ class Android extends ImpersonatorFactory {
 
     @Override
     protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
-        MacChrome127.configChromeHttp2Settings(http2Connection);
+        MacChrome.configChromeHttp2Settings(http2Connection);
     }
 
     @Override
-    protected void onInterceptRequest(Request.Builder builder) {
-        builder.header("Accept-Language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7");
-        builder.header("Sec-Fetch-Dest", "empty");
-        builder.header("Sec-Fetch-Mode", "navigate");
-        builder.header("Sec-Fetch-Site", "none");
+    protected void fillRequestHeaders(Map<String, String> headers) {
+        Locale locale = Locale.getDefault();
+        headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
+        headers.put("Sec-Fetch-Dest", "empty");
+        headers.put("Sec-Fetch-Mode", "navigate");
+        headers.put("Sec-Fetch-Site", "none");
     }
 
     @Override
@@ -58,12 +59,12 @@ class Android extends ImpersonatorFactory {
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
         clientExtensions.put(ExtensionType.encrypted_client_hello, TlsUtils.EMPTY_BYTES);
-        MacChrome127.addApplicationSettingsExtension(clientExtensions);
+        MacChrome.addApplicationSettingsExtension(clientExtensions);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             keyShareEntries.add(0, new KeyShareEntry(randomGrease(), new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
-        MacChrome127.randomExtension(clientExtensions, null, true);
+        MacChrome.randomExtension(clientExtensions, null, true);
     }
 }

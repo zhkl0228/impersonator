@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
-import okhttp3.Request;
 import okhttp3.internal.http2.Settings;
 import org.bouncycastle.tls.CertificateCompressionAlgorithm;
 import org.bouncycastle.tls.ExtensionType;
@@ -18,33 +17,35 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Vector;
 
 /**
  * v127.0.6533.120
  */
-class MacChrome127 extends ImpersonatorFactory {
+class MacChrome extends ImpersonatorFactory {
 
-    MacChrome127() {
+    MacChrome() {
         super("GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36");
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
     }
 
     @Override
-    protected void onInterceptRequest(Request.Builder builder) {
-        builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
-        builder.header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,zh-TW;q=0.7,mt;q=0.6");
-        builder.header("Cache-Control", "max-age=0");
-        builder.header("Cookie", "");
-        builder.header("Sec-Ch-Ua", "\"Not)A;Brand\";v=\"99\", \"Google Chrome\";v=\"127\", \"Chromium\";v=\"127\"");
-        builder.header("Sec-Ch-Ua-Mobile", "?0");
-        builder.header("Sec-Ch-Ua-Platform", "\"macOS\"");
-        builder.header("Sec-Fetch-Dest", "document");
-        builder.header("Sec-Fetch-Mode", "navigate");
-        builder.header("Sec-Fetch-Site", "none");
-        builder.header("Sec-Fetch-User", "?1");
-        builder.header("Upgrade-Insecure-Requests", "1");
+    protected void fillRequestHeaders(Map<String, String> headers) {
+        Locale locale = Locale.getDefault();
+        headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
+        headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
+        headers.put("Cache-Control", "max-age=0");
+        headers.put("Cookie", "");
+        headers.put("Sec-Ch-Ua", "\"Not)A;Brand\";v=\"99\", \"Google Chrome\";v=\"127\", \"Chromium\";v=\"127\"");
+        headers.put("Sec-Ch-Ua-Mobile", "?0");
+        headers.put("Sec-Ch-Ua-Platform", "\"macOS\"");
+        headers.put("Sec-Fetch-Dest", "document");
+        headers.put("Sec-Fetch-Mode", "navigate");
+        headers.put("Sec-Fetch-Site", "none");
+        headers.put("Sec-Fetch-User", "?1");
+        headers.put("Upgrade-Insecure-Requests", "1");
     }
 
     static void configChromeHttp2Settings(Http2Connection http2Connection) {
