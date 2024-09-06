@@ -12,7 +12,7 @@
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <kotlin.version>1.9.20</kotlin.version>
+        <kotlin.version>1.9.21</kotlin.version>
         <maven.test.skip>false</maven.test.skip>
     </properties>
     <name>impersonator</name>
@@ -194,7 +194,7 @@
         <dependency>
             <groupId>com.squareup.okio</groupId>
             <artifactId>okio</artifactId>
-            <version>3.6.0</version>
+            <version>3.9.0</version>
         </dependency>
         <dependency>
             <groupId>org.codehaus.mojo</groupId>
