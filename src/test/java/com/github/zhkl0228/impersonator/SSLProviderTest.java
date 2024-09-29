@@ -6,6 +6,7 @@ import com.alibaba.fastjson.parser.Feature;
 import com.alibaba.fastjson.serializer.SerializerFeature;
 import junit.framework.TestCase;
 import okhttp3.OkHttpClient;
+import okhttp3.OkHttpClientFactory;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
@@ -15,7 +16,7 @@ abstract class SSLProviderTest extends TestCase {
     protected abstract ImpersonatorApi createImpersonatorApi();
 
     protected final JSONObject doTestURL(String url) throws Exception {
-        OkHttpClient client = createImpersonatorApi().newHttpClient();
+        OkHttpClient client = OkHttpClientFactory.create(createImpersonatorApi()).newHttpClient();
         Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
             ResponseBody body = response.body();

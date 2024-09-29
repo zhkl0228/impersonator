@@ -28,12 +28,12 @@ class Android extends ImpersonatorFactory {
     }
 
     @Override
-    protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+    public void onHttp2ConnectionInit(Http2Connection http2Connection) {
         MacChrome.configChromeHttp2Settings(http2Connection);
     }
 
     @Override
-    protected void fillRequestHeaders(Map<String, String> headers) {
+    public void fillRequestHeaders(Map<String, String> headers) {
         Locale locale = Locale.getDefault();
         headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
         headers.put("Sec-Fetch-Dest", "empty");

@@ -1,7 +1,5 @@
 package com.github.zhkl0228.impersonator;
 
-import okhttp3.OkHttpClient;
-
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
@@ -9,12 +7,6 @@ import javax.net.ssl.TrustManager;
 public interface ImpersonatorApi {
 
     SSLContext newSSLContext(KeyManager[] km, TrustManager[] tm);
-
-    OkHttpClient newHttpClient();
-
-    OkHttpClient newHttpClient(String userAgent);
-
-    OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent);
 
     void setExtensionListener(ExtensionListener extensionListener);
 

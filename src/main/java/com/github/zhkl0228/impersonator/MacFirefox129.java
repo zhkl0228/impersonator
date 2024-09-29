@@ -2,7 +2,7 @@ package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
 import okhttp3.PriorityFrame;
-import okhttp3.internal.http2.Settings;
+import okhttp3.Settings;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.KeyShareEntry;
 import org.bouncycastle.tls.NamedGroup;
@@ -29,7 +29,7 @@ class MacFirefox129 extends ImpersonatorFactory {
     }
 
     @Override
-    protected void fillRequestHeaders(Map<String, String> headers) {
+    public void fillRequestHeaders(Map<String, String> headers) {
         Locale locale = Locale.getDefault();
         headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8");
         headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
@@ -41,7 +41,7 @@ class MacFirefox129 extends ImpersonatorFactory {
     }
 
     @Override
-    protected void onHttp2ConnectionInit(Http2Connection http2Connection) {
+    public void onHttp2ConnectionInit(Http2Connection http2Connection) {
         http2Connection.removeSetting(Settings.INITIAL_WINDOW_SIZE);
         http2Connection.setSetting(Settings.HEADER_TABLE_SIZE, 65536);
         http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 131072);
