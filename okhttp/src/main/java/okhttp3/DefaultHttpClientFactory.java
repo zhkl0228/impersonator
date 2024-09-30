@@ -14,13 +14,15 @@ import java.util.Map;
 class DefaultHttpClientFactory extends OkHttpClientFactory {
 
     private final ImpersonatorFactory api;
+    private final OkHttpClientBuilderFactory okHttpClientBuilderFactory;
 
-    public DefaultHttpClientFactory(ImpersonatorApi api) {
+    public DefaultHttpClientFactory(ImpersonatorApi api, OkHttpClientBuilderFactory okHttpClientBuilderFactory) {
         super();
         if (!(api instanceof ImpersonatorFactory)) {
             throw new UnsupportedOperationException("Only ImpersonatorFactory instances are supported");
         }
         this.api = (ImpersonatorFactory) api;
+        this.okHttpClientBuilderFactory = okHttpClientBuilderFactory;
     }
 
     @Override
@@ -37,7 +39,7 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
 
     @Override
     public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent) {
-        OkHttpClient.Builder builder = api.newOkHttpClientBuilder();
+        OkHttpClient.Builder builder = okHttpClientBuilderFactory == null ? new OkHttpClient.Builder() : okHttpClientBuilderFactory.newOkHttpClientBuilder();
         X509TrustManager trustManager = getX509KeyManager(tm);
         builder.sslSocketFactory(api.newSSLContext(km, new TrustManager[]{trustManager}).getSocketFactory(), trustManager);
         builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? api.getUserAgent() : userAgent));

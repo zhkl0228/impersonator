@@ -8,7 +8,11 @@ import javax.net.ssl.TrustManager;
 public abstract class OkHttpClientFactory {
 
     public static OkHttpClientFactory create(ImpersonatorApi api) {
-        return new DefaultHttpClientFactory(api);
+        return create(api, null);
+    }
+
+    public static OkHttpClientFactory create(ImpersonatorApi api, OkHttpClientBuilderFactory okHttpClientBuilderFactory) {
+        return new DefaultHttpClientFactory(api, okHttpClientBuilderFactory);
     }
 
     public abstract OkHttpClient newHttpClient();

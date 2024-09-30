@@ -1,7 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
 import okhttp3.Http2Connection;
-import okhttp3.OkHttpClient;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
 import org.bouncycastle.tls.ExtensionType;
@@ -70,10 +69,6 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         } catch (NoSuchAlgorithmException | NoSuchProviderException | KeyManagementException e) {
             throw new IllegalStateException("newContext", e);
         }
-    }
-
-    public OkHttpClient.Builder newOkHttpClientBuilder() {
-        return new OkHttpClient.Builder();
     }
 
     /**

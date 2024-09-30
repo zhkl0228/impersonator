@@ -37,7 +37,7 @@ import java.util.Collections;
  * WolfSSLEngineHelper.decoupleParams() which creates a SSLParameters object
  * from a WolfSSLParameters.
  */
-final class WolfSSLParameters {
+public final class WolfSSLParameters {
 
     private String[] cipherSuites;
     private String[] protocols;
@@ -131,15 +131,15 @@ final class WolfSSLParameters {
         }
     }
 
-    String getEndpointIdentificationAlgorithm() {
+    public String getEndpointIdentificationAlgorithm() {
         return this.endpointIdAlgorithm;
     }
 
-    void setEndpointIdentificationAlgorithm(String algorithm) {
+    public void setEndpointIdentificationAlgorithm(String algorithm) {
         this.endpointIdAlgorithm = algorithm;
     }
 
-    void setServerNames(List<WolfSSLSNIServerName> serverNames) {
+    public void setServerNames(List<WolfSSLSNIServerName> serverNames) {
         if (serverNames == null) {
             this.serverNames = null;
         } else {
@@ -148,7 +148,7 @@ final class WolfSSLParameters {
         }
     }
 
-    List<WolfSSLSNIServerName> getServerNames() {
+    public List<WolfSSLSNIServerName> getServerNames() {
         if (this.serverNames == null) {
             return null;
         } else {
@@ -198,14 +198,14 @@ final class WolfSSLParameters {
         return this.useCipherSuiteOrder;
     }
 
-    String[] getApplicationProtocols() {
+    public String[] getApplicationProtocols() {
         if (this.applicationProtocols == null) {
             return null;
         }
         return this.applicationProtocols.clone();
     }
 
-    void setApplicationProtocols(String[] protocols) {
+    public void setApplicationProtocols(String[] protocols) {
         if (protocols == null) {
             this.applicationProtocols = new String[0];
         }

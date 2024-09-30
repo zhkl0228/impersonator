@@ -12,14 +12,28 @@ website for no obvious reason, you can give `impersonator` a try.
 
 ## Usage
 
+TLS/JA3/JA4 fingerprints impersonation
 ```xml
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
-    <artifactId>impersonator</artifactId>
-    <version>1.0.6</version>
+    <artifactId>impersonator-bctls</artifactId>
+    <version>1.0.7</version>
+</dependency>
+```
+
+TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
+```xml
+<dependency>
+    <groupId>com.github.zhkl0228</groupId>
+    <artifactId>impersonator-okhttp</artifactId>
+    <version>1.0.7</version>
 </dependency>
 ```
 - [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
 ```java
-OkHttpClient client = ImpersonatorFactory.ios().newHttpClient();
+ImpersonatorApi api = ImpersonatorFactory.ios();
+SSLContext context = api.newSSLContext(null, null); // for TLS/JA3/JA4 fingerprints impersonation
+
+OkHttpClientFactory factory = OkHttpClientFactory.create(api);
+OkHttpClient client = factory.newHttpClient(); // for TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
 ```

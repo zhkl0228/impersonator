@@ -26,7 +26,7 @@ package com.wolfssl.provider.jsse;
  */
 public class WolfSSLGenericHostName extends WolfSSLSNIServerName
 {
-    WolfSSLGenericHostName(int type, byte[] encoded) {
+    public WolfSSLGenericHostName(int type, byte[] encoded) {
         super(type, encoded);
     }
 }

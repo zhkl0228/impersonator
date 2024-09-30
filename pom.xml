@@ -6,13 +6,17 @@
 
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator</artifactId>
-    <version>1.0.6</version>
+    <packaging>pom</packaging>
+    <version>1.0.7</version>
+    <modules>
+        <module>bctls</module>
+        <module>okhttp</module>
+    </modules>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <kotlin.version>1.9.21</kotlin.version>
         <maven.test.skip>false</maven.test.skip>
     </properties>
     <name>impersonator</name>
@@ -88,96 +92,6 @@
                 <artifactId>maven-resources-plugin</artifactId>
                 <version>3.3.1</version>
             </plugin>
-            <plugin>
-                <groupId>org.jetbrains.kotlin</groupId>
-                <artifactId>kotlin-maven-plugin</artifactId>
-                <version>${kotlin.version}</version>
-                <executions>
-                    <execution>
-                        <id>compile</id>
-                        <phase>compile</phase>
-                        <goals>
-                            <goal>compile</goal>
-                        </goals>
-                        <configuration>
-                            <sourceDirs>
-                                <source>src/main/kotlin</source>
-                                <source>target/generated-sources/annotations</source>
-                            </sourceDirs>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>test-compile</id>
-                        <phase>test-compile</phase>
-                        <goals>
-                            <goal>test-compile</goal>
-                        </goals>
-                        <configuration>
-                            <sourceDirs>
-                                <source>src/test/kotlin</source>
-                                <source>target/generated-test-sources/test-annotations</source>
-                            </sourceDirs>
-                        </configuration>
-                    </execution>
-                </executions>
-                <configuration>
-                    <jvmTarget>1.8</jvmTarget>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.0.0</version>
-                <executions>
-                    <execution>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>add-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>src/main/kotlin</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
-                <executions>
-                    <execution>
-                        <id>default-compile</id>
-                        <phase>none</phase>
-                    </execution>
-                    <execution>
-                        <id>default-testCompile</id>
-                        <phase>none</phase>
-                    </execution>
-                    <execution>
-                        <id>compile</id>
-                        <phase>compile</phase>
-                        <goals>
-                            <goal>compile</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>testCompile</id>
-                        <phase>test-compile</phase>
-                        <goals>
-                            <goal>testCompile</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <source>8</source>
-                    <target>8</target>
-                    <compilerArgs>
-                        <arg>-Xlint:-options</arg>
-                    </compilerArgs>
-                </configuration>
-            </plugin>
         </plugins>
     </build>
     <dependencies>
@@ -185,28 +99,6 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>2.0.16</version>
-        </dependency>
-        <dependency>
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bcutil-jdk18on</artifactId>
-            <version>1.78.1</version>
-        </dependency>
-        <dependency>
-            <groupId>com.squareup.okio</groupId>
-            <artifactId>okio</artifactId>
-            <version>3.9.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.codehaus.mojo</groupId>
-            <artifactId>animal-sniffer-annotations</artifactId>
-            <version>1.23</version>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>org.scijava</groupId>
-            <artifactId>native-lib-loader</artifactId>
-            <version>2.5.0</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -224,18 +116,6 @@
             <groupId>com.alibaba</groupId>
             <artifactId>fastjson</artifactId>
             <version>1.2.83</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.wildfly.openssl</groupId>
-            <artifactId>wildfly-openssl</artifactId>
-            <version>2.2.5.Final</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains.kotlin</groupId>
-            <artifactId>kotlin-test-junit</artifactId>
-            <version>${kotlin.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -18,7 +18,11 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
-package com.wolfssl.provider.jsse;
+package com.wolfssl.provider.jsse.adapter;
+
+import com.wolfssl.provider.jsse.WolfSSLGenericHostName;
+import com.wolfssl.provider.jsse.WolfSSLParameters;
+import com.wolfssl.provider.jsse.WolfSSLSNIServerName;
 
 import java.util.List;
 import java.util.ArrayList;
