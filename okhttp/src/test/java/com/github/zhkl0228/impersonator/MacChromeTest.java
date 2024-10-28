@@ -1,5 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
+import org.bouncycastle.tls.KeyShareEntry;
 import org.bouncycastle.tls.OfferedPsks;
 import org.bouncycastle.tls.PskIdentity;
 import org.bouncycastle.tls.TlsExtensionsUtils;
@@ -15,7 +16,20 @@ public class MacChromeTest extends SSLProviderTest {
     }
 
     public void testScrapFlyJa3() throws Exception {
-        doTestScrapFlyJa3("58e05a62bade1452454ea0b0cc49c971", "version:772|ch_ciphers:GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281-GREASE|groups:GREASE-25497-29-23-24|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-25497-29|psk:1|signature_algs:1027-2052-1025-1283-2053-1281-2054-1537|early_data:0|");
+        try {
+            extensionListener = clientExtensions -> {
+                Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
+                if (keyShareEntries != null) {
+                    final int X25519Kyber768Draft00 = 0x6399;
+                    keyShareEntries.add(0, new KeyShareEntry(X25519Kyber768Draft00, new byte[1]));
+                    keyShareEntries.add(0, new KeyShareEntry(ImpersonatorFactory.randomGrease(), new byte[1]));
+                    TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
+                }
+            };
+            doTestScrapFlyJa3("58e05a62bade1452454ea0b0cc49c971", "version:772|ch_ciphers:GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281-GREASE|groups:GREASE-25497-29-23-24|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-25497-29|psk:1|signature_algs:1027-2052-1025-1283-2053-1281-2054-1537|early_data:0|");
+        } finally {
+            extensionListener = null;
+        }
     }
 
     public void testScrapFlyHttp2() throws Exception {

@@ -15,7 +15,6 @@ public interface TlsSecret
      * @param buf array containing the input data.
      * @param off offset into the input array the input starts at.
      * @param len the length of the input data.
-     * @return
      */
     byte[] calculateHMAC(int cryptoHashAlgorithm, byte[] buf, int off, int len);
 

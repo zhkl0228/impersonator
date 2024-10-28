@@ -4,7 +4,6 @@ import okhttp3.Http2Connection;
 import okhttp3.Settings;
 import org.bouncycastle.tls.CertificateCompressionAlgorithm;
 import org.bouncycastle.tls.ExtensionType;
-import org.bouncycastle.tls.KeyShareEntry;
 import org.bouncycastle.tls.NamedGroup;
 import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.PskKeyExchangeMode;
@@ -12,6 +11,7 @@ import org.bouncycastle.tls.SignatureAndHashAlgorithm;
 import org.bouncycastle.tls.SignatureScheme;
 import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
+import org.bouncycastle.util.encoders.Hex;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutput;
@@ -19,7 +19,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Vector;
 
 /**
  * v127.0.6533.120
@@ -93,13 +92,7 @@ class MacChrome extends ImpersonatorFactory {
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         addApplicationSettingsExtension(clientExtensions);
-        clientExtensions.put(ExtensionType.encrypted_client_hello, TlsUtils.EMPTY_BYTES);
-        Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
-        if (keyShareEntries != null) {
-            keyShareEntries.add(0, new KeyShareEntry(X25519Kyber768Draft00, new byte[1]));
-            keyShareEntries.add(0, new KeyShareEntry(randomGrease(), new byte[1]));
-            TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
-        }
+        clientExtensions.put(ExtensionType.encrypted_client_hello, Hex.decodeStrict("000001000138002054b1fcc8868629a9ec88d5b183f9e26917229f69035b4ac94e833dd431bc4a5e00902f73c090762306de7f3fe1bd8d6ea5e4a577715d7385301e7340140f2970e5e58ad4c6584456035ec1f079afbbba4ad0e1292e3b7dfc3f9305a863e4b152c6880def239a16843469fbc2a46846b2a2007b6d97a4d5f897f5d6df2b33b31e3f306ac3f4fe5d229dfffe3dcf209c710430d8f4bb97b86be8ef1437425a3c693dfed5afa5c7ad0b84965060bd10d805cee0"));
         randomExtension(clientExtensions, null, true);
     }
 }
