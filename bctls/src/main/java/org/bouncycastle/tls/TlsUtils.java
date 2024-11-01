@@ -50,6 +50,8 @@ import java.math.BigInteger;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Vector;
+import java.util.zip.DataFormatException;
+import java.util.zip.Inflater;
 
 /**
  * Some helper functions for the TLS API.
@@ -5206,6 +5208,79 @@ public class TlsUtils
 
         securityParameters.peerCertificate = serverCertificate;
         securityParameters.tlsServerEndPoint = endPointHash.toByteArray();
+
+        TlsAuthentication authentication = client.getAuthentication();
+        if (null == authentication)
+        {
+            throw new TlsFatalAlert(AlertDescription.internal_error);
+        }
+
+        return authentication;
+    }
+
+    private static byte[] zlibDecompress(final byte[] data) throws IOException {
+        if (data == null || data.length == 0) {
+            throw new IllegalArgumentException();
+        }
+
+        Inflater decompressor = new Inflater();
+        decompressor.reset();
+        decompressor.setInput(data);
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream(data.length)) {
+            byte[] buf = new byte[1024];
+            while (!decompressor.finished()) {
+                int len = decompressor.inflate(buf);
+                baos.write(buf, 0, len);
+            }
+            decompressor.end();
+            return baos.toByteArray();
+        } catch (DataFormatException e) {
+            throw new TlsFatalAlert(AlertDescription.unexpected_message, e);
+        }
+    }
+
+    static TlsAuthentication receive13ServerCompressedCertificate(TlsClientContext clientContext, TlsClient client,
+                                                        ByteArrayInputStream buf) throws IOException
+    {
+        int algorithm = TlsUtils.readUint16(buf);
+        int uncompressedLength = TlsUtils.readUint24(buf);
+        byte[] compressed = TlsUtils.readOpaque24(buf);
+        if (algorithm != CertificateCompressionAlgorithm.zlib) {
+            throw new TlsFatalAlert(AlertDescription.unexpected_message, "algorithm=" + algorithm);
+        }
+        TlsProtocol.assertEmpty(buf);
+
+        SecurityParameters securityParameters = clientContext.getSecurityParametersHandshake();
+        if (null != securityParameters.getPeerCertificate())
+        {
+            throw new TlsFatalAlert(AlertDescription.unexpected_message);
+        }
+
+        Certificate.ParseOptions options = new Certificate.ParseOptions()
+                .setCertificateType(securityParameters.getServerCertificateType())
+                .setMaxChainLength(client.getMaxCertificateChainLength());
+
+        byte[] decompressed = zlibDecompress(compressed);
+        if (decompressed.length != uncompressedLength) {
+            throw new TlsFatalAlert(AlertDescription.unexpected_message, "uncompressedLength=" + uncompressedLength + ", length=" + decompressed.length);
+        }
+        buf = new ByteArrayInputStream(decompressed);
+        Certificate serverCertificate = Certificate.parse(options, clientContext, buf, null);
+
+        TlsProtocol.assertEmpty(buf);
+
+        if (serverCertificate.getCertificateRequestContext().length > 0)
+        {
+            throw new TlsFatalAlert(AlertDescription.illegal_parameter);
+        }
+
+        if (serverCertificate.isEmpty())
+        {
+            throw new TlsFatalAlert(AlertDescription.decode_error);
+        }
+
+        securityParameters.peerCertificate = serverCertificate;
+        securityParameters.tlsServerEndPoint = null;
 
         TlsAuthentication authentication = client.getAuthentication();
         if (null == authentication)

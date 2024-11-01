@@ -17,7 +17,7 @@ public class MacChromeTest extends SSLProviderTest {
 
     public void testScrapFlyJa3() throws Exception {
         try {
-            extensionListener = clientExtensions -> {
+            extensionListener = (clientHello, clientExtensions) -> {
                 Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
                 if (keyShareEntries != null) {
                     final int X25519Kyber768Draft00 = 0x6399;
@@ -42,7 +42,7 @@ public class MacChromeTest extends SSLProviderTest {
 
     public void testBrowserScan() throws Exception {
         try {
-            extensionListener = clientExtensions -> {
+            extensionListener = (clientHello, clientExtensions) -> {
                 Vector<PskIdentity> identities = new Vector<>();
                 identities.add(new PskIdentity(new byte[113], 1));
                 Vector<byte[]> binders = new Vector<>();
@@ -58,7 +58,7 @@ public class MacChromeTest extends SSLProviderTest {
 
     public void testPeetPrint() throws Exception {
         try {
-            extensionListener = clientExtensions -> {
+            extensionListener = (clientHello, clientExtensions) -> {
                 Vector<PskIdentity> identities = new Vector<>();
                 identities.add(new PskIdentity(new byte[113], 1));
                 Vector<byte[]> binders = new Vector<>();

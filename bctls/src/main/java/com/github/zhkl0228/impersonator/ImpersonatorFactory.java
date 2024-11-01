@@ -3,6 +3,7 @@ package com.github.zhkl0228.impersonator;
 import okhttp3.Http2Connection;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
+import org.bouncycastle.tls.ClientHello;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.SignatureAndHashAlgorithm;
@@ -13,6 +14,7 @@ import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
@@ -107,11 +109,15 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     protected static void randomExtension(Map<Integer, byte[]> clientExtensions, String order, boolean needGrease) {
+        randomExtension(clientExtensions, order, needGrease ? TlsUtils.EMPTY_BYTES : null, needGrease ? TlsUtils.EMPTY_BYTES : null);
+    }
+
+    protected static void randomExtension(Map<Integer, byte[]> clientExtensions, String order, byte[] firstGreaseData, byte[] lastGreaseData) {
         Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
         clientExtensions.clear();
         int grease = randomGrease();
-        if (needGrease) {
-            clientExtensions.put(grease, TlsUtils.EMPTY_BYTES);
+        if (firstGreaseData != null) {
+            clientExtensions.put(grease, firstGreaseData);
         }
         if (order == null) {
             List<Integer> keys = new ArrayList<>(copy.keySet());
@@ -123,11 +129,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         } else {
             sortExtensions(clientExtensions, copy, order);
         }
-        if (needGrease) {
+        if (lastGreaseData != null) {
             while (true) {
                 int random = randomGrease();
                 if (random != grease) {
-                    clientExtensions.put(random, TlsUtils.EMPTY_BYTES);
+                    clientExtensions.put(random, lastGreaseData);
                     break;
                 }
             }
@@ -154,13 +160,22 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         clientExtensions.put(ExtensionType.renegotiation_info, TlsUtils.encodeOpaque8(TlsUtils.EMPTY_BYTES));
     }
 
+    public static int calcClientHelloMessageLength(ClientHello clientHello) {
+        try (ByteArrayOutputStream message = new ByteArrayOutputStream(512)) {
+            clientHello.encode(null, message);
+            return message.size() + 4;
+        } catch (IOException e) {
+            throw new IllegalStateException("calcClientHelloMessageLength", e);
+        }
+    }
+
     @Override
-    public final void onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+    public final void onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.remove(ExtensionType.status_request_v2);
         clientExtensions.remove(ExtensionType.encrypt_then_mac);
         onSendClientHelloMessageInternal(clientExtensions);
         if (extensionListener != null) {
-            extensionListener.onClientExtensionsBuilt(clientExtensions);
+            extensionListener.onClientExtensionsBuilt(clientHello, clientExtensions);
         }
     }
 

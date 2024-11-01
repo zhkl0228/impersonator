@@ -58,7 +58,7 @@ public class Certificate
         {
             this.certificateType = certificateType;
             return this;
-        }        
+        }
     }
 
     private static CertificateEntry[] convert(TlsCertificate[] certificateList)

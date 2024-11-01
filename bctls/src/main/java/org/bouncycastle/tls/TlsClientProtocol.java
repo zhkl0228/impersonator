@@ -332,12 +332,30 @@ public class TlsClientProtocol
             }
             break;
         }
+        case HandshakeType.compressed_certificate: {
+            switch (this.connection_state)
+            {
+                case CS_SERVER_ENCRYPTED_EXTENSIONS:
+                {
+                    skip13CertificateRequest();
+                    // NB: Fall through to next case label
+                }
+                case CS_SERVER_CERTIFICATE_REQUEST:
+                {
+                    receive13ServerCompressedCertificate(buf);
+                    this.connection_state = CS_SERVER_CERTIFICATE;
+                    break;
+                }
+                default:
+                    throw new TlsFatalAlert(AlertDescription.unexpected_message, "connection_state=" + this.connection_state);
+            }
+            break;
+        }
 
         case HandshakeType.certificate_status:
         case HandshakeType.certificate_url:
         case HandshakeType.client_hello:
         case HandshakeType.client_key_exchange:
-        case HandshakeType.compressed_certificate:
         case HandshakeType.end_of_early_data:
         case HandshakeType.hello_request:
         case HandshakeType.hello_verify_request:
@@ -1572,6 +1590,18 @@ public class TlsClientProtocol
         TlsUtils.readOpaque16(buf);
         TlsUtils.readOpaque16(buf);
         assertEmpty(buf);
+    }
+
+    protected void receive13ServerCompressedCertificate(ByteArrayInputStream buf) throws IOException {
+        if (selectedPSK13)
+        {
+            throw new TlsFatalAlert(AlertDescription.unexpected_message);
+        }
+
+        this.authentication = TlsUtils.receive13ServerCompressedCertificate(tlsClientContext, tlsClient, buf);
+
+        // NOTE: In TLS 1.3 we don't have to wait for a possible CertificateStatus message.
+        handleServerCertificate();
     }
 
     protected void receive13ServerCertificate(ByteArrayInputStream buf)

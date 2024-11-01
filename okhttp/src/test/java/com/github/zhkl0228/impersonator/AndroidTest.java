@@ -30,7 +30,7 @@ public class AndroidTest extends SSLProviderTest {
 
     public void testBrowserScan() throws Exception {
         try {
-            extensionListener = clientExtensions -> {
+            extensionListener = (clientHello, clientExtensions) -> {
                 Vector<PskIdentity> identities = new Vector<>();
                 identities.add(new PskIdentity(new byte[113], 1));
                 Vector<byte[]> binders = new Vector<>();

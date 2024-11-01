@@ -27,7 +27,7 @@ class ImpersonateTlsClientProtocol extends TlsClientProtocol {
     @Override
     protected void sendClientHelloMessage() throws IOException {
         try {
-            impersonator.onSendClientHelloMessage(clientExtensions);
+            impersonator.onSendClientHelloMessage(clientHello, clientExtensions);
         } catch (IOException e) {
             throw new IllegalStateException("sendClientHelloMessage", e);
         }
