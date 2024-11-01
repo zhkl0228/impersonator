@@ -3,15 +3,21 @@ package okhttp3;
 import com.github.zhkl0228.impersonator.ImpersonatorApi;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 class DefaultHttpClientFactory extends OkHttpClientFactory {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultHttpClientFactory.class);
 
     private final ImpersonatorFactory api;
     private final OkHttpClientBuilderFactory okHttpClientBuilderFactory;
@@ -27,7 +33,14 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
 
     @Override
     public OkHttpClient newHttpClient() {
-        return newHttpClient(null);
+        return newHttpClient((String) null);
+    }
+
+    @Override
+    public OkHttpClient newHttpClient(SocketFactory socketFactory) {
+        return newHttpClientInternal(null, new TrustManager[]{
+                new ImpersonatorFactory.DummyX509KeyManager()
+        }, null, socketFactory);
     }
 
     @Override
@@ -39,8 +52,15 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
 
     @Override
     public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent) {
+        return newHttpClientInternal(km, tm, userAgent, null);
+    }
+
+    private OkHttpClient newHttpClientInternal(KeyManager[] km, TrustManager[] tm, String userAgent, SocketFactory socketFactory) {
         OkHttpClient.Builder builder = okHttpClientBuilderFactory == null ? new OkHttpClient.Builder() : okHttpClientBuilderFactory.newOkHttpClientBuilder();
         X509TrustManager trustManager = getX509KeyManager(tm);
+        if (socketFactory != null) {
+            builder.socketFactory(new OkHttpClientSocketFactory(socketFactory));
+        }
         builder.sslSocketFactory(api.newSSLContext(km, new TrustManager[]{trustManager}).getSocketFactory(), trustManager);
         builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? api.getUserAgent() : userAgent));
         builder.eventListener(new EventListener() {
@@ -50,6 +70,33 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
             }
         });
         return builder.build();
+    }
+
+    private static class OkHttpClientSocketFactory extends javax.net.SocketFactory {
+        private final SocketFactory socketFactory;
+        OkHttpClientSocketFactory(SocketFactory socketFactory) {
+            this.socketFactory = socketFactory;
+        }
+        @Override
+        public Socket createSocket() throws IOException {
+            return socketFactory.newSocket();
+        }
+        @Override
+        public Socket createSocket(String host, int port) {
+            throw new UnsupportedOperationException();
+        }
+        @Override
+        public Socket createSocket(String host, int port, InetAddress localHost, int localPort) {
+            throw new UnsupportedOperationException();
+        }
+        @Override
+        public Socket createSocket(InetAddress host, int port) {
+            throw new UnsupportedOperationException();
+        }
+        @Override
+        public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     private class ImpersonatorInterceptor implements Interceptor {
@@ -64,25 +111,26 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
         public Response intercept(@NotNull Chain chain) throws IOException {
             Request request = chain.request();
             Request.Builder builder = request.newBuilder();
-            if (userAgent != null) {
-                addHeader(request, builder, "User-Agent", userAgent);
+            Map<String, String> headers = new LinkedHashMap<>();
+            Headers requestHeaders = request.headers();
+            for (String name : requestHeaders.names()) {
+                String value = requestHeaders.get(name);
+                log.debug("intercept name={} value={}", name, value);
+                builder.removeHeader(name);
+                headers.put(name, value);
             }
-            onInterceptRequest(request, builder);
+            if (userAgent != null) {
+                headers.put("User-Agent", userAgent);
+            }
+            onInterceptRequest(builder, headers);
             return chain.proceed(builder.build());
         }
     }
 
-    private void onInterceptRequest(Request request, Request.Builder builder) {
-        Map<String, String> headers = new LinkedHashMap<>();
+    private void onInterceptRequest(Request.Builder builder, Map<String, String> headers) {
         api.fillRequestHeaders(headers);
         for (Map.Entry<String, String> entry : headers.entrySet()) {
-            addHeader(request, builder, entry.getKey(), entry.getValue());
-        }
-    }
-
-    private void addHeader(Request request, Request.Builder builder, String name, String value) {
-        if (request.header(name) == null) {
-            builder.header(name, value);
+            builder.header(entry.getKey(), entry.getValue());
         }
     }
 

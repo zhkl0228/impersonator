@@ -17,6 +17,8 @@ public abstract class OkHttpClientFactory {
 
     public abstract OkHttpClient newHttpClient();
 
+    public abstract OkHttpClient newHttpClient(SocketFactory socketFactory);
+
     public abstract OkHttpClient newHttpClient(String userAgent);
 
     public abstract OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent);

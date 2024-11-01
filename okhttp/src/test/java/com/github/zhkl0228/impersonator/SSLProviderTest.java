@@ -10,13 +10,15 @@ import okhttp3.OkHttpClientFactory;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okhttp3.SocketFactory;
 
 abstract class SSLProviderTest extends TestCase {
 
     protected abstract ImpersonatorApi createImpersonatorApi();
 
     protected final JSONObject doTestURL(String url) throws Exception {
-        OkHttpClient client = OkHttpClientFactory.create(createImpersonatorApi()).newHttpClient();
+        OkHttpClientFactory okHttpClientFactory = OkHttpClientFactory.create(createImpersonatorApi());
+        OkHttpClient client = this instanceof SocketFactory ? okHttpClientFactory.newHttpClient((SocketFactory) this) : okHttpClientFactory.newHttpClient();
         Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
             ResponseBody body = response.body();

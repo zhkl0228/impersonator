@@ -1,6 +1,10 @@
 package com.github.zhkl0228.impersonator;
 
-public class MacSafariTest extends SSLProviderTest {
+import okhttp3.SocketFactory;
+
+import java.net.Socket;
+
+public class MacSafariTest extends SSLProviderTest implements SocketFactory {
 
     public void testBrowserLeaks() throws Exception {
         doTestBrowserLeaks("44f7ed5185d22c92b96da72dbe68d307", "771,4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-5-10-11-13-16-18-21-23-27-43-45-51-65281,29-23-24-25,0",
@@ -37,4 +41,10 @@ public class MacSafariTest extends SSLProviderTest {
     protected ImpersonatorApi createImpersonatorApi() {
         return ImpersonatorFactory.macSafari();
     }
+
+    @Override
+    public Socket newSocket() {
+        return new Socket();
+    }
+
 }
