@@ -92,12 +92,13 @@ class MacSafari extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
-        addSupportedGroupsExtension(clientExtensions, randomGrease(), NamedGroup.x25519, NamedGroup.secp256r1,
+        int supportedGroupGrease = randomGrease();
+        addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.x25519, NamedGroup.secp256r1,
                 NamedGroup.secp384r1, NamedGroup.secp521r1);
         randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
-            keyShareEntries.add(0, new KeyShareEntry(randomGrease(), new byte[1]));
+            keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
         TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);

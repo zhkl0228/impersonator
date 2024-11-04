@@ -79,7 +79,8 @@ class MacChrome extends ImpersonatorFactory {
         clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
         final int X25519Kyber768Draft00 = 0x6399;
-        addSupportedGroupsExtension(clientExtensions, randomGrease(), X25519Kyber768Draft00, NamedGroup.x25519,
+        final int supportedGroupGrease = randomGrease();
+        addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, X25519Kyber768Draft00, NamedGroup.x25519,
                 NamedGroup.secp256r1, NamedGroup.secp384r1);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,

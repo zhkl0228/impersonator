@@ -55,7 +55,8 @@ class Android extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
-        addSupportedGroupsExtension(clientExtensions, randomGrease(), NamedGroup.x25519,
+        int supportedGroupGrease = randomGrease();
+        addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.x25519,
                 NamedGroup.secp256r1, NamedGroup.secp384r1);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
@@ -63,7 +64,7 @@ class Android extends ImpersonatorFactory {
         MacChrome.addApplicationSettingsExtension(clientExtensions);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
-            keyShareEntries.add(0, new KeyShareEntry(randomGrease(), new byte[1]));
+            keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
         MacChrome.randomExtension(clientExtensions, null, true);
