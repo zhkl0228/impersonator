@@ -5,12 +5,12 @@
     <parent>
         <groupId>com.github.zhkl0228</groupId>
         <artifactId>impersonator</artifactId>
-        <version>1.0.7</version>
+        <version>1.0.8</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>impersonator-okhttp</artifactId>
-    <version>1.0.7</version>
+    <version>1.0.8</version>
 
     <properties>
         <kotlin.version>1.9.21</kotlin.version>
@@ -113,7 +113,7 @@
         <dependency>
             <groupId>com.github.zhkl0228</groupId>
             <artifactId>impersonator-bctls</artifactId>
-            <version>1.0.7</version>
+            <version>1.0.8</version>
         </dependency>
         <dependency>
             <groupId>com.squareup.okio</groupId>
