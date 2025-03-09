@@ -11,6 +11,7 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 import okhttp3.SocketFactory;
+import org.apache.commons.codec.digest.DigestUtils;
 
 abstract class SSLProviderTest extends TestCase {
 
@@ -82,7 +83,16 @@ abstract class SSLProviderTest extends TestCase {
         }
     }
 
-    protected final void doTestPeetPrint(String ja4, String peetprint_hash, String peetprint,
+    protected final void doTestPeetPrint(String ja4, String peetprint,
+                                         String akamai_fingerprint,
+                                         String ja3) throws Exception {
+        doTestPeetPrint(ja4,
+                peetprint == null ? null : DigestUtils.md5Hex(peetprint), peetprint,
+                akamai_fingerprint == null ? null : DigestUtils.md5Hex(akamai_fingerprint), akamai_fingerprint,
+                ja3 == null ? null : DigestUtils.md5Hex(ja3), ja3);
+    }
+
+    private void doTestPeetPrint(String ja4, String peetprint_hash, String peetprint,
                                          String akamai_fingerprint_hash, String akamai_fingerprint,
                                          String ja3_hash, String ja3) throws Exception {
         JSONObject obj = doTestURL("https://tls.peet.ws/api/all");

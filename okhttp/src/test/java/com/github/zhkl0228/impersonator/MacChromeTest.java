@@ -66,10 +66,9 @@ public class MacChromeTest extends SSLProviderTest {
                 TlsExtensionsUtils.addPreSharedKeyClientHello(clientExtensions, new OfferedPsks(identities, binders, 1));
             };
             doTestPeetPrint("t13d1517h2_8daaf6152771_abb8c90afe16",
-                    "9cb72b909981b498e833d0f5e5929c70",
                     "GREASE-772-771|2-1.1|GREASE-25497-29-23-24|1027-2052-1025-1283-2053-1281-2054-1537|1|2|GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|0-10-11-13-16-17513-18-23-27-35-41-43-45-5-51-65037-65281-GREASE-GREASE",
-                    "90224459f8bf70b7d0a8797eb916dbc9", "1:65536,2:0,4:6291456,6:262144|15663105|0|m,a,s,p",
-                    null, null);
+                    "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+                    null);
         } finally {
             extensionListener = null;
         }
