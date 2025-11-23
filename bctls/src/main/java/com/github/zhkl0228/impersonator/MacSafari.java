@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
- * v17.5 (18618.2.12.111.5, 18618)
+ * v26.1 (20622.2.11.119.1)
  */
 class MacSafari extends ImpersonatorFactory {
 
@@ -29,7 +29,7 @@ class MacSafari extends ImpersonatorFactory {
     }
 
     static ImpersonatorApi newMacSafari() {
-        return new MacSafari(Type.MacSafari, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15");
+        return new MacSafari(Type.MacSafari, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15");
     }
 
     static ImpersonatorApi newIOS() {
@@ -59,10 +59,12 @@ class MacSafari extends ImpersonatorFactory {
         http2Connection.removeSetting(Settings.INITIAL_WINDOW_SIZE);
         switch (type) {
             case MacSafari: {
-                http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 4194304);
+                http2Connection.setSetting(Settings.ENABLE_PUSH, 0);
                 http2Connection.setSetting(Settings.MAX_CONCURRENT_STREAMS, 100);
-                http2Connection.setWindowSizeIncrement(10485760L);
-                http2Connection.setHeaderOrder("m,s,p,a");
+                http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 2097152);
+                http2Connection.setSetting(9, 1);
+                http2Connection.setWindowSizeIncrement(10420225L);
+                http2Connection.setHeaderOrder("m,s,a,p");
                 break;
             }
             case iOS: {
@@ -85,7 +87,7 @@ class MacSafari extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
-                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1),
+//                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
