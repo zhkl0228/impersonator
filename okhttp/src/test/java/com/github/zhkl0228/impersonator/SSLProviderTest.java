@@ -31,12 +31,14 @@ abstract class SSLProviderTest extends TestCase {
         }
     }
 
-    protected void doTestBrowserLeaks(String ja3n_hash, String ja3n_text, String ja3_hash, String ja3_text,
+    protected void doTestBrowserLeaks(String ja3n_text, String ja3_text,
                                       String userAgent,
-                                      String akamai_hash, String akamai_text) throws Exception {
+                                      String akamai_text) throws Exception {
         JSONObject obj = doTestURL("https://tls.browserleaks.com/json");
+        String ja3n_hash = ja3n_text == null ? null : DigestUtils.md5Hex(ja3n_text);
         assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3n_text, obj.getString("ja3n_text")),
                 ja3n_hash, obj.getString("ja3n_hash"));
+        String ja3_hash = ja3_text == null ? null : DigestUtils.md5Hex(ja3_text);
         if (ja3_hash != null) {
             assertEquals(String.format("\n%s\n%s", ja3_text, obj.getString("ja3_text")),
                     ja3_hash, obj.getString("ja3_hash"));
@@ -44,35 +46,40 @@ abstract class SSLProviderTest extends TestCase {
         if (userAgent != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", userAgent, obj.getString("user_agent")), userAgent, obj.getString("user_agent"));
         }
+        String akamai_hash = akamai_text == null ? null : DigestUtils.md5Hex(akamai_text);
         if (akamai_hash != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", akamai_text, obj.getString("akamai_text")),
                     akamai_hash, obj.getString("akamai_hash"));
         }
     }
 
-    protected final void doTestScrapFlyJa3(String scrapfly_fp_digest, String scrapfly_fp) throws Exception {
+    protected final void doTestScrapFlyJa3(String scrapfly_fp) throws Exception {
         JSONObject obj = doTestURL("https://tools.scrapfly.io/api/fp/ja3");
+        String scrapfly_fp_digest = DigestUtils.md5Hex(scrapfly_fp);
         assertEquals(String.format("\nExpected :%s\nActual   :%s", scrapfly_fp, obj.getString("scrapfly_fp")),
                 scrapfly_fp_digest, obj.getString("scrapfly_fp_digest"));
     }
 
-    protected final void doTestScrapFlyHttp2(String http2_digest, String http2_fingerprint,
-                                             String headers_fp_digest, String headers_fp) throws Exception {
+    protected final void doTestScrapFlyHttp2(String http2_fingerprint,
+                                             String headers_fp) throws Exception {
         JSONObject obj = doTestURL("https://tools.scrapfly.io/api/http2");
+        String http2_digest = http2_fingerprint == null ? null : DigestUtils.md5Hex(http2_fingerprint);
         if (http2_digest != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", http2_fingerprint, obj.getString("http2_fingerprint")),
                     http2_digest, obj.getString("http2_digest"));
         }
+        String headers_fp_digest = headers_fp == null ? null : DigestUtils.md5Hex(headers_fp);
         if (headers_fp_digest != null) {
             assertEquals(String.format("\n%s\n%s", headers_fp, obj.getString("headers_fp")),
                     headers_fp_digest, obj.getString("headers_fp_digest"));
         }
     }
 
-    protected final void doTestBrowserScan(String ja4, String fp_hash, String fp) throws Exception {
+    protected final void doTestBrowserScan(String ja4, String fp) throws Exception {
         JSONObject obj = doTestURL("https://tls.browserscan.net/api/tls");
         JSONObject tls = obj.getJSONObject("tls");
         assertNotNull(tls);
+        String fp_hash = fp == null ? null : DigestUtils.md5Hex(fp);
         if(fp_hash != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", fp, tls.getString("fp")),
                     fp_hash, tls.getString("fp_hash"));
@@ -99,20 +106,20 @@ abstract class SSLProviderTest extends TestCase {
         JSONObject tls = obj.getJSONObject("tls");
         assertNotNull(tls);
         if(peetprint_hash != null) {
-            assertEquals(String.format("\n%s\n%s", peetprint, tls.getString("peetprint")),
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", peetprint, tls.getString("peetprint")),
                     peetprint_hash, tls.getString("peetprint_hash"));
         }
         if(ja3_hash != null) {
-            assertEquals(String.format("\n%s\n%s", ja3, tls.getString("ja3")),
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3, tls.getString("ja3")),
                     ja3_hash, tls.getString("ja3_hash"));
         }
         if (ja4 != null) {
-            assertEquals(String.format("\n%s\n%s", ja4, tls.getString("ja4")),
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", ja4, tls.getString("ja4")),
                     ja4, tls.getString("ja4"));
         }
         JSONObject http2 = obj.getJSONObject("http2");
         if(akamai_fingerprint_hash != null) {
-            assertEquals(String.format("\n%s\n%s", akamai_fingerprint, http2.getString("akamai_fingerprint")),
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", akamai_fingerprint, http2.getString("akamai_fingerprint")),
                     akamai_fingerprint_hash, http2.getString("akamai_fingerprint_hash"));
         }
     }

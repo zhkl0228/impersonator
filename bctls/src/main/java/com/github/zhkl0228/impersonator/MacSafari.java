@@ -33,13 +33,16 @@ class MacSafari extends ImpersonatorFactory {
     }
 
     static ImpersonatorApi newIOS() {
-        return new MacSafari(Type.iOS, "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.108 Mobile/15E148 Safari/604.1");
+        return new MacSafari(Type.iOS, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1\"");
     }
 
     private final Type type;
 
     private MacSafari(Type type, String userAgent) {
-        super("GREASE-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10",
+        super(
+                type == Type.iOS ?
+                        "GREASE-4866-4867-4865-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10" :
+                        "GREASE-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10",
                 userAgent);
         this.type = type;
     }
@@ -58,6 +61,7 @@ class MacSafari extends ImpersonatorFactory {
     public void onHttp2ConnectionInit(Http2Connection http2Connection) {
         http2Connection.removeSetting(Settings.INITIAL_WINDOW_SIZE);
         switch (type) {
+            case iOS:
             case MacSafari: {
                 http2Connection.setSetting(Settings.ENABLE_PUSH, 0);
                 http2Connection.setSetting(Settings.MAX_CONCURRENT_STREAMS, 100);
@@ -65,14 +69,6 @@ class MacSafari extends ImpersonatorFactory {
                 http2Connection.setSetting(9, 1);
                 http2Connection.setWindowSizeIncrement(10420225L);
                 http2Connection.setHeaderOrder("m,s,a,p");
-                break;
-            }
-            case iOS: {
-                http2Connection.setSetting(Settings.ENABLE_PUSH, 0);
-                http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 2097152);
-                http2Connection.setSetting(Settings.MAX_CONCURRENT_STREAMS, 100);
-                http2Connection.setWindowSizeIncrement(10485760L);
-                http2Connection.setHeaderOrder("m,s,p,a");
                 break;
             }
             default:
@@ -95,15 +91,26 @@ class MacSafari extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
         int supportedGroupGrease = randomGrease();
-        addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.x25519, NamedGroup.secp256r1,
-                NamedGroup.secp384r1, NamedGroup.secp521r1);
-        randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10);
+        if (type == Type.MacSafari) {
+            addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.x25519, NamedGroup.secp256r1,
+                    NamedGroup.secp384r1, NamedGroup.secp521r1);
+            randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10);
+        } else if (type == Type.iOS) {
+            final int X25519MLKEM768 = 0x11ec;
+            addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1,
+                    NamedGroup.secp384r1, NamedGroup.secp521r1);
+            randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
+        } else {
+            throw new UnsupportedOperationException("Unsupported type: " + type);
+        }
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
-        TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
+        if (type == Type.MacSafari) {
+            TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
+        }
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.zlib});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         randomExtension(clientExtensions, "0-23-65281-10-11-16-5-13-18-51-45-43-27-21", true);
