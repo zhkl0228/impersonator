@@ -6,6 +6,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
 
+import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.DigestInfo;
@@ -25,11 +26,20 @@ public class JcaTlsRSASigner
 {
     private final JcaTlsCrypto crypto;
     private final PrivateKey privateKey;
-    private final PublicKey publicKey;
 
     private Signature rawSigner = null;
 
+    /**
+     * @deprecated Use constructor without 'publicKey' parameter.
+     */
+    @Deprecated
+    @SuppressWarnings("InlineMeSuggester")
     public JcaTlsRSASigner(JcaTlsCrypto crypto, PrivateKey privateKey, PublicKey publicKey)
+    {
+        this(crypto, privateKey);
+    }
+
+    public JcaTlsRSASigner(JcaTlsCrypto crypto, PrivateKey privateKey)
     {
         if (null == crypto)
         {
@@ -42,7 +52,6 @@ public class JcaTlsRSASigner
 
         this.crypto = crypto;
         this.privateKey = privateKey;
-        this.publicKey = publicKey;
     }
 
     public byte[] generateRawSignature(SignatureAndHashAlgorithm algorithm, byte[] hash) throws IOException
@@ -65,7 +74,7 @@ public class JcaTlsRSASigner
                  */
                 AlgorithmIdentifier algID = new AlgorithmIdentifier(
                     TlsUtils.getOIDForHashAlgorithm(algorithm.getHash()), DERNull.INSTANCE);
-                input = new DigestInfo(algID, hash).getEncoded();
+                input = new DigestInfo(algID, hash).getEncoded(ASN1Encoding.DER);
             }
             else
             {
@@ -78,15 +87,7 @@ public class JcaTlsRSASigner
 
             signer.update(input, 0, input.length);
 
-            byte[] signature = signer.sign();
-
-            signer.initVerify(publicKey);
-            signer.update(input, 0, input.length);
-
-            if (signer.verify(signature))
-            {
-                return signature;
-            }
+            return signer.sign();
         }
         catch (GeneralSecurityException e)
         {
@@ -96,8 +97,6 @@ public class JcaTlsRSASigner
         {
             this.rawSigner = null;
         }
-
-        throw new TlsFatalAlert(AlertDescription.internal_error);
     }
 
     public TlsStreamSigner getStreamSigner(SignatureAndHashAlgorithm algorithm) throws IOException
@@ -110,7 +109,7 @@ public class JcaTlsRSASigner
             && JcaUtils.isSunMSCAPIProviderActive()
             && isSunMSCAPIRawSigner())
         {
-            return crypto.createVerifyingStreamSigner(algorithm, privateKey, true, publicKey);
+            return crypto.createStreamSigner(algorithm, privateKey, true);
         }
 
         return null;

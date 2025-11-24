@@ -69,6 +69,8 @@ public abstract class AbstractTlsServer
     }
 
     /** @deprecated Use 'serverExtensions' directly, it is now never null */
+    @Deprecated
+    @SuppressWarnings("InlineMeSuggester")
     protected Map<Integer, byte[]> checkServerExtensions()
     {
         return serverExtensions;
@@ -152,6 +154,11 @@ public abstract class AbstractTlsServer
     }
 
     protected boolean preferLocalCipherSuites()
+    {
+        return false;
+    }
+
+    public boolean preferLocalSupportedGroups()
     {
         return false;
     }

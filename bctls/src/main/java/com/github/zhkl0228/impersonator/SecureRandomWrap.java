@@ -33,13 +33,18 @@ class SecureRandomWrap extends SecureRandom implements Impersonator {
     }
 
     @Override
+    public int[] getKeyShareGroups() {
+        return impersonator.getKeyShareGroups();
+    }
+
+    @Override
     public void onEstablishSession(Map<Integer, byte[]> clientExtensions) throws IOException {
         impersonator.onEstablishSession(clientExtensions);
     }
 
     @Override
-    public void onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException {
-        impersonator.onSendClientHelloMessage(clientHello, clientExtensions);
+    public ExtensionOrder onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException {
+        return impersonator.onSendClientHelloMessage(clientHello, clientExtensions);
     }
 
 }

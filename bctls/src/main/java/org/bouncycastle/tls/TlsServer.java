@@ -13,6 +13,8 @@ import java.util.Vector;
 public interface TlsServer
     extends TlsPeer
 {
+    boolean preferLocalSupportedGroups();
+
     void init(TlsServerContext context);
 
     /**

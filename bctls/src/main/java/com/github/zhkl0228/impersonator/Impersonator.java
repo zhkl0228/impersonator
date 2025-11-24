@@ -9,8 +9,10 @@ public interface Impersonator {
 
     int[] getCipherSuites();
 
+    int[] getKeyShareGroups();
+
     void onEstablishSession(Map<Integer, byte[]> clientExtensions) throws IOException;
 
-    void onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException;
+    ExtensionOrder onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException;
 
 }

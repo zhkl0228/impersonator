@@ -46,7 +46,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     public static ImpersonatorApi macFirefox() {
-        return new MacFirefox129();
+        return new MacFirefox();
     }
 
     public static ImpersonatorApi ios() {
@@ -170,13 +170,14 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     @Override
-    public final void onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException {
+    public final ExtensionOrder onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.remove(ExtensionType.status_request_v2);
         clientExtensions.remove(ExtensionType.encrypt_then_mac);
-        onSendClientHelloMessageInternal(clientExtensions);
+        ExtensionOrder extensionOrder = onSendClientHelloMessageInternal(clientExtensions);
         if (extensionListener != null) {
             extensionListener.onClientExtensionsBuilt(clientHello, clientExtensions);
         }
+        return extensionOrder;
     }
 
     private ExtensionListener extensionListener;
@@ -186,7 +187,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         this.extensionListener = extensionListener;
     }
 
-    protected abstract void onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException;
+    protected abstract ExtensionOrder onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException;
 
     private final int[] cipherSuites;
     private final String userAgent;
@@ -198,6 +199,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     @Override
     public int[] getCipherSuites() {
         return cipherSuites;
+    }
+
+    @Override
+    public int[] getKeyShareGroups() {
+        return null;
     }
 
     protected ImpersonatorFactory(String cipherSuites, String userAgent) {

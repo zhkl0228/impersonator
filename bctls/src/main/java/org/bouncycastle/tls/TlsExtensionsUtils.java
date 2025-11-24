@@ -236,7 +236,7 @@ public class TlsExtensionsUtils
         extensions.put(EXT_delegated_credentials, createSignatureAlgorithmsExtension(supportedSignatureAlgorithms));
     }
 
-    public static void addSignatureAlgorithmsCertExtension(Map<Integer, byte[]> extensions, Vector supportedSignatureAlgorithms)
+    public static void addSignatureAlgorithmsCertExtension(Map<Integer, byte[]> extensions, Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms)
         throws IOException
     {
         extensions.put(EXT_signature_algorithms_cert, createSignatureAlgorithmsCertExtension(supportedSignatureAlgorithms));
@@ -255,6 +255,11 @@ public class TlsExtensionsUtils
     }
 
     public static void addSupportedGroupsExtension(Map<Integer, byte[]> extensions, Vector namedGroups) throws IOException
+    {
+        extensions.put(EXT_supported_groups, createSupportedGroupsExtension(namedGroups));
+    }
+
+    public static void addSupportedGroupsExtension(Map<Integer, byte[]> extensions, int[] namedGroups) throws IOException
     {
         extensions.put(EXT_supported_groups, createSupportedGroupsExtension(namedGroups));
     }
@@ -456,6 +461,7 @@ public class TlsExtensionsUtils
     /**
      * @deprecated Use version without defaultValue instead
      */
+    @Deprecated
     public static short getServerCertificateTypeExtensionServer(Map<Integer, byte[]> extensions, short defaultValue)
         throws IOException
     {
@@ -941,6 +947,16 @@ public class TlsExtensionsUtils
         }
 
         return TlsUtils.encodeUint16ArrayWithUint16Length(values);
+    }
+
+    public static byte[] createSupportedGroupsExtension(int[] namedGroups) throws IOException
+    {
+        if (TlsUtils.isNullOrEmpty(namedGroups))
+        {
+            throw new TlsFatalAlert(AlertDescription.internal_error);
+        }
+
+        return TlsUtils.encodeUint16ArrayWithUint16Length(namedGroups);
     }
 
     public static byte[] createSupportedPointFormatsExtension(short[] ecPointFormats) throws IOException

@@ -13,6 +13,9 @@ import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
 import org.bouncycastle.util.encoders.Hex;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
@@ -42,8 +45,19 @@ class Android extends ImpersonatorFactory {
         headers.put("Sec-Fetch-Site", "none");
     }
 
+    private static void addApplicationSettingsExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream(16)) {
+            DataOutput dataOutput = new DataOutputStream(baos);
+            dataOutput.writeShort(3);
+            byte[] bytes = "h2".getBytes();
+            dataOutput.writeByte(bytes.length);
+            dataOutput.write(bytes);
+            clientExtensions.put(0x4469, baos.toByteArray());
+        }
+    }
+
     @Override
-    protected void onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
+    protected ExtensionOrder onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
         randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
@@ -61,12 +75,12 @@ class Android extends ImpersonatorFactory {
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
         clientExtensions.put(ExtensionType.encrypted_client_hello, Hex.decodeStrict("000001000138002054b1fcc8868629a9ec88d5b183f9e26917229f69035b4ac94e833dd431bc4a5e00902f73c090762306de7f3fe1bd8d6ea5e4a577715d7385301e7340140f2970e5e58ad4c6584456035ec1f079afbbba4ad0e1292e3b7dfc3f9305a863e4b152c6880def239a16843469fbc2a46846b2a2007b6d97a4d5f897f5d6df2b33b31e3f306ac3f4fe5d229dfffe3dcf209c710430d8f4bb97b86be8ef1437425a3c693dfed5afa5c7ad0b84965060bd10d805cee0"));
-        MacChrome.addApplicationSettingsExtension(clientExtensions);
+        addApplicationSettingsExtension(clientExtensions);
         Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
         if (keyShareEntries != null) {
             keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
-        MacChrome.randomExtension(clientExtensions, null, true);
+        return new ExtensionOrder(null, true);
     }
 }

@@ -1,5 +1,6 @@
 package org.bouncycastle.jsse.provider;
 
+import com.github.zhkl0228.impersonator.ExtensionOrder;
 import com.github.zhkl0228.impersonator.Impersonator;
 import org.bouncycastle.tls.TlsSession;
 
@@ -29,10 +30,18 @@ class ImpersonateProvTlsClientProtocol extends ProvTlsClientProtocol {
 
     @Override
     protected void sendClientHelloMessage() throws IOException {
+        ExtensionOrder extensionOrder;
         try {
-            impersonator.onSendClientHelloMessage(clientHello, clientExtensions);
+            extensionOrder = impersonator.onSendClientHelloMessage(clientHello, clientExtensions);
         } catch (IOException e) {
             throw new IllegalStateException("sendClientHelloMessage", e);
+        }
+        int[] supportedGroups = impersonator.getKeyShareGroups();
+        if(supportedGroups != null && supportedGroups.length > 0) {
+            this.clientAgreements = ImpersonateTlsClientProtocol.updateKeyShareToClientHello(tlsClientContext, clientExtensions, supportedGroups);
+        }
+        if (extensionOrder != null) {
+            extensionOrder.sort(clientExtensions);
         }
         super.sendClientHelloMessage();
     }

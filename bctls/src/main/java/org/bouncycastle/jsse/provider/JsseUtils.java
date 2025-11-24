@@ -11,33 +11,9 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
-import org.bouncycastle.jsse.BCSNIHostName;
-import org.bouncycastle.jsse.BCSNIMatcher;
-import org.bouncycastle.jsse.BCSNIServerName;
-import org.bouncycastle.jsse.BCStandardConstants;
-import org.bouncycastle.jsse.BCX509ExtendedTrustManager;
-import org.bouncycastle.jsse.BCX509Key;
+import org.bouncycastle.jsse.*;
 import org.bouncycastle.jsse.java.security.BCCryptoPrimitive;
-import org.bouncycastle.tls.AlertDescription;
-import org.bouncycastle.tls.AlertLevel;
-import org.bouncycastle.tls.Certificate;
-import org.bouncycastle.tls.CertificateEntry;
-import org.bouncycastle.tls.CertificateStatus;
-import org.bouncycastle.tls.CertificateStatusType;
-import org.bouncycastle.tls.ClientCertificateType;
-import org.bouncycastle.tls.IdentifierType;
-import org.bouncycastle.tls.KeyExchangeAlgorithm;
-import org.bouncycastle.tls.NamedGroup;
-import org.bouncycastle.tls.ProtocolName;
-import org.bouncycastle.tls.ProtocolVersion;
-import org.bouncycastle.tls.SecurityParameters;
-import org.bouncycastle.tls.ServerName;
-import org.bouncycastle.tls.SignatureAndHashAlgorithm;
-import org.bouncycastle.tls.TlsContext;
-import org.bouncycastle.tls.TlsCredentialedDecryptor;
-import org.bouncycastle.tls.TlsCredentialedSigner;
-import org.bouncycastle.tls.TlsUtils;
-import org.bouncycastle.tls.TrustedAuthority;
+import org.bouncycastle.tls.*;
 import org.bouncycastle.tls.crypto.TlsCertificate;
 import org.bouncycastle.tls.crypto.TlsCryptoParameters;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaDefaultTlsCredentialedSigner;
@@ -52,17 +28,7 @@ import java.security.Key;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Vector;
+import java.util.*;
 
 abstract class JsseUtils
 {
@@ -70,8 +36,6 @@ abstract class JsseUtils
         PropertyUtils.getBooleanSystemProperty("jdk.tls.allowLegacyMasterSecret", true);
     private static final boolean provTlsAllowLegacyResumption =
         PropertyUtils.getBooleanSystemProperty("jdk.tls.allowLegacyResumption", false);
-    private static final int provTlsMaxCertificateChainLength =
-        PropertyUtils.getIntegerSystemProperty("jdk.tls.maxCertificateChainLength", 10, 1, Integer.MAX_VALUE);
     private static final int provTlsMaxHandshakeMessageSize =
         PropertyUtils.getIntegerSystemProperty("jdk.tls.maxHandshakeMessageSize", 32768, 1024, Integer.MAX_VALUE);
     private static final boolean provTlsRequireCloseNotify =
@@ -81,6 +45,9 @@ abstract class JsseUtils
     // TODO SunJSSE additionally checks KeyGenerator.getInstance("SunTlsExtendedMasterSecret")
     private static final boolean provTlsUseExtendedMasterSecret =
         PropertyUtils.getBooleanSystemProperty("jdk.tls.useExtendedMasterSecret", true);
+
+    private static final int provTlsClientMaxInboundCertChainLen;
+    private static final int provTlsServerMaxInboundCertChainLen;
 
     static final Set<BCCryptoPrimitive> KEY_AGREEMENT_CRYPTO_PRIMITIVES_BC =
         Collections.unmodifiableSet(EnumSet.of(BCCryptoPrimitive.KEY_AGREEMENT));
@@ -100,6 +67,25 @@ abstract class JsseUtils
         }
     }
 
+    static
+    {
+        int clientDefaultValue = 10;
+        int serverDefaultValue = 8;
+
+        int provTlsMaxCertificateChainLength = PropertyUtils.getIntegerSystemProperty(
+            "jdk.tls.maxCertificateChainLength", 0, 1, Integer.MAX_VALUE);
+        if (provTlsMaxCertificateChainLength > 0)
+        {
+            clientDefaultValue = provTlsMaxCertificateChainLength;
+            serverDefaultValue = provTlsMaxCertificateChainLength;
+        }
+
+        provTlsClientMaxInboundCertChainLen = PropertyUtils.getIntegerSystemProperty(
+            "jdk.tls.client.maxInboundCertificateChainLength", clientDefaultValue, 1, Integer.MAX_VALUE);
+        provTlsServerMaxInboundCertChainLen = PropertyUtils.getIntegerSystemProperty(
+            "jdk.tls.server.maxInboundCertificateChainLength", serverDefaultValue, 1, Integer.MAX_VALUE);
+    }
+
     static boolean allowLegacyMasterSecret()
     {
         return provTlsAllowLegacyMasterSecret;
@@ -110,7 +96,7 @@ abstract class JsseUtils
         return provTlsAllowLegacyResumption;
     }
 
-    static void appendCipherSuiteDetail(StringBuilder sb, ProvSSLContextSpi context, int cipherSuite)
+    static void appendCipherSuiteDetail(StringBuilder sb,  int cipherSuite)
     {
         // TODO Efficiency: precalculate "cipherSuiteID" and make context.getCipherSuiteName faster
 
@@ -131,6 +117,16 @@ abstract class JsseUtils
             sb.append(name);
             sb.append(')');
         }
+    }
+
+    static String[] getArray(Collection<String> c)
+    {
+        return c.toArray(new String[c.size()]);
+    }
+
+    static String[] getKeysArray(Map<String, ?> m)
+    {
+        return getArray(m.keySet());
     }
 
     static String getPeerID(String root, ProvTlsManager manager)
@@ -258,14 +254,19 @@ abstract class JsseUtils
         return a == b || (null != a && null != b && a.equals(b));
     }
 
-    static int getMaxCertificateChainLength()
-    {
-        return provTlsMaxCertificateChainLength;
-    }
-
     static int getMaxHandshakeMessageSize()
     {
         return provTlsMaxHandshakeMessageSize;
+    }
+
+    static int getMaxInboundCertChainLenClient()
+    {
+        return provTlsClientMaxInboundCertChainLen;
+    }
+
+    static int getMaxInboundCertChainLenServer()
+    {
+        return provTlsServerMaxInboundCertChainLen;
     }
 
     static ASN1ObjectIdentifier getNamedCurveOID(PublicKey publicKey)
@@ -920,6 +921,19 @@ abstract class JsseUtils
             if (sLast > 0 && s.charAt(0) == openChar && s.charAt(sLast) == closeChar)
             {
                 return s.substring(1, sLast);
+            }
+        }
+        return s;
+    }
+
+    static String stripTrailingDot(String s)
+    {
+        if (s != null)
+        {
+            int sLast = s.length() - 1;
+            if (sLast >= 0 && s.charAt(sLast) == '.')
+            {
+                return s.substring(0, sLast);
             }
         }
         return s;

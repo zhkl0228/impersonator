@@ -7,7 +7,7 @@
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator</artifactId>
     <packaging>pom</packaging>
-    <version>1.0.8</version>
+    <version>1.0.9</version>
     <modules>
         <module>bctls</module>
         <module>okhttp</module>

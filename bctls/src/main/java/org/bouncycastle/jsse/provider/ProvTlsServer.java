@@ -5,29 +5,7 @@ import org.bouncycastle.jsse.BCSNIMatcher;
 import org.bouncycastle.jsse.BCSNIServerName;
 import org.bouncycastle.jsse.BCX509Key;
 import org.bouncycastle.jsse.provider.SignatureSchemeInfo.PerConnection;
-import org.bouncycastle.tls.AlertDescription;
-import org.bouncycastle.tls.AlertLevel;
-import org.bouncycastle.tls.Certificate;
-import org.bouncycastle.tls.CertificateRequest;
-import org.bouncycastle.tls.CertificateStatus;
-import org.bouncycastle.tls.ClientCertificateType;
-import org.bouncycastle.tls.DefaultTlsServer;
-import org.bouncycastle.tls.KeyExchangeAlgorithm;
-import org.bouncycastle.tls.NamedGroup;
-import org.bouncycastle.tls.ProtocolName;
-import org.bouncycastle.tls.ProtocolVersion;
-import org.bouncycastle.tls.SecurityParameters;
-import org.bouncycastle.tls.ServerName;
-import org.bouncycastle.tls.SessionParameters;
-import org.bouncycastle.tls.SignatureAndHashAlgorithm;
-import org.bouncycastle.tls.TlsContext;
-import org.bouncycastle.tls.TlsCredentials;
-import org.bouncycastle.tls.TlsDHUtils;
-import org.bouncycastle.tls.TlsExtensionsUtils;
-import org.bouncycastle.tls.TlsFatalAlert;
-import org.bouncycastle.tls.TlsSession;
-import org.bouncycastle.tls.TlsUtils;
-import org.bouncycastle.tls.TrustedAuthority;
+import org.bouncycastle.tls.*;
 import org.bouncycastle.tls.crypto.DHGroup;
 import org.bouncycastle.tls.crypto.TlsDHConfig;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
@@ -38,16 +16,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Vector;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -243,16 +212,13 @@ class ProvTlsServer
             sb.append(" found no selectable cipher suite among the ");
             sb.append(offered.length);
             sb.append(" offered: ");
-
-            ProvSSLContextSpi context = manager.getContextData().getContext();
-
             sb.append('[');
-            JsseUtils.appendCipherSuiteDetail(sb, context, offered[0]);
+            JsseUtils.appendCipherSuiteDetail(sb, offered[0]);
 
             for (int i = 1; i < offered.length; ++i)
             {
                 sb.append(", ");
-                JsseUtils.appendCipherSuiteDetail(sb, context, offered[i]);
+                JsseUtils.appendCipherSuiteDetail(sb, offered[i]);
             }
 
             sb.append(']');
@@ -282,7 +248,7 @@ class ProvTlsServer
 
         if (maxBitsResult.isDefaulted() &&
             !TlsUtils.isNullOrEmpty(provServerDefaultDHEParameters) &&
-            !manager.getContextData().getContext().isFips())
+            !manager.getContextData().isFipsMode())
         {
             DHGroup largest = provServerDefaultDHEParameters[provServerDefaultDHEParameters.length - 1];
             maxBits = Math.max(maxBits, largest.getP().bitLength());
@@ -300,20 +266,25 @@ class ProvTlsServer
     @Override
     protected int[] getSupportedCipherSuites()
     {
-        return manager.getContextData().getContext().getActiveCipherSuites(getCrypto(), sslParameters,
-            getProtocolVersions());
+        return manager.getContextData().getActiveCipherSuites(getCrypto(), sslParameters, getProtocolVersions());
     }
 
     @Override
     protected ProtocolVersion[] getSupportedVersions()
     {
-        return manager.getContextData().getContext().getActiveProtocolVersions(sslParameters);
+        return manager.getContextData().getActiveProtocolVersions(sslParameters);
     }
 
     @Override
     protected boolean preferLocalCipherSuites()
     {
         return sslParameters.getUseCipherSuitesOrder();
+    }
+
+    @Override
+    public boolean preferLocalSupportedGroups()
+    {
+        return sslParameters.getUseNamedGroupsOrder();
     }
 
     @Override
@@ -337,12 +308,10 @@ class ProvTlsServer
             }
         }
 
-        boolean result = super.selectCipherSuite(cipherSuite);
-        if (result)
-        {
-            this.credentials = cipherSuiteCredentials;
-        }
-        return result;
+        this.selectedCipherSuite = cipherSuite;
+        this.credentials = cipherSuiteCredentials;
+
+        return true;
     }
 
     @Override
@@ -358,7 +327,7 @@ class ProvTlsServer
 
         if (namedGroupResult.isDefaulted() &&
             !TlsUtils.isNullOrEmpty(provServerDefaultDHEParameters) &&
-            !manager.getContextData().getContext().isFips())
+            !manager.getContextData().isFipsMode())
         {
             for (DHGroup dhGroup : provServerDefaultDHEParameters)
             {
@@ -445,7 +414,7 @@ class ProvTlsServer
     @Override
     public int getMaxCertificateChainLength()
     {
-        return JsseUtils.getMaxCertificateChainLength();
+        return JsseUtils.getMaxInboundCertChainLenServer();
     }
 
     @Override
@@ -670,8 +639,7 @@ class ProvTlsServer
 
         keyManagerMissCache = null;
 
-        String selectedCipherSuiteName = contextData.getContext().validateNegotiatedCipherSuite(sslParameters,
-            selectedCipherSuite);
+        String selectedCipherSuiteName = contextData.validateNegotiatedCipherSuite(sslParameters, selectedCipherSuite);
 
         if (LOG.isLoggable(Level.FINE))
         {
@@ -813,7 +781,7 @@ class ProvTlsServer
     {
         ProtocolVersion serverVersion = super.getServerVersion();
 
-        String serverVersionName = manager.getContextData().getContext().validateNegotiatedProtocol(sslParameters,
+        String serverVersionName = manager.getContextData().validateNegotiatedProtocol(sslParameters,
             serverVersion);
 
         if (LOG.isLoggable(Level.FINE))
@@ -904,8 +872,8 @@ class ProvTlsServer
             // TODO[tls13] Resumption/PSK
             boolean addToCache = provServerEnableSessionResumption && !TlsUtils.isTLSv13(context);
 
-            this.sslSession = sslSessionContext.reportSession(peerHost, peerPort, connectionTlsSession,
-                jsseSessionParameters, addToCache);
+            this.sslSession = sslSessionContext.reportSession(manager.getBCHandshakeSessionImpl(), peerHost, peerPort,
+                connectionTlsSession, jsseSessionParameters, addToCache);
         }
 
         manager.notifyHandshakeComplete(new ProvSSLConnection(this));

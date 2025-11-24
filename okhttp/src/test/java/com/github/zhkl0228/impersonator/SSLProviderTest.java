@@ -40,7 +40,7 @@ abstract class SSLProviderTest extends TestCase {
                 ja3n_hash, obj.getString("ja3n_hash"));
         String ja3_hash = ja3_text == null ? null : DigestUtils.md5Hex(ja3_text);
         if (ja3_hash != null) {
-            assertEquals(String.format("\n%s\n%s", ja3_text, obj.getString("ja3_text")),
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3_text, obj.getString("ja3_text")),
                     ja3_hash, obj.getString("ja3_hash"));
         }
         if (userAgent != null) {

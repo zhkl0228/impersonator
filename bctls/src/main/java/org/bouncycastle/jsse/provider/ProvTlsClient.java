@@ -5,32 +5,7 @@ import org.bouncycastle.jsse.BCSNIHostName;
 import org.bouncycastle.jsse.BCSNIServerName;
 import org.bouncycastle.jsse.BCX509Key;
 import org.bouncycastle.jsse.provider.SignatureSchemeInfo.PerConnection;
-import org.bouncycastle.tls.AlertDescription;
-import org.bouncycastle.tls.AlertLevel;
-import org.bouncycastle.tls.CertificateRequest;
-import org.bouncycastle.tls.CertificateStatusRequest;
-import org.bouncycastle.tls.CertificateStatusRequestItemV2;
-import org.bouncycastle.tls.CertificateStatusType;
-import org.bouncycastle.tls.DefaultTlsClient;
-import org.bouncycastle.tls.IdentifierType;
-import org.bouncycastle.tls.OCSPStatusRequest;
-import org.bouncycastle.tls.ProtocolName;
-import org.bouncycastle.tls.ProtocolVersion;
-import org.bouncycastle.tls.SecurityParameters;
-import org.bouncycastle.tls.ServerName;
-import org.bouncycastle.tls.SessionParameters;
-import org.bouncycastle.tls.SignatureAlgorithm;
-import org.bouncycastle.tls.SignatureAndHashAlgorithm;
-import org.bouncycastle.tls.TlsAuthentication;
-import org.bouncycastle.tls.TlsContext;
-import org.bouncycastle.tls.TlsCredentials;
-import org.bouncycastle.tls.TlsDHGroupVerifier;
-import org.bouncycastle.tls.TlsExtensionsUtils;
-import org.bouncycastle.tls.TlsFatalAlert;
-import org.bouncycastle.tls.TlsServerCertificate;
-import org.bouncycastle.tls.TlsSession;
-import org.bouncycastle.tls.TlsUtils;
-import org.bouncycastle.tls.TrustedAuthority;
+import org.bouncycastle.tls.*;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.IPAddress;
@@ -39,11 +14,7 @@ import org.bouncycastle.util.encoders.Hex;
 import java.io.IOException;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Vector;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -173,7 +144,11 @@ class ProvTlsClient
             List<BCSNIServerName> sniServerNames = sslParameters.getServerNames();
             if (null == sniServerNames)
             {
-                String peerHostSNI = manager.getPeerHostSNI();
+                /*
+                 * A fully qualified domain name (FQDN) may contain a trailing dot. We remove it for the
+                 * purpose of SNI and endpoint ID checks (e.g. SNIHostName doesn't permit it).
+                 */
+                String peerHostSNI = JsseUtils.stripTrailingDot(manager.getPeerHostSNI());
 
                 /*
                  * TODO[jsse] Consider removing the restriction that the name must contain a '.'
@@ -209,8 +184,7 @@ class ProvTlsClient
     @Override
     protected int[] getSupportedCipherSuites()
     {
-        return manager.getContextData().getContext().getActiveCipherSuites(getCrypto(), sslParameters,
-            getProtocolVersions());
+        return manager.getContextData().getActiveCipherSuites(getCrypto(), sslParameters, getProtocolVersions());
     }
 
     @Override
@@ -236,7 +210,7 @@ class ProvTlsClient
     @Override
     protected ProtocolVersion[] getSupportedVersions()
     {
-        return manager.getContextData().getContext().getActiveProtocolVersions(sslParameters);
+        return manager.getContextData().getActiveProtocolVersions(sslParameters);
     }
 
     @Override
@@ -392,7 +366,7 @@ class ProvTlsClient
     @Override
     public int getMaxCertificateChainLength()
     {
-        return JsseUtils.getMaxCertificateChainLength();
+        return JsseUtils.getMaxInboundCertChainLenClient();
     }
 
     @Override
@@ -526,8 +500,8 @@ class ProvTlsClient
             // TODO[tls13] Resumption/PSK
             boolean addToCache = provClientEnableSessionResumption && !TlsUtils.isTLSv13(context);
 
-            this.sslSession = sslSessionContext.reportSession(peerHost, peerPort, connectionTlsSession,
-                jsseSessionParameters, addToCache);
+            this.sslSession = sslSessionContext.reportSession(manager.getBCHandshakeSessionImpl(), peerHost, peerPort,
+                connectionTlsSession, jsseSessionParameters, addToCache);
         }
 
         manager.notifyHandshakeComplete(new ProvSSLConnection(this));
@@ -551,8 +525,9 @@ class ProvTlsClient
     @Override
     public void notifySelectedCipherSuite(int selectedCipherSuite)
     {
-        String selectedCipherSuiteName = manager.getContextData().getContext()
-            .validateNegotiatedCipherSuite(sslParameters, selectedCipherSuite);
+        final ContextData contextData = manager.getContextData();
+
+        String selectedCipherSuiteName = contextData.validateNegotiatedCipherSuite(sslParameters, selectedCipherSuite);
 
         if (LOG.isLoggable(Level.FINE))
         {
@@ -565,7 +540,7 @@ class ProvTlsClient
     @Override
     public void notifyServerVersion(ProtocolVersion serverVersion) throws IOException
     {
-        String serverVersionName = manager.getContextData().getContext().validateNegotiatedProtocol(sslParameters,
+        String serverVersionName = manager.getContextData().validateNegotiatedProtocol(sslParameters,
             serverVersion);
 
         if (LOG.isLoggable(Level.FINE))

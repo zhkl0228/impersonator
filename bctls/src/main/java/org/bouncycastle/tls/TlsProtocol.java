@@ -5,13 +5,7 @@ import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.Integers;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InterruptedIOException;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -144,7 +138,7 @@ public abstract class TlsProtocol
     private TlsOutputStream tlsOutputStream = null;
 
     private volatile boolean closed = false;
-    private volatile boolean failedWithError = false;
+    private volatile boolean failed = false;
     private volatile boolean appDataReady = false;
     private volatile boolean appDataSplitEnabled = true;
     private volatile boolean keyUpdateEnabled = false;
@@ -324,7 +318,7 @@ public abstract class TlsProtocol
     protected void handleFailure() throws IOException
     {
         this.closed = true;
-        this.failedWithError = true;
+        this.failed = true;
 
         /*
          * RFC 2246 7.2.1. The session becomes unresumable if any connection is terminated
@@ -570,7 +564,7 @@ public abstract class TlsProtocol
                 throw new TlsFatalAlert(AlertDescription.unexpected_message);
             }
             applicationDataQueue.addData(buf, off, len);
-            processApplicationDataQueue();
+//            processApplicationDataQueue();
             break;
         }
         case ContentType.change_cipher_spec:
@@ -716,15 +710,6 @@ public abstract class TlsProtocol
         }
     }
 
-    private void processApplicationDataQueue()
-    {
-        /*
-         * There is nothing we need to do here.
-         * 
-         * This function could be used for callbacks when application data arrives in the future.
-         */
-    }
-
     private void processAlertQueue()
         throws IOException
     {
@@ -828,7 +813,7 @@ public abstract class TlsProtocol
         {
             if (this.closed)
             {
-                if (this.failedWithError)
+                if (this.failed)
                 {
                     throw new IOException("Cannot read application data on failed TLS connection");
                 }
@@ -894,7 +879,7 @@ public abstract class TlsProtocol
         }
         catch (TlsFatalAlertReceived e)
         {
-            // Connection failure already handled at source
+//            assert isFailed();
             throw e;
         }
         catch (TlsFatalAlert e)
@@ -924,6 +909,11 @@ public abstract class TlsProtocol
         try
         {
             return recordStream.readFullRecord(input, inputOff, inputLen);
+        }
+        catch (TlsFatalAlertReceived e)
+        {
+//            assert isFailed();
+            throw e;
         }
         catch (TlsFatalAlert e)
         {
@@ -1926,6 +1916,11 @@ public abstract class TlsProtocol
         return null != context && context.isConnected();
     }
 
+    public boolean isFailed()
+    {
+        return failed;
+    }
+
     public boolean isHandshaking()
     {
         if (closed)
@@ -1941,6 +1936,7 @@ public abstract class TlsProtocol
     /**
      * @deprecated Will be removed.
      */
+    @Deprecated
     protected short processMaxFragmentLengthExtension(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
@@ -2215,7 +2211,7 @@ public abstract class TlsProtocol
     protected static void writePreSharedKeyExtension(OutputStream output, Map<Integer, byte[]> extensions, int bindersSize)
         throws IOException
     {
-        byte[] extension_data = (byte[])extensions.get(TlsExtensionsUtils.EXT_pre_shared_key);
+        byte[] extension_data = extensions.get(TlsExtensionsUtils.EXT_pre_shared_key);
         if (null != extension_data)
         {
             TlsUtils.checkUint16(ExtensionType.pre_shared_key);

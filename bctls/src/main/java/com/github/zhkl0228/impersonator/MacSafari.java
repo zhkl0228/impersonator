@@ -33,7 +33,7 @@ class MacSafari extends ImpersonatorFactory {
     }
 
     static ImpersonatorApi newIOS() {
-        return new MacSafari(Type.iOS, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1\"");
+        return new MacSafari(Type.iOS, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1");
     }
 
     private final Type type;
@@ -77,13 +77,20 @@ class MacSafari extends ImpersonatorFactory {
     }
 
     @Override
-    protected void onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
+    public int[] getKeyShareGroups() {
+        if (type == Type.iOS) {
+            return new int[] { NamedGroup.X25519MLKEM768, NamedGroup.x25519 };
+        }
+        return super.getKeyShareGroups();
+    }
+
+    @Override
+    protected ExtensionOrder onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
-//                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
@@ -96,24 +103,29 @@ class MacSafari extends ImpersonatorFactory {
                     NamedGroup.secp384r1, NamedGroup.secp521r1);
             randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10);
         } else if (type == Type.iOS) {
-            final int X25519MLKEM768 = 0x11ec;
-            addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1,
+            addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1,
                     NamedGroup.secp384r1, NamedGroup.secp521r1);
             randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
         } else {
             throw new UnsupportedOperationException("Unsupported type: " + type);
         }
-        Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
-        if (keyShareEntries != null) {
+        if (type == Type.iOS) {
+            Vector<KeyShareEntry> keyShareEntries = new Vector<>(1);
             keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
         if (type == Type.MacSafari) {
+            Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
+            if (keyShareEntries != null) {
+                keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
+                TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
+            }
+
             TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
         }
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.zlib});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        randomExtension(clientExtensions, "0-23-65281-10-11-16-5-13-18-51-45-43-27-21", true);
+        return new ExtensionOrder("0-23-65281-10-11-16-5-13-18-51-45-43-27-21", true);
     }
 
 }
