@@ -108,10 +108,6 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, list.toArray(new ProtocolVersion[0]));
     }
 
-    protected static void randomExtension(Map<Integer, byte[]> clientExtensions, String order, boolean needGrease) {
-        randomExtension(clientExtensions, order, needGrease ? TlsUtils.EMPTY_BYTES : null, needGrease ? TlsUtils.EMPTY_BYTES : null);
-    }
-
     protected static void randomExtension(Map<Integer, byte[]> clientExtensions, String order, byte[] firstGreaseData, byte[] lastGreaseData) {
         Map<Integer, byte[]> copy = new HashMap<>(clientExtensions);
         clientExtensions.clear();
@@ -140,7 +136,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         }
     }
 
-    protected static void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {
+    private static void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {
         if (copy == null) {
             copy = new HashMap<>(clientExtensions);
             clientExtensions.clear();

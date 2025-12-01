@@ -29,7 +29,7 @@ TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
     <version>1.0.9</version>
 </dependency>
 ```
-- [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
+- [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/okhttp/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
 ```java
 ImpersonatorApi api = ImpersonatorFactory.ios();
 SSLContext context = api.newSSLContext(null, null); // for TLS/JA3/JA4 fingerprints impersonation

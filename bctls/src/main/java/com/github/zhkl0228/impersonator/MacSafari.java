@@ -81,7 +81,7 @@ class MacSafari extends ImpersonatorFactory {
         if (type == Type.iOS) {
             return new int[] { NamedGroup.X25519MLKEM768, NamedGroup.x25519 };
         }
-        return super.getKeyShareGroups();
+        return new int[] { NamedGroup.x25519 };
     }
 
     @Override
@@ -109,18 +109,11 @@ class MacSafari extends ImpersonatorFactory {
         } else {
             throw new UnsupportedOperationException("Unsupported type: " + type);
         }
-        if (type == Type.iOS) {
-            Vector<KeyShareEntry> keyShareEntries = new Vector<>(1);
-            keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
-            TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
-        }
-        if (type == Type.MacSafari) {
-            Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
-            if (keyShareEntries != null) {
-                keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
-                TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
-            }
 
+        Vector<KeyShareEntry> keyShareEntries = new Vector<>(1);
+        keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
+        TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
+        if (type == Type.MacSafari) {
             TlsExtensionsUtils.addPaddingExtension(clientExtensions, 0);
         }
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.zlib});
