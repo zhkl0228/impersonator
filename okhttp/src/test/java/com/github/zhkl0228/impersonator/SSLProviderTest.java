@@ -35,14 +35,14 @@ abstract class SSLProviderTest extends TestCase {
                                       String userAgent,
                                       String akamai_text) throws Exception {
         JSONObject obj = doTestURL("https://tls.browserleaks.com/json");
-        String ja3n_hash = ja3n_text == null ? null : DigestUtils.md5Hex(ja3n_text);
-        assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3n_text, obj.getString("ja3n_text")),
-                ja3n_hash, obj.getString("ja3n_hash"));
         String ja3_hash = ja3_text == null ? null : DigestUtils.md5Hex(ja3_text);
         if (ja3_hash != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3_text, obj.getString("ja3_text")),
                     ja3_hash, obj.getString("ja3_hash"));
         }
+        String ja3n_hash = ja3n_text == null ? null : DigestUtils.md5Hex(ja3n_text);
+        assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3n_text, obj.getString("ja3n_text")),
+                ja3n_hash, obj.getString("ja3n_hash"));
         if (userAgent != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", userAgent, obj.getString("user_agent")), userAgent, obj.getString("user_agent"));
         }

@@ -29,7 +29,7 @@ class MacSafari extends ImpersonatorFactory {
     }
 
     static ImpersonatorApi newMacSafari() {
-        return new MacSafari(Type.MacSafari, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15");
+        return new MacSafari(Type.MacSafari, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15");
     }
 
     static ImpersonatorApi newIOS() {
@@ -40,9 +40,7 @@ class MacSafari extends ImpersonatorFactory {
 
     private MacSafari(Type type, String userAgent) {
         super(
-                type == Type.iOS ?
-                        "GREASE-4866-4867-4865-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10" :
-                        "GREASE-4865-4866-4867-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10",
+                "GREASE-4866-4867-4865-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10",
                 userAgent);
         this.type = type;
     }
@@ -78,10 +76,7 @@ class MacSafari extends ImpersonatorFactory {
 
     @Override
     public int[] getKeyShareGroups() {
-        if (type == Type.iOS) {
-            return new int[] { NamedGroup.X25519MLKEM768, NamedGroup.x25519 };
-        }
-        return new int[] { NamedGroup.x25519 };
+        return new int[] { NamedGroup.X25519MLKEM768, NamedGroup.x25519 };
     }
 
     @Override
@@ -99,9 +94,9 @@ class MacSafari extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
         int supportedGroupGrease = randomGrease();
         if (type == Type.MacSafari) {
-            addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.x25519, NamedGroup.secp256r1,
+            addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1,
                     NamedGroup.secp384r1, NamedGroup.secp521r1);
-            randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12, ProtocolVersion.TLSv11, ProtocolVersion.TLSv10);
+            randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
         } else if (type == Type.iOS) {
             addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1,
                     NamedGroup.secp384r1, NamedGroup.secp521r1);
@@ -118,7 +113,7 @@ class MacSafari extends ImpersonatorFactory {
         }
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.zlib});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        return new ExtensionOrder("0-23-65281-10-11-16-5-13-18-51-45-43-27-21", true);
+        return new ExtensionOrder("0-23-65281-10-11-16-5-13-18-51-45-43-27", true);
     }
 
 }

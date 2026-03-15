@@ -14,13 +14,13 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
- * v142.0.7444.162
+ * v146.0.7680.80
  */
 class MacChrome extends ImpersonatorFactory {
 
     MacChrome() {
         super("GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36");
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36");
     }
 
     @Override
