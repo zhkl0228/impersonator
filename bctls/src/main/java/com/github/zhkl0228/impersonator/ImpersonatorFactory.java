@@ -33,8 +33,12 @@ import java.util.concurrent.ThreadLocalRandom;
 public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorApi {
 
     static {
-        Security.addProvider(new BouncyCastleProvider());
-        Security.addProvider(new BouncyCastleJsseProvider());
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+        if(Security.getProvider(BouncyCastleJsseProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleJsseProvider());
+        }
     }
 
     public static ImpersonatorApi macChrome() {
