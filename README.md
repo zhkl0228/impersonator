@@ -37,3 +37,18 @@ SSLContext context = api.newSSLContext(null, null); // for TLS/JA3/JA4 fingerpri
 OkHttpClientFactory factory = OkHttpClientFactory.create(api);
 OkHttpClient client = factory.newHttpClient(); // for TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
 ```
+
+### Static DNS (map hostname to fixed IP)
+
+```java
+// Single hostname → single IP
+Dns dns = StaticDns.of("example.com", "1.2.3.4");
+
+// Multiple hostnames or multiple IPs per hostname
+Dns dns = new StaticDns.Builder()
+    .addHost("example.com", "1.2.3.4")
+    .addHost("api.example.com", "10.0.0.1", "10.0.0.2")
+    .build();
+
+OkHttpClient client = factory.newHttpClient(dns);
+```

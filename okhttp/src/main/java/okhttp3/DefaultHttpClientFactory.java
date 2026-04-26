@@ -40,26 +40,36 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
     public OkHttpClient newHttpClient(SocketFactory socketFactory) {
         return newHttpClientInternal(null, new TrustManager[]{
                 new ImpersonatorFactory.DummyX509KeyManager()
-        }, null, socketFactory);
+        }, null, socketFactory, null);
     }
 
     @Override
     public OkHttpClient newHttpClient(String userAgent) {
-        return newHttpClient(null, new TrustManager[]{
+        return newHttpClientInternal(null, new TrustManager[]{
                 new ImpersonatorFactory.DummyX509KeyManager()
-        }, userAgent);
+        }, userAgent, null, null);
     }
 
     @Override
     public OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent) {
-        return newHttpClientInternal(km, tm, userAgent, null);
+        return newHttpClientInternal(km, tm, userAgent, null, null);
     }
 
-    private OkHttpClient newHttpClientInternal(KeyManager[] km, TrustManager[] tm, String userAgent, SocketFactory socketFactory) {
+    @Override
+    public OkHttpClient newHttpClient(Dns dns) {
+        return newHttpClientInternal(null, new TrustManager[]{
+                new ImpersonatorFactory.DummyX509KeyManager()
+        }, null, null, dns);
+    }
+
+    private OkHttpClient newHttpClientInternal(KeyManager[] km, TrustManager[] tm, String userAgent, SocketFactory socketFactory, Dns dns) {
         OkHttpClient.Builder builder = okHttpClientBuilderFactory == null ? new OkHttpClient.Builder() : okHttpClientBuilderFactory.newOkHttpClientBuilder();
         X509TrustManager trustManager = getX509KeyManager(tm);
         if (socketFactory != null) {
             builder.socketFactory(new OkHttpClientSocketFactory(socketFactory));
+        }
+        if (dns != null) {
+            builder.dns(dns);
         }
         builder.sslSocketFactory(api.newSSLContext(km, new TrustManager[]{trustManager}).getSocketFactory(), trustManager);
         builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? api.getUserAgent() : userAgent));

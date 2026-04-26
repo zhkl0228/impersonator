@@ -23,4 +23,6 @@ public abstract class OkHttpClientFactory {
 
     public abstract OkHttpClient newHttpClient(KeyManager[] km, TrustManager[] tm, String userAgent);
 
+    public abstract OkHttpClient newHttpClient(Dns dns);
+
 }
