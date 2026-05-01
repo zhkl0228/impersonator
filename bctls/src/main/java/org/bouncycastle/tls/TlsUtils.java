@@ -4,6 +4,7 @@ import org.bouncycastle.asn1.*;
 import org.bouncycastle.asn1.bsi.BSIObjectIdentifiers;
 import org.bouncycastle.asn1.eac.EACObjectIdentifiers;
 import org.bouncycastle.asn1.edec.EdECObjectIdentifiers;
+import org.bouncycastle.asn1.gm.GMObjectIdentifiers;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.oiw.OIWObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
@@ -92,13 +93,25 @@ public class TlsUtils
         addCertSigAlgOID(h, NISTObjectIdentifiers.id_ml_dsa_65, SignatureAndHashAlgorithm.mldsa65);
         addCertSigAlgOID(h, NISTObjectIdentifiers.id_ml_dsa_87, SignatureAndHashAlgorithm.mldsa87);
 
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_sha2_128s, SignatureAndHashAlgorithm.slhdsa_sha2_128s);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_sha2_128f, SignatureAndHashAlgorithm.slhdsa_sha2_128f);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_sha2_192s, SignatureAndHashAlgorithm.slhdsa_sha2_192s);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_sha2_192f, SignatureAndHashAlgorithm.slhdsa_sha2_192f);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_sha2_256s, SignatureAndHashAlgorithm.slhdsa_sha2_256s);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_sha2_256f, SignatureAndHashAlgorithm.slhdsa_sha2_256f);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_shake_128s, SignatureAndHashAlgorithm.slhdsa_shake_128s);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_shake_128f, SignatureAndHashAlgorithm.slhdsa_shake_128f);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_shake_192s, SignatureAndHashAlgorithm.slhdsa_shake_192s);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_shake_192f, SignatureAndHashAlgorithm.slhdsa_shake_192f);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_shake_256s, SignatureAndHashAlgorithm.slhdsa_shake_256s);
+        addCertSigAlgOID(h, NISTObjectIdentifiers.id_slh_dsa_shake_256f, SignatureAndHashAlgorithm.slhdsa_shake_256f);
+
         addCertSigAlgOID(h, RosstandartObjectIdentifiers.id_tc26_signwithdigest_gost_3410_12_256,
             SignatureAndHashAlgorithm.gostr34102012_256);
         addCertSigAlgOID(h, RosstandartObjectIdentifiers.id_tc26_signwithdigest_gost_3410_12_512,
             SignatureAndHashAlgorithm.gostr34102012_512);
 
-        // TODO[RFC 8998]
-//        addCertSigAlgOID(h, GMObjectIdentifiers.sm2sign_with_sm3, HashAlgorithm.sm3, SignatureAlgorithm.sm2);
+        addCertSigAlgOID(h, GMObjectIdentifiers.sm2sign_with_sm3, SignatureAndHashAlgorithm.sm2sig_sm3);
 
         return h;
     }
@@ -1522,7 +1535,8 @@ public class TlsUtils
             int signatureScheme = SignatureScheme.from(signatureAlgorithm);
 
             // TODO In future there might be more cases, so we'd need a more general method.
-            if (SignatureScheme.isMLDSA(signatureScheme))
+            if (SignatureScheme.isMLDSA(signatureScheme) ||
+                SignatureScheme.isSLHDSA(signatureScheme))
             {
                 throw new TlsFatalAlert(alertDescription);
             }
@@ -1980,9 +1994,6 @@ public class TlsUtils
             return NISTObjectIdentifiers.id_sha384;
         case HashAlgorithm.sha512:
             return NISTObjectIdentifiers.id_sha512;
-        // TODO[RFC 8998]
-//        case HashAlgorithm.sm3:
-//            return GMObjectIdentifiers.sm3;
         default:
             throw new IllegalArgumentException("invalid HashAlgorithm: " + HashAlgorithm.getText(hashAlgorithm));
         }
@@ -6273,7 +6284,7 @@ public class TlsUtils
         return maxFragmentLength;
     }
 
-    static short processClientCertificateTypeExtension(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
+    static short processClientCertificateTypeExtension(TlsCrypto tlsCrypto, Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
@@ -6283,7 +6294,7 @@ public class TlsUtils
             return CertificateType.X509;
         }
 
-        if (!CertificateType.isValid(serverValue))
+        if (!tlsCrypto.hasCertificateType(serverValue))
         {
             throw new TlsFatalAlert(alertDescription, "Unknown value for client_certificate_type");
         }
@@ -6297,17 +6308,17 @@ public class TlsUtils
         return serverValue;
     }
 
-    static short processClientCertificateTypeExtension13(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
+    static short processClientCertificateTypeExtension13(TlsCrypto tlsCrypto, Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
-        short certificateType = processClientCertificateTypeExtension(clientExtensions, serverExtensions,
+        short certificateType = processClientCertificateTypeExtension(tlsCrypto, clientExtensions, serverExtensions,
             alertDescription);
 
         return validateCertificateType13(certificateType, alertDescription);
     }
 
-    static short processServerCertificateTypeExtension(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
+    static short processServerCertificateTypeExtension(TlsCrypto tlsCrypto, Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
@@ -6317,7 +6328,7 @@ public class TlsUtils
             return CertificateType.X509;
         }
 
-        if (!CertificateType.isValid(serverValue))
+        if (!tlsCrypto.hasCertificateType(serverValue))
         {
             throw new TlsFatalAlert(alertDescription, "Unknown value for server_certificate_type");
         }
@@ -6331,11 +6342,11 @@ public class TlsUtils
         return serverValue;
     }
 
-    static short processServerCertificateTypeExtension13(Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
+    static short processServerCertificateTypeExtension13(TlsCrypto tlsCrypto, Map<Integer, byte[]> clientExtensions, Map<Integer, byte[]> serverExtensions,
         short alertDescription)
         throws IOException
     {
-        short certificateType = processServerCertificateTypeExtension(clientExtensions, serverExtensions,
+        short certificateType = processServerCertificateTypeExtension(tlsCrypto, clientExtensions, serverExtensions,
             alertDescription);
 
         return validateCertificateType13(certificateType, alertDescription);

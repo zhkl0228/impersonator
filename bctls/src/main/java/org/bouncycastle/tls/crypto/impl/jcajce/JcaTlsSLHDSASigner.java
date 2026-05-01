@@ -8,14 +8,14 @@ import org.bouncycastle.tls.SignatureScheme;
 import org.bouncycastle.tls.crypto.TlsSigner;
 import org.bouncycastle.tls.crypto.TlsStreamSigner;
 
-public class JcaTlsMLDSASigner
+public class JcaTlsSLHDSASigner
     implements TlsSigner
 {
     private final JcaTlsCrypto crypto;
     private final PrivateKey privateKey;
     private final int signatureScheme;
 
-    public JcaTlsMLDSASigner(JcaTlsCrypto crypto, PrivateKey privateKey, int signatureScheme)
+    public JcaTlsSLHDSASigner(JcaTlsCrypto crypto, PrivateKey privateKey, int signatureScheme)
     {
         if (null == crypto)
         {
@@ -25,7 +25,7 @@ public class JcaTlsMLDSASigner
         {
             throw new NullPointerException("privateKey");
         }
-        if (!SignatureScheme.isMLDSA(signatureScheme))
+        if (!SignatureScheme.isSLHDSA(signatureScheme))
         {
             throw new IllegalArgumentException("signatureScheme");
         }
@@ -47,6 +47,6 @@ public class JcaTlsMLDSASigner
             throw new IllegalStateException("Invalid algorithm: " + algorithm);
         }
 
-        return crypto.createStreamSigner("ML-DSA", null, privateKey, true);
+        return crypto.createStreamSigner("SLH-DSA", null, privateKey, true);
     }
 }

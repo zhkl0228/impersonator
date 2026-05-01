@@ -1,6 +1,6 @@
 # impersonator
 
-impersonator is a fork of [BouncyCastle-bctls](https://github.com/bcgit/bc-java/tree/r1rv82) and [okhttp](https://github.com/square/okhttp/tree/parent-4.12.0) that is designed to impersonate TLS fingerprints.
+impersonator is a fork of [BouncyCastle-bctls](https://github.com/bcgit/bc-java/tree/r1rv84) and [okhttp](https://github.com/square/okhttp/tree/parent-4.12.0) that is designed to impersonate TLS fingerprints.
 
 `impersonator` can
 impersonate browsers' TLS/JA3 and HTTP/2 fingerprints. If you are blocked by some

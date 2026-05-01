@@ -184,7 +184,7 @@ class ProvTlsClient
     @Override
     protected int[] getSupportedCipherSuites()
     {
-        return manager.getContextData().getActiveCipherSuites(getCrypto(), sslParameters, getProtocolVersions());
+        return null;
     }
 
     @Override
@@ -210,7 +210,7 @@ class ProvTlsClient
     @Override
     protected ProtocolVersion[] getSupportedVersions()
     {
-        return manager.getContextData().getActiveProtocolVersions(sslParameters);
+        return null;
     }
 
     @Override
@@ -364,6 +364,18 @@ class ProvTlsClient
     }
 
     @Override
+    public Vector getEarlyKeyShareGroups()
+    {
+        Vector jsse = jsseSecurityParameters.namedGroups.getLocalEarly();
+        if (jsse != null)
+        {
+            return jsse;
+        }
+
+        return super.getEarlyKeyShareGroups();
+    }
+
+    @Override
     public int getMaxCertificateChainLength()
     {
         return JsseUtils.getMaxInboundCertChainLenClient();
@@ -372,7 +384,7 @@ class ProvTlsClient
     @Override
     public int getMaxHandshakeMessageSize()
     {
-        return JsseUtils.getMaxHandshakeMessageSize();
+        return manager.getContextData().getMaxHandshakeMessageSize();
     }
 
     @Override
@@ -462,13 +474,30 @@ class ProvTlsClient
     {
         super.notifyHandshakeBeginning();
 
-        if (LOG.isLoggable(Level.FINE))
+        ContextData contextData = manager.getContextData();
+        ProtocolVersion[] activeProtocolVersions;
+
+        if (context.getSecurityParametersHandshake().isRenegotiating())
         {
-            LOG.fine(clientID + " opening connection to " + JsseUtils.getPeerReport(manager));
+            if (LOG.isLoggable(Level.FINE))
+            {
+                LOG.fine(clientID + " renegotiating connection to " + JsseUtils.getPeerReport(manager));
+            }
+
+            activeProtocolVersions = context.getSecurityParametersConnection().getNegotiatedVersion().only();
+        }
+        else
+        {
+            if (LOG.isLoggable(Level.FINE))
+            {
+                LOG.fine(clientID + " opening connection to " + JsseUtils.getPeerReport(manager));
+            }
+
+            activeProtocolVersions = contextData.getActiveProtocolVersions(sslParameters);
         }
 
-        ContextData contextData = manager.getContextData();
-        ProtocolVersion[] activeProtocolVersions = getProtocolVersions();
+        this.protocolVersions = activeProtocolVersions;
+        this.cipherSuites = contextData.getActiveCipherSuites(getCrypto(), sslParameters, activeProtocolVersions);
 
         jsseSecurityParameters.namedGroups = contextData.getNamedGroupsClient(sslParameters, activeProtocolVersions);
 

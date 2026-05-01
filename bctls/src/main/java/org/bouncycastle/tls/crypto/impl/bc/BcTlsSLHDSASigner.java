@@ -1,33 +1,34 @@
 package org.bouncycastle.tls.crypto.impl.bc;
 
-import org.bouncycastle.crypto.params.MLDSAPrivateKeyParameters;
 import org.bouncycastle.crypto.params.ParametersWithRandom;
-import org.bouncycastle.crypto.signers.MLDSASigner;
+import org.bouncycastle.crypto.params.SLHDSAPrivateKeyParameters;
+import org.bouncycastle.crypto.signers.SLHDSASigner;
+import org.bouncycastle.pqc.crypto.MessageSignerAdapter;
 import org.bouncycastle.tls.SignatureAndHashAlgorithm;
 import org.bouncycastle.tls.SignatureScheme;
 import org.bouncycastle.tls.crypto.TlsStreamSigner;
 import org.bouncycastle.tls.crypto.impl.PQCUtil;
 
-public class BcTlsMLDSASigner
+public class BcTlsSLHDSASigner
     extends BcTlsSigner
 {
-    public static BcTlsMLDSASigner create(BcTlsCrypto crypto, MLDSAPrivateKeyParameters privateKey, int signatureScheme)
+    public static BcTlsSLHDSASigner create(BcTlsCrypto crypto, SLHDSAPrivateKeyParameters privateKey, int signatureScheme)
     {
-        if (signatureScheme != PQCUtil.getMLDSASignatureScheme(privateKey.getParameters()))
+        if (signatureScheme != PQCUtil.getSLHDSASignatureScheme(privateKey.getParameters()))
         {
             return null;
         }
 
-        return new BcTlsMLDSASigner(crypto, privateKey, signatureScheme);
+        return new BcTlsSLHDSASigner(crypto, privateKey, signatureScheme);
     }
 
     private final int signatureScheme;
 
-    private BcTlsMLDSASigner(BcTlsCrypto crypto, MLDSAPrivateKeyParameters privateKey, int signatureScheme)
+    private BcTlsSLHDSASigner(BcTlsCrypto crypto, SLHDSAPrivateKeyParameters privateKey, int signatureScheme)
     {
         super(crypto, privateKey);
 
-        if (!SignatureScheme.isMLDSA(signatureScheme))
+        if (!SignatureScheme.isSLHDSA(signatureScheme))
         {
             throw new IllegalArgumentException("signatureScheme");
         }
@@ -43,11 +44,11 @@ public class BcTlsMLDSASigner
         }
 
         /*
-         * draft-ietf-tls-mldsa-00 3. The context parameter [..] MUST be the empty string.
+         * draft-reddy-tls-slhdsa-01 2. [..], the context parameter [..] MUST be set to the empty string.
          */
-        MLDSASigner signer = new MLDSASigner();
+        SLHDSASigner signer = new SLHDSASigner();
         signer.init(true, new ParametersWithRandom(privateKey, crypto.getSecureRandom()));
 
-        return new BcTlsStreamSigner(signer);
+        return new BcTlsStreamSigner(new MessageSignerAdapter(signer));
     }
 }
