@@ -29,7 +29,7 @@ class MacSafari extends ImpersonatorFactory {
     }
 
     static ImpersonatorApi newMacSafari() {
-        return new MacSafari(Type.MacSafari, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3.1 Safari/605.1.15");
+        return new MacSafari(Type.MacSafari, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15");
     }
 
     static ImpersonatorApi newIOS() {
