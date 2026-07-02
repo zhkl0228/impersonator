@@ -1,5 +1,6 @@
 package com.github.zhkl0228.impersonator;
 
+import okhttp3.*;
 import org.bouncycastle.tls.OfferedPsks;
 import org.bouncycastle.tls.PskIdentity;
 import org.bouncycastle.tls.TlsExtensionsUtils;
@@ -14,9 +15,23 @@ public class MacChromeTest extends SSLProviderTest {
                 "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p");
     }
 
+    public void testBet365() throws Exception {
+        OkHttpClientFactory okHttpClientFactory = OkHttpClientFactory.create(createImpersonatorApi());
+        OkHttpClient client = this instanceof SocketFactory ? okHttpClientFactory.newHttpClient((SocketFactory) this) : okHttpClientFactory.newHttpClient();
+        Request request = new Request.Builder().url("https://www.bet365.com/matchmarketscontentapi/markets?lid=10&zid=0&pd=%23AC%23B1%23C1%23D1002%23E131901075%23G938%23&cid=166&cgid=1&ctid=166").build();
+        try (Response response = client.newCall(request).execute()) {
+            ResponseBody body = response.body();
+            assertNotNull(body);
+            String html = body.string();
+            System.out.println(html);
+            System.out.println(response.code() + " " + response.message());
+            System.out.println(response.headers());
+        }
+    }
+
     public void testScrapFlyJa3() throws Exception {
         try {
-            doTestScrapFlyJa3("version:772|ch_ciphers:GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-35-43-45-51-17613-65037-65281-GREASE|groups:GREASE-4588-29-23-24|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-4588-29|psk:1|signature_algs:1027-2052-1025-1283-2053-1281-2054-1537|early_data:0|");
+            doTestScrapFlyJa3("version:772|ch_ciphers:GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-35-43-45-51-17613-65037-65281-GREASE|groups:GREASE-4588-29-23-24|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-4588-29|psk:1|signature_algs:1027-2052-1025-1283-2053-1281-2054-1537|early_data:0");
         } finally {
             extensionListener = null;
         }

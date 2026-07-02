@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.github.zhkl0228</groupId>
         <artifactId>impersonator</artifactId>
-        <version>1.0.12</version>
+        <version>1.0.13</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <name>bctls</name>
@@ -24,6 +24,16 @@
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcutil-jdk18on</artifactId>
             <version>1.84</version>
+        </dependency>
+        <dependency>
+            <groupId>org.brotli</groupId>
+            <artifactId>dec</artifactId>
+            <version>0.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.luben</groupId>
+            <artifactId>zstd-jni</artifactId>
+            <version>1.5.7-11</version>
         </dependency>
         <dependency>
             <groupId>org.scijava</groupId>

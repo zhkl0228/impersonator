@@ -167,6 +167,26 @@ public class TlsClientProtocol
             }
             break;
         }
+        case HandshakeType.compressed_certificate:
+        {
+            switch (this.connection_state)
+            {
+            case CS_SERVER_ENCRYPTED_EXTENSIONS:
+            {
+                skip13CertificateRequest();
+                // NB: Fall through to next case label
+            }
+            case CS_SERVER_CERTIFICATE_REQUEST:
+            {
+                receive13CompressedCertificate(buf);
+                this.connection_state = CS_SERVER_CERTIFICATE;
+                break;
+            }
+            default:
+                throw new TlsFatalAlert(AlertDescription.unexpected_message);
+            }
+            break;
+        }
         case HandshakeType.certificate_request:
         {
             switch (this.connection_state)
@@ -338,7 +358,6 @@ public class TlsClientProtocol
         case HandshakeType.certificate_url:
         case HandshakeType.client_hello:
         case HandshakeType.client_key_exchange:
-        case HandshakeType.compressed_certificate:
         case HandshakeType.end_of_early_data:
         case HandshakeType.hello_request:
         case HandshakeType.hello_verify_request:
@@ -347,7 +366,7 @@ public class TlsClientProtocol
         case HandshakeType.server_key_exchange:
         case HandshakeType.supplemental_data:
         default:
-            throw new TlsFatalAlert(AlertDescription.unexpected_message);
+            throw new TlsFatalAlert(AlertDescription.unexpected_message, "Unknown handshake type: " + type);
         }
     }
 
@@ -1631,6 +1650,36 @@ public class TlsClientProtocol
         }
 
         this.authentication = TlsUtils.receive13ServerCertificate(tlsClientContext, tlsClient, buf);
+
+        // NOTE: In TLS 1.3 we don't have to wait for a possible CertificateStatus message.
+        handleServerCertificate();
+    }
+
+    protected void receive13CompressedCertificate(ByteArrayInputStream buf)
+        throws IOException
+    {
+        if (selectedPSK13)
+        {
+            throw new TlsFatalAlert(AlertDescription.unexpected_message);
+        }
+
+        int algorithm = TlsUtils.readUint16(buf);
+        int uncompressedLength = TlsUtils.readUint24(buf);
+        byte[] compressed = TlsUtils.readOpaque24(buf, 1);
+        assertEmpty(buf);
+
+        // The server must select an algorithm the client advertised in its compress_certificate extension.
+        int[] offered = TlsExtensionsUtils.getCompressCertificateExtension(clientExtensions);
+        if (offered == null || !Arrays.contains(offered, algorithm))
+        {
+            throw new TlsFatalAlert(AlertDescription.illegal_parameter,
+                "Certificate compression algorithm not offered: " + algorithm);
+        }
+
+        byte[] uncompressed = CertificateCompressionUtils.decompress(algorithm, compressed, uncompressedLength);
+
+        this.authentication = TlsUtils.receive13ServerCertificate(tlsClientContext, tlsClient,
+            new ByteArrayInputStream(uncompressed));
 
         // NOTE: In TLS 1.3 we don't have to wait for a possible CertificateStatus message.
         handleServerCertificate();

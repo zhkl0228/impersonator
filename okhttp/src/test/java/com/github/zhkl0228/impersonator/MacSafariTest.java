@@ -14,7 +14,7 @@ public class MacSafariTest extends SSLProviderTest implements SocketFactory {
     }
 
     public void testScrapFlyJa3() throws Exception {
-        doTestScrapFlyJa3("version:772|ch_ciphers:GREASE-4866-4867-4865-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-43-45-51-65281-GREASE|groups:GREASE-4588-29-23-24-25|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-4588-29|psk:1|signature_algs:1027-2052-1025-1283-2053-2053-1281-2054-1537-513|early_data:0|");
+        doTestScrapFlyJa3("version:772|ch_ciphers:GREASE-4866-4867-4865-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10|ch_extensions:GREASE-0-5-10-11-13-16-18-23-27-43-45-51-65281-GREASE|groups:GREASE-4588-29-23-24-25|points:0|compression:0|supported_versions:GREASE-772-771|supported_protocols:h2-http11|key_shares:GREASE-4588-29|psk:1|signature_algs:1027-2052-1025-1283-2053-2053-1281-2054-1537-513|early_data:0");
     }
 
     public void testScrapFlyHttp2() throws Exception {

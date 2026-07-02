@@ -22,7 +22,7 @@ public class MacFirefoxTest extends SSLProviderTest {
             int length = ImpersonatorFactory.calcClientHelloMessageLength(clientHello);
             System.out.println("testScrapFlyJa3 clientHelloMessageLength=" + length);
         };
-        doTestScrapFlyJa3("version:772|ch_ciphers:4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53|ch_extensions:0-5-10-11-13-16-18-23-27-28-34-43-45-51-65037-65281|groups:4588-29-23-24-25-256-257|points:0|compression:0|supported_versions:772-771|supported_protocols:h2-http11|key_shares:4588-29-23|psk:1|signature_algs:1027-1283-1539-2052-2053-2054-1025-1281-1537-515-513|early_data:0|");
+        doTestScrapFlyJa3("version:772|ch_ciphers:4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53|ch_extensions:0-5-10-11-13-16-18-23-27-28-34-43-45-51-65037-65281|groups:4588-29-23-24-25-256-257|points:0|compression:0|supported_versions:772-771|supported_protocols:h2-http11|key_shares:4588-29-23|psk:1|signature_algs:1027-1283-1539-2052-2053-2054-1025-1281-1537-515-513|early_data:0");
     }
 
     public void testScrapFlyHttp2() throws Exception {
