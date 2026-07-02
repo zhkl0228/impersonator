@@ -34,6 +34,7 @@
             <groupId>com.github.luben</groupId>
             <artifactId>zstd-jni</artifactId>
             <version>1.5.7-11</version>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.scijava</groupId>
