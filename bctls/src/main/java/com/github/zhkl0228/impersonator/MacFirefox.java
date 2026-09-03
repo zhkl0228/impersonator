@@ -3,7 +3,6 @@ package com.github.zhkl0228.impersonator;
 import okhttp3.Http2Connection;
 import okhttp3.Settings;
 import org.bouncycastle.tls.*;
-import org.bouncycastle.util.encoders.Hex;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -68,7 +67,7 @@ class MacFirefox extends ImpersonatorFactory {
                 NamedGroup.secp521r1, NamedGroup.ffdhe2048, NamedGroup.ffdhe3072);
         TlsExtensionsUtils.addRecordSizeLimitExtension(clientExtensions, 0x4000);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        clientExtensions.put(ExtensionType.encrypted_client_hello, Hex.decodeStrict("000001000138002054b1fcc8868629a9ec88d5b183f9e26917229f69035b4ac94e833dd431bc4a5e00902f73c090762306de7f3fe1bd8d6ea5e4a577715d7385301e7340140f2970e5e58ad4c6584456035ec1f079afbbba4ad0e1292e3b7dfc3f9305a863e4b152c6880def239a16843469fbc2a46846b2a2007b6d97a4d5f897f5d6df2b33b31e3f306ac3f4fe5d229dfffe3dcf209c710430d8f4bb97b86be8ef1437425a3c693dfed5afa5c7ad0b84965060bd10d805cee0"));
+        addGreaseEncryptedClientHelloExtension(clientExtensions);
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         clientExtensions.remove(ExtensionType.key_share);
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{

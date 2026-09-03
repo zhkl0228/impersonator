@@ -15,10 +15,13 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.security.SecureRandom;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -96,6 +99,45 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         Vector<SignatureAndHashAlgorithm> supportedSignatureAlgorithms = new Vector<>(signatureAndHashAlgorithms.length);
         supportedSignatureAlgorithms.addAll(Arrays.asList(signatureAndHashAlgorithms));
         TlsExtensionsUtils.addDelegatedCredentialsExtension(clientExtensions, supportedSignatureAlgorithms);
+    }
+
+    private static final SecureRandom GREASE_ECH_RANDOM = new SecureRandom();
+
+    /**
+     * Field sizes of the GREASE ECH sent by the browsers we impersonate, as observed in captures:
+     * outer type, HKDF-SHA256 / AES-128-GCM, a one byte config id, a 32 byte X25519 encapsulated
+     * key and a 144 byte payload.
+     */
+    private static final int GREASE_ECH_KDF_ID = 0x0001;
+    private static final int GREASE_ECH_AEAD_ID = 0x0001;
+    private static final int GREASE_ECH_ENC_LENGTH = 32;
+    private static final int GREASE_ECH_PAYLOAD_LENGTH = 144;
+
+    /**
+     * Adds the GREASE ECH a browser sends when it has no ECHConfig for the server. The config id,
+     * the encapsulated key and the payload must be regenerated per connection: a fixed value would
+     * be a stable identifier carried by every connection this library makes, which is exactly the
+     * kind of thing the impersonation is meant to avoid.
+     */
+    protected static void addGreaseEncryptedClientHelloExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream(8 + GREASE_ECH_ENC_LENGTH + GREASE_ECH_PAYLOAD_LENGTH)) {
+            DataOutput dataOutput = new DataOutputStream(baos);
+            dataOutput.writeByte(0); // ECHClientHelloType.outer
+            dataOutput.writeShort(GREASE_ECH_KDF_ID);
+            dataOutput.writeShort(GREASE_ECH_AEAD_ID);
+            byte[] configId = new byte[1];
+            GREASE_ECH_RANDOM.nextBytes(configId);
+            dataOutput.write(configId);
+            byte[] enc = new byte[GREASE_ECH_ENC_LENGTH];
+            GREASE_ECH_RANDOM.nextBytes(enc);
+            dataOutput.writeShort(enc.length);
+            dataOutput.write(enc);
+            byte[] payload = new byte[GREASE_ECH_PAYLOAD_LENGTH];
+            GREASE_ECH_RANDOM.nextBytes(payload);
+            dataOutput.writeShort(payload.length);
+            dataOutput.write(payload);
+            clientExtensions.put(ExtensionType.encrypted_client_hello, baos.toByteArray());
+        }
     }
 
     protected final void addSupportedGroupsExtension(Map<Integer, byte[]> clientExtensions, Integer... groups) throws IOException {
