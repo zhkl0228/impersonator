@@ -22,7 +22,8 @@ public class MacFirefoxTest extends SSLProviderTest {
      */
     public void testBrowserLeaksEch() throws Exception {
         doTestBrowserLeaksEch("771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-28-34-35-43-45-51-65037-65281,4588-29-23-24-25-256-257,0",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0");
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0",
+                "1:65536;2:0;4:131072;5:16384|12517377|0|m,p,a,s");
     }
 
     public void testScrapFlyJa3() throws Exception {

@@ -21,7 +21,8 @@ public class AndroidTest extends SSLProviderTest {
      */
     public void testBrowserLeaksEch() throws Exception {
         doTestBrowserLeaksEch("771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17513-65037-65281,29-23-24,0",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36");
+                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
+                "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p");
     }
 
     public void testScrapFlyJa3() throws Exception {

@@ -8,36 +8,30 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import org.bouncycastle.tls.EchConfigList;
 import org.bouncycastle.tls.TlsEchRejectedException;
-import org.bouncycastle.util.encoders.Base64;
 
 import java.io.IOException;
 
 public class EchTest extends TestCase {
 
-    /**
-     * From {@code dig +short HTTPS crypto.cloudflare.com}, the {@code ech=} service parameter. The
-     * key rotates, so a handshake failure here may just mean this needs refreshing.
-     */
-    private static final String CLOUDFLARE_ECH_CONFIG_LIST =
-            "AEX+DQBBlwAgACCtFqwRJUzoqdAUv75f2pNyS4oUoT4EB7sVsTUXlEeocQAEAAEAAQASY2xvdWRmbGFyZS1lY2guY29tAAA=";
-
     private static final String TRACE_URL = "https://crypto.cloudflare.com/cdn-cgi/trace";
 
     /**
      * Cloudflare's trace endpoint reports {@code sni=encrypted} when the server name arrived inside
-     * a ClientHelloInner, and {@code sni=plaintext} otherwise.
+     * a ClientHelloInner, and {@code sni=plaintext} otherwise. Nothing is configured here: a profile
+     * whose browser supports ECH resolves the host's ECHConfigList over DNS-over-HTTPS by itself.
      */
-    public void testEchIsAccepted() throws Exception {
-        String body = trace(host -> Base64.decode(CLOUDFLARE_ECH_CONFIG_LIST));
+    public void testEchIsAcceptedWithNoConfiguration() throws Exception {
+        String body = trace(null);
         assertTrue("expected an encrypted sni, got:\n" + body, body.contains("sni=encrypted"));
     }
 
     /**
-     * Without a provider the GREASE ECH is sent, which the server cannot decrypt, so the server name
-     * travels in the clear. This is the baseline the previous test has to improve on.
+     * With the lookup removed only the GREASE ECH goes out, which the server cannot decrypt, so the
+     * server name travels in the clear. This is the baseline the previous test has to improve on,
+     * and it is also what a host with no ECHConfig in DNS gets.
      */
-    public void testWithoutEchConfigTheSniIsPlaintext() throws Exception {
-        String body = trace(null);
+    public void testWithoutTheLookupTheSniIsPlaintext() throws Exception {
+        String body = trace(api -> api.setEchConfigProvider(null));
         assertTrue("expected a plaintext sni, got:\n" + body, body.contains("sni=plaintext"));
     }
 
@@ -48,8 +42,13 @@ public class EchTest extends TestCase {
      * EncryptedExtensions.
      */
     public void testEchRejectedCarriesRetryConfigs() throws Exception {
+        byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance()
+                .getEchConfigList("crypto.cloudflare.com");
+        assertNotNull("crypto.cloudflare.com should publish an ECHConfigList", echConfigList);
+        final byte[] corrupted = corruptPublicKey(echConfigList);
+
         try {
-            String body = trace(host -> corruptPublicKey(Base64.decode(CLOUDFLARE_ECH_CONFIG_LIST)));
+            String body = trace(api -> api.setEchConfigProvider(host -> corrupted));
             fail("expected the server to reject ECH, got:\n" + body);
         } catch (IOException e) {
             // TlsFatalAlert is an IOException, so this arrives unwrapped rather than as an SSLException.
@@ -60,6 +59,21 @@ public class EchTest extends TestCase {
             assertNotNull("the server should publish retry_configs", retryConfigs);
             // What comes back must be a usable ECHConfigList for the same client-facing server.
             assertEquals("cloudflare-ech.com", EchConfigList.select(retryConfigs).getPublicName());
+        }
+    }
+
+    /**
+     * Safari does not do ECH, so its profile sends no ECH extension at all. Installing a config
+     * lookup must be refused rather than adding an extension the real browser never sends.
+     */
+    public void testEchOnANonEchProfileIsRefused() {
+        ImpersonatorApi api = ImpersonatorFactory.macSafari();
+        try {
+            api.setEchConfigProvider(host -> new byte[0]);
+            fail("expected the provider to be refused");
+        } catch (UnsupportedOperationException e) {
+            assertTrue(String.valueOf(e.getMessage()),
+                    String.valueOf(e.getMessage()).contains("does not support Encrypted Client Hello"));
         }
     }
 
@@ -76,23 +90,6 @@ public class EchTest extends TestCase {
         return corrupted;
     }
 
-    /**
-     * Safari does not do ECH, so its profile offers no GREASE ECH placeholder. Supplying a config
-     * anyway must be refused rather than silently adding an extension the real browser never sends.
-     */
-    public void testEchOnANonEchProfileIsRefused() throws Exception {
-        ImpersonatorApi api = ImpersonatorFactory.macSafari();
-        api.setEchConfigProvider(host -> Base64.decode(CLOUDFLARE_ECH_CONFIG_LIST));
-        OkHttpClient client = OkHttpClientFactory.create(api).newHttpClient();
-        Request request = new Request.Builder().url(TRACE_URL).build();
-        try (Response ignored = client.newCall(request).execute()) {
-            fail("expected the handshake to be refused");
-        } catch (IOException e) {
-            assertTrue(String.valueOf(e.getMessage()),
-                    String.valueOf(e.getMessage()).contains("does not support Encrypted Client Hello"));
-        }
-    }
-
     private static TlsEchRejectedException findEchRejected(Throwable t) {
         for (; t != null; t = t.getCause()) {
             if (t instanceof TlsEchRejectedException) {
@@ -102,10 +99,14 @@ public class EchTest extends TestCase {
         return null;
     }
 
-    private static String trace(EchConfigProvider echConfigProvider) throws Exception {
+    private interface ApiCustomizer {
+        void customize(ImpersonatorApi api);
+    }
+
+    private static String trace(ApiCustomizer customizer) throws Exception {
         ImpersonatorApi api = ImpersonatorFactory.macChrome();
-        if (echConfigProvider != null) {
-            api.setEchConfigProvider(echConfigProvider);
+        if (customizer != null) {
+            customizer.customize(api);
         }
         OkHttpClient client = OkHttpClientFactory.create(api).newHttpClient();
         Request request = new Request.Builder().url(TRACE_URL).build();

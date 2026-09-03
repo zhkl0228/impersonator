@@ -12,29 +12,35 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import okhttp3.SocketFactory;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.bouncycastle.util.encoders.Base64;
+
+import java.util.concurrent.TimeUnit;
 
 abstract class SSLProviderTest extends TestCase {
 
+    /**
+     * Longer than okhttp's 10 second default: these tests talk to third party fingerprinting
+     * services, and tls.peet.ws in particular has been seen taking over 10 seconds to answer.
+     */
+    private static final long READ_TIMEOUT_SECONDS = 15;
+
     protected abstract ImpersonatorApi createImpersonatorApi();
 
-    /**
-     * From {@code dig +short HTTPS tls.browserleaks.com}, the {@code ech=} service parameter. The
-     * key rotates, so a handshake failure in the ECH tests may just mean this needs refreshing.
-     */
-    private static final String BROWSERLEAKS_ECH_CONFIG_LIST =
-            "AFX+DQBRyAAgACAzAZEzNRR2w29tUq9Ki1ptTeaJeRMhG2Fzz7E89x8PVwAMAAEAAQABAAIAAQADABp0bHMtb3V0ZXIuYnJvd3NlcmxlYWtzLmNvbQAA";
-
     protected final JSONObject doTestURL(String url) throws Exception {
-        return doTestURL(url, null);
+        return doTestURL(url, true);
     }
 
-    protected final JSONObject doTestURL(String url, EchConfigProvider echConfigProvider) throws Exception {
+    /**
+     * @param ech false to strip the ECHConfig lookup that browsers supporting ECH install by
+     *            default, leaving only the GREASE ECH. The fingerprint then describes the
+     *            ClientHello as it appears on the wire rather than the ClientHelloInner.
+     */
+    protected final JSONObject doTestURL(String url, boolean ech) throws Exception {
         ImpersonatorApi api = createImpersonatorApi();
-        if (echConfigProvider != null) {
-            api.setEchConfigProvider(echConfigProvider);
+        if (!ech) {
+            api.setEchConfigProvider(null);
         }
-        OkHttpClientFactory okHttpClientFactory = OkHttpClientFactory.create(api);
+        OkHttpClientFactory okHttpClientFactory = OkHttpClientFactory.create(api)
+                .setReadTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         OkHttpClient client = this instanceof SocketFactory ? okHttpClientFactory.newHttpClient((SocketFactory) this) : okHttpClientFactory.newHttpClient();
         Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
@@ -51,13 +57,15 @@ abstract class SSLProviderTest extends TestCase {
      * The same fingerprint check, but with the server name encrypted. tls.browserleaks.com publishes
      * an ECHConfig, and a server that accepts ECH goes on to process the ClientHelloInner only, so
      * what comes back describes the inner. The point is that turning ECH on must not disturb the
-     * impersonated cipher suites, extension set, groups or ALPN that the origin ends up seeing.
+     * impersonated cipher suites, extension set, groups, ALPN or HTTP/2 settings that the origin
+     * ends up seeing.
      * <p>
-     * Only for profiles whose browser actually does ECH, i.e. those that offer a GREASE ECH.
+     * Only for profiles whose browser actually does ECH; they resolve the ECHConfigList themselves,
+     * so nothing has to be configured here.
      */
-    protected final void doTestBrowserLeaksEch(String ja3n_text, String userAgent) throws Exception {
-        JSONObject obj = doTestURL("https://tls.browserleaks.com/json",
-                host -> Base64.decode(BROWSERLEAKS_ECH_CONFIG_LIST));
+    protected final void doTestBrowserLeaksEch(String ja3n_text, String userAgent,
+                                               String akamai_text) throws Exception {
+        JSONObject obj = doTestURL("https://tls.browserleaks.com/json", true);
         String ja3n_hash = DigestUtils.md5Hex(ja3n_text);
         assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3n_text, obj.getString("ja3n_text")),
                 ja3n_hash, obj.getString("ja3n_hash"));
@@ -65,12 +73,19 @@ abstract class SSLProviderTest extends TestCase {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", userAgent, obj.getString("user_agent")),
                     userAgent, obj.getString("user_agent"));
         }
+        // The HTTP/2 fingerprint is settled after the handshake, so encrypting the server name must
+        // leave it untouched.
+        String akamai_hash = akamai_text == null ? null : DigestUtils.md5Hex(akamai_text);
+        if (akamai_hash != null) {
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", akamai_text, obj.getString("akamai_text")),
+                    akamai_hash, obj.getString("akamai_hash"));
+        }
     }
 
     protected void doTestBrowserLeaks(String ja3n_text, String ja3_text,
                                       String userAgent,
                                       String akamai_text) throws Exception {
-        JSONObject obj = doTestURL("https://tls.browserleaks.com/json");
+        JSONObject obj = doTestURL("https://tls.browserleaks.com/json", false);
         String ja3_hash = ja3_text == null ? null : DigestUtils.md5Hex(ja3_text);
         if (ja3_hash != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3_text, obj.getString("ja3_text")),

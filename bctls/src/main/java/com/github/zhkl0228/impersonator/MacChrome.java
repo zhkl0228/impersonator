@@ -19,7 +19,8 @@ class MacChrome extends ImpersonatorFactory {
 
     MacChrome() {
         super("GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36");
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+                true);
     }
 
     @Override
@@ -96,7 +97,6 @@ class MacChrome extends ImpersonatorFactory {
             keyShareEntries.add(new KeyShareEntry(ImpersonatorFactory.randomGrease(), new byte[1]));
             TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
         }
-        addGreaseEncryptedClientHelloExtension(clientExtensions);
         return new ExtensionOrder(null, true);
     }
 }

@@ -128,7 +128,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      * be a stable identifier carried by every connection this library makes, which is exactly the
      * kind of thing the impersonation is meant to avoid.
      */
-    protected static void addGreaseEncryptedClientHelloExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
+    private static void addGreaseEncryptedClientHelloExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
         int innerBlocks = GREASE_ECH_MIN_INNER_BLOCKS
                 + GREASE_ECH_RANDOM.nextInt(GREASE_ECH_MAX_INNER_BLOCKS - GREASE_ECH_MIN_INNER_BLOCKS + 1);
         int payloadLength = innerBlocks * GREASE_ECH_INNER_BLOCK_SIZE + GREASE_ECH_AEAD_TAG_LENGTH;
@@ -228,6 +228,9 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         clientExtensions.remove(ExtensionType.status_request_v2);
         clientExtensions.remove(ExtensionType.encrypt_then_mac);
         ExtensionOrder extensionOrder = onSendClientHelloMessageInternal(clientExtensions);
+        if (supportEch) {
+            addGreaseEncryptedClientHelloExtension(clientExtensions);
+        }
         if (extensionListener != null) {
             extensionListener.onClientExtensionsBuilt(clientHello, clientExtensions);
         }
@@ -236,10 +239,20 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
 
     private ExtensionListener extensionListener;
 
+    private final boolean supportEch;
+
     private EchConfigProvider echConfigProvider;
 
+    /**
+     * Replaces the DNS-over-HTTPS lookup installed for browsers that support ECH. Passing null
+     * leaves only the GREASE ECH, which is what a browser sends when it has no ECHConfig.
+     */
     @Override
     public void setEchConfigProvider(EchConfigProvider echConfigProvider) {
+        if (!supportEch && null != echConfigProvider) {
+            throw new UnsupportedOperationException(
+                    getClass().getSimpleName() + " impersonates a browser that does not support Encrypted Client Hello");
+        }
         this.echConfigProvider = echConfigProvider;
     }
 
@@ -273,8 +286,18 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         return null;
     }
 
-    protected ImpersonatorFactory(String cipherSuites, String userAgent) {
+    /**
+     * @param supportEch whether the impersonated browser does Encrypted Client Hello. When it does,
+     *                   every ClientHello carries an ECH extension: a real one when the host's
+     *                   ECHConfigList can be resolved, and a GREASE one otherwise, which is exactly
+     *                   how a browser behaves.
+     */
+    protected ImpersonatorFactory(String cipherSuites, String userAgent, boolean supportEch) {
         this.userAgent = userAgent;
+        this.supportEch = supportEch;
+        if (supportEch) {
+            this.echConfigProvider = DnsOverHttpsEchConfigProvider.getInstance();
+        }
         String[] tokens = cipherSuites.split("-");
         this.cipherSuites = new int[tokens.length];
         for (int i = 0; i < tokens.length; i++) {

@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.github.zhkl0228</groupId>
         <artifactId>impersonator</artifactId>
-        <version>1.1.0</version>
+        <version>1.2.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <name>okhttp</name>
@@ -27,12 +27,12 @@
                         <goals>
                             <goal>compile</goal>
                         </goals>
-                        <configuration>
-                            <sourceDirs>
-                                <source>src/main/kotlin</source>
-                                <source>target/generated-sources/annotations</source>
-                            </sourceDirs>
-                        </configuration>
+                        <!--
+                            No sourceDirs here: build-helper-maven-plugin already adds
+                            src/main/kotlin as a compile source root, which is also what puts the
+                            .kt files in the sources jar. Listing it again made the Kotlin plugin
+                            warn "Duplicate source root".
+                        -->
                     </execution>
                     <execution>
                         <id>test-compile</id>
@@ -117,7 +117,7 @@
         <dependency>
             <groupId>com.github.zhkl0228</groupId>
             <artifactId>impersonator-bctls</artifactId>
-            <version>1.1.0</version>
+            <version>1.2.0</version>
         </dependency>
         <dependency>
             <groupId>com.squareup.okio</groupId>

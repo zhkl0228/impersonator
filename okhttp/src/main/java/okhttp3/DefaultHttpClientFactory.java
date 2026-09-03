@@ -64,6 +64,7 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
 
     private OkHttpClient newHttpClientInternal(KeyManager[] km, TrustManager[] tm, String userAgent, SocketFactory socketFactory, Dns dns) {
         OkHttpClient.Builder builder = okHttpClientBuilderFactory == null ? new OkHttpClient.Builder() : okHttpClientBuilderFactory.newOkHttpClientBuilder();
+        applyTimeouts(builder);
         X509TrustManager trustManager = getX509KeyManager(tm);
         if (socketFactory != null) {
             builder.socketFactory(new OkHttpClientSocketFactory(socketFactory));
