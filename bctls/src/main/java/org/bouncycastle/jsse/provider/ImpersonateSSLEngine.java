@@ -21,6 +21,6 @@ class ImpersonateSSLEngine extends ProvSSLEngine {
     protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
         int[] cipherSuites = impersonator.getCipherSuites();
         ImpersonateSSLSocketWrap.checkCipherSuites(contextData, cipherSuites);
-        return new ImpersonateTlsClient(this, sslParameters, cipherSuites);
+        return new ImpersonateTlsClient(this, sslParameters, cipherSuites, impersonator);
     }
 }

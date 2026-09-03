@@ -5985,6 +5985,18 @@ public class TlsUtils
                 return false;
             }
         }
+        case ExtensionType.encrypted_client_hello:
+        {
+            switch (handshakeType)
+            {
+            case HandshakeType.client_hello:
+            case HandshakeType.encrypted_extensions:
+            case HandshakeType.hello_retry_request:
+                return true;
+            default:
+                return false;
+            }
+        }
         default:
         {
             return !ExtensionType.isRecognized(extensionType);

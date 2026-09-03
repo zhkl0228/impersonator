@@ -15,4 +15,9 @@ public interface Impersonator {
 
     ExtensionOrder onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException;
 
+    /**
+     * @return the ECHConfigList to offer for {@code host}, or null to send a GREASE ECH instead.
+     */
+    byte[] getEchConfigList(String host);
+
 }

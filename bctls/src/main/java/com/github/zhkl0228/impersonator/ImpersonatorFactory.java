@@ -104,14 +104,23 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     private static final SecureRandom GREASE_ECH_RANDOM = new SecureRandom();
 
     /**
-     * Field sizes of the GREASE ECH sent by the browsers we impersonate, as observed in captures:
-     * outer type, HKDF-SHA256 / AES-128-GCM, a one byte config id, a 32 byte X25519 encapsulated
-     * key and a 144 byte payload.
+     * Field sizes of the GREASE ECH sent by the browsers we impersonate: outer type,
+     * HKDF-SHA256 / AES-128-GCM, a one byte config id and a 32 byte X25519 encapsulated key.
      */
     private static final int GREASE_ECH_KDF_ID = 0x0001;
     private static final int GREASE_ECH_AEAD_ID = 0x0001;
     private static final int GREASE_ECH_ENC_LENGTH = 32;
-    private static final int GREASE_ECH_PAYLOAD_LENGTH = 144;
+
+    /**
+     * BoringSSL sizes the GREASE payload as {@code 32 * random(4..7) + 16}: a plausible padded
+     * EncodedClientHelloInner, which RFC 9849 section 6.1.3 rounds to a multiple of 32, plus the
+     * AEAD tag. So the length is one of 144, 176, 208 or 240, picked afresh per connection.
+     * See {@code setup_ech_grease} in BoringSSL's {@code ssl/encrypted_client_hello.cc}.
+     */
+    private static final int GREASE_ECH_MIN_INNER_BLOCKS = 4;
+    private static final int GREASE_ECH_MAX_INNER_BLOCKS = 7;
+    private static final int GREASE_ECH_INNER_BLOCK_SIZE = 32;
+    private static final int GREASE_ECH_AEAD_TAG_LENGTH = 16;
 
     /**
      * Adds the GREASE ECH a browser sends when it has no ECHConfig for the server. The config id,
@@ -120,7 +129,10 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      * kind of thing the impersonation is meant to avoid.
      */
     protected static void addGreaseEncryptedClientHelloExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream(8 + GREASE_ECH_ENC_LENGTH + GREASE_ECH_PAYLOAD_LENGTH)) {
+        int innerBlocks = GREASE_ECH_MIN_INNER_BLOCKS
+                + GREASE_ECH_RANDOM.nextInt(GREASE_ECH_MAX_INNER_BLOCKS - GREASE_ECH_MIN_INNER_BLOCKS + 1);
+        int payloadLength = innerBlocks * GREASE_ECH_INNER_BLOCK_SIZE + GREASE_ECH_AEAD_TAG_LENGTH;
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream(9 + GREASE_ECH_ENC_LENGTH + payloadLength)) {
             DataOutput dataOutput = new DataOutputStream(baos);
             dataOutput.writeByte(0); // ECHClientHelloType.outer
             dataOutput.writeShort(GREASE_ECH_KDF_ID);
@@ -132,7 +144,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
             GREASE_ECH_RANDOM.nextBytes(enc);
             dataOutput.writeShort(enc.length);
             dataOutput.write(enc);
-            byte[] payload = new byte[GREASE_ECH_PAYLOAD_LENGTH];
+            byte[] payload = new byte[payloadLength];
             GREASE_ECH_RANDOM.nextBytes(payload);
             dataOutput.writeShort(payload.length);
             dataOutput.write(payload);
@@ -223,6 +235,19 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     private ExtensionListener extensionListener;
+
+    private EchConfigProvider echConfigProvider;
+
+    @Override
+    public void setEchConfigProvider(EchConfigProvider echConfigProvider) {
+        this.echConfigProvider = echConfigProvider;
+    }
+
+    @Override
+    public byte[] getEchConfigList(String host) {
+        EchConfigProvider echConfigProvider = this.echConfigProvider;
+        return null == echConfigProvider || null == host ? null : echConfigProvider.getEchConfigList(host);
+    }
 
     @Override
     public void setExtensionListener(ExtensionListener extensionListener) {

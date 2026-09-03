@@ -48,6 +48,12 @@ public interface TlsClient
      */
     Vector getEarlyKeyShareGroups();
 
+    /**
+     * @return the raw ECHConfigList to offer for this connection, or null to not offer Encrypted
+     *         Client Hello. See RFC 9849.
+     */
+    byte[] getEchConfigList();
+
     boolean shouldUseCompatibilityMode();
 
     void notifyServerVersion(ProtocolVersion selectedVersion)

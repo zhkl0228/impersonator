@@ -33,6 +33,19 @@ class HandshakeMessageOutput
         count += 3;
     }
 
+    /**
+     * Patch the length in and return the complete handshake message, leaving the buffer intact.
+     * Encrypted Client Hello needs the bytes of a ClientHello it is not going to send through this
+     * object: the ClientHelloInner goes to the transcript, the ClientHelloOuter to the wire.
+     */
+    byte[] toHandshakeMessage() throws IOException
+    {
+        int bodyLength = count - 4;
+        TlsUtils.checkUint24(bodyLength);
+        TlsUtils.writeUint24(bodyLength, buf, 1);
+        return org.bouncycastle.util.Arrays.copyOf(buf, count);
+    }
+
     void send(TlsProtocol protocol) throws IOException
     {
         // Patch actual length back in

@@ -225,6 +225,16 @@ public class AlertDescription
     public static final short no_application_protocol = 120;
 
     /*
+     * RFC 9849
+     */
+
+    /**
+     * Sent by the client when it offered "encrypted_client_hello" but the server did not accept it,
+     * so that the client can signal the failure after retrieving "retry_configs".
+     */
+    public static final short ech_required = 121;
+
+    /*
      * RFC 7507
      */
 
@@ -322,6 +332,8 @@ public class AlertDescription
             return "missing_extension";
         case certificate_required:
             return "certificate_required";
+        case ech_required:
+            return "ech_required";
         default:
             return "UNKNOWN";
         }

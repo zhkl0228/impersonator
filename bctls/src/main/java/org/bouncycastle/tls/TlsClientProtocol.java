@@ -24,6 +24,7 @@ public class TlsClientProtocol
     protected Hashtable clientAgreements = null;
     OfferedPsks.BindersConfig clientBinders = null;
     protected ClientHello clientHello = null;
+    EchClient echClient = null;
     protected TlsKeyExchange keyExchange = null;
     protected TlsAuthentication authentication = null;
 
@@ -521,6 +522,12 @@ public class TlsClientProtocol
                 else
                 {
                     processServerHello(serverHello);
+
+                    if (null != echClient)
+                    {
+                        processEchAcceptConfirmation(serverHello, buf);
+                    }
+
                     handshakeHash.notifyPRFDetermined();
 
                     if (TlsUtils.isTLSv13(securityParameters.getNegotiatedVersion()))
@@ -846,6 +853,16 @@ public class TlsClientProtocol
     protected void process13HelloRetryRequest(ServerHello helloRetryRequest)
         throws IOException
     {
+        if (null != echClient)
+        {
+            throw new TlsFatalAlert(AlertDescription.internal_error,
+                "HelloRetryRequest with Encrypted Client Hello is not implemented; the second ClientHello must reuse"
+                    + " the HPKE context with an empty enc, and the HelloRetryRequest carries its own accept"
+                    + " confirmation. HelloRetryRequest was: "
+                    + org.bouncycastle.util.encoders.Hex.toHexString(helloRetryRequest.getRandom())
+                    + " extensions=" + helloRetryRequest.getExtensions());
+        }
+
         final ProtocolVersion legacy_record_version = ProtocolVersion.TLSv12;
         recordStream.setWriteVersion(legacy_record_version);
 
@@ -1569,6 +1586,10 @@ public class TlsClientProtocol
             }
         }
 
+        if (null != echClient && !echClient.isAccepted())
+        {
+            throw createEchRejected();
+        }
 
         final SecurityParameters securityParameters = tlsClientContext.getSecurityParametersHandshake();
 
@@ -2037,6 +2058,13 @@ public class TlsClientProtocol
 
     protected void sendClientHelloMessage() throws IOException
     {
+        byte[] echConfigList = tlsClient.getEchConfigList();
+        if (null != echConfigList)
+        {
+            sendEchClientHelloMessage(echConfigList);
+            return;
+        }
+
         HandshakeMessageOutput message = new HandshakeMessageOutput(HandshakeType.client_hello);
         clientHello.encode(tlsClientContext, message);
 
@@ -2048,6 +2076,76 @@ public class TlsClientProtocol
         }
 
         message.sendClientHello(this, handshakeHash, clientHello.getBindersSize());
+    }
+
+    /**
+     * RFC 9849. The transcript covers the ClientHelloInner while the wire carries the
+     * ClientHelloOuter, which is exactly the split {@link TlsProtocol#writeHandshakeMessage} already
+     * allows for by leaving client_hello out of the automatic transcript update.
+     */
+    private void sendEchClientHelloMessage(byte[] echConfigList) throws IOException
+    {
+        if (null != echClient)
+        {
+            throw new TlsFatalAlert(AlertDescription.internal_error,
+                "Encrypted Client Hello is already in progress; a second ClientHello is not implemented");
+        }
+
+        EchConfig echConfig = EchConfigList.select(echConfigList);
+        this.echClient = EchClient.create(tlsClientContext, clientHello, clientExtensions, echConfig);
+
+        byte[] inner = echClient.getInnerHandshakeMessage();
+        handshakeHash.update(inner, 0, inner.length);
+
+        byte[] outer = echClient.getOuterHandshakeMessage();
+        writeHandshakeMessage(outer, 0, outer.length);
+    }
+
+    /**
+     * RFC 9849 section 6.1.6. The server rejected Encrypted Client Hello, so the real server name
+     * went out in the clear; report that, with the retry_configs the server published.
+     */
+    private TlsEchRejectedException createEchRejected() throws IOException
+    {
+        String publicName = echClient.getConfig().getPublicName();
+
+        byte[] extensionData = TlsUtils.getExtensionData(serverExtensions,
+            TlsExtensionsUtils.EXT_encrypted_client_hello);
+        if (null == extensionData)
+        {
+            return new TlsEchRejectedException(publicName, null,
+                "Encrypted Client Hello was rejected by the server and no retry_configs were sent, so it should be"
+                    + " disabled for this server. The ClientHelloOuter offered " + echClient.getConfig().describe());
+        }
+
+        byte[] retryConfigs = EchClientHello.parseRetryConfigs(extensionData);
+
+        return new TlsEchRejectedException(publicName, retryConfigs,
+            "Encrypted Client Hello was rejected by the server; retry with the published retry_configs once the"
+                + " certificate for " + publicName + " has been verified. retry_configs="
+                + org.bouncycastle.util.encoders.Hex.toHexString(retryConfigs));
+    }
+
+    /**
+     * RFC 9849 section 7.1. On acceptance the transcript already holds the ClientHelloInner and the
+     * handshake continues unchanged. On rejection the server handshook against the ClientHelloOuter,
+     * so the transcript is rewound to it; the handshake is then run far enough to read the
+     * retry_configs out of EncryptedExtensions before giving up.
+     */
+    private void processEchAcceptConfirmation(ServerHello serverHello, HandshakeMessageInput buf) throws IOException
+    {
+        boolean accepted = echClient.checkAcceptConfirmation(tlsClientContext, buf.getHandshakeMessage(),
+            serverHello.getRandom());
+
+        echClient.setAccepted(accepted);
+
+        if (!accepted)
+        {
+            handshakeHash.reset();
+
+            byte[] outer = echClient.getOuterHandshakeMessage();
+            handshakeHash.update(outer, 0, outer.length);
+        }
     }
 
     protected void sendClientKeyExchange()

@@ -51,6 +51,6 @@ class ImpersonateSSLSocketWrap extends ProvSSLSocketWrap {
     protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
         int[] cipherSuites = impersonator.getCipherSuites();
         checkCipherSuites(contextData, cipherSuites);
-        return new ImpersonateTlsClient(this, sslParameters, cipherSuites);
+        return new ImpersonateTlsClient(this, sslParameters, cipherSuites, impersonator);
     }
 }

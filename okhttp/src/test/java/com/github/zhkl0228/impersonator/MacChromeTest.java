@@ -15,6 +15,15 @@ public class MacChromeTest extends SSLProviderTest {
                 "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p");
     }
 
+    /**
+     * The same extension set must survive inside the ClientHelloInner when the server name is
+     * encrypted. This browser does ECH, so tls.browserleaks.com reports the inner here.
+     */
+    public void testBrowserLeaksEch() throws Exception {
+        doTestBrowserLeaksEch("771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17613-65037-65281,4588-29-23-24,0",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36");
+    }
+
     public void testBet365() throws Exception {
         OkHttpClientFactory okHttpClientFactory = OkHttpClientFactory.create(createImpersonatorApi());
         OkHttpClient client = this instanceof SocketFactory ? okHttpClientFactory.newHttpClient((SocketFactory) this) : okHttpClientFactory.newHttpClient();

@@ -12,13 +12,29 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import okhttp3.SocketFactory;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.bouncycastle.util.encoders.Base64;
 
 abstract class SSLProviderTest extends TestCase {
 
     protected abstract ImpersonatorApi createImpersonatorApi();
 
+    /**
+     * From {@code dig +short HTTPS tls.browserleaks.com}, the {@code ech=} service parameter. The
+     * key rotates, so a handshake failure in the ECH tests may just mean this needs refreshing.
+     */
+    private static final String BROWSERLEAKS_ECH_CONFIG_LIST =
+            "AFX+DQBRyAAgACAzAZEzNRR2w29tUq9Ki1ptTeaJeRMhG2Fzz7E89x8PVwAMAAEAAQABAAIAAQADABp0bHMtb3V0ZXIuYnJvd3NlcmxlYWtzLmNvbQAA";
+
     protected final JSONObject doTestURL(String url) throws Exception {
-        OkHttpClientFactory okHttpClientFactory = OkHttpClientFactory.create(createImpersonatorApi());
+        return doTestURL(url, null);
+    }
+
+    protected final JSONObject doTestURL(String url, EchConfigProvider echConfigProvider) throws Exception {
+        ImpersonatorApi api = createImpersonatorApi();
+        if (echConfigProvider != null) {
+            api.setEchConfigProvider(echConfigProvider);
+        }
+        OkHttpClientFactory okHttpClientFactory = OkHttpClientFactory.create(api);
         OkHttpClient client = this instanceof SocketFactory ? okHttpClientFactory.newHttpClient((SocketFactory) this) : okHttpClientFactory.newHttpClient();
         Request request = new Request.Builder().url(url).build();
         try (Response response = client.newCall(request).execute()) {
@@ -28,6 +44,26 @@ abstract class SSLProviderTest extends TestCase {
             JSONObject obj = JSON.parseObject(json, Feature.OrderedField);
             System.out.println(obj.toString(SerializerFeature.PrettyFormat));
             return obj;
+        }
+    }
+
+    /**
+     * The same fingerprint check, but with the server name encrypted. tls.browserleaks.com publishes
+     * an ECHConfig, and a server that accepts ECH goes on to process the ClientHelloInner only, so
+     * what comes back describes the inner. The point is that turning ECH on must not disturb the
+     * impersonated cipher suites, extension set, groups or ALPN that the origin ends up seeing.
+     * <p>
+     * Only for profiles whose browser actually does ECH, i.e. those that offer a GREASE ECH.
+     */
+    protected final void doTestBrowserLeaksEch(String ja3n_text, String userAgent) throws Exception {
+        JSONObject obj = doTestURL("https://tls.browserleaks.com/json",
+                host -> Base64.decode(BROWSERLEAKS_ECH_CONFIG_LIST));
+        String ja3n_hash = DigestUtils.md5Hex(ja3n_text);
+        assertEquals(String.format("\nExpected :%s\nActual   :%s", ja3n_text, obj.getString("ja3n_text")),
+                ja3n_hash, obj.getString("ja3n_hash"));
+        if (userAgent != null) {
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", userAgent, obj.getString("user_agent")),
+                    userAgent, obj.getString("user_agent"));
         }
     }
 

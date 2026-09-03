@@ -407,6 +407,11 @@ public abstract class AbstractTlsClient
         return clientExtensions;
     }
 
+    public byte[] getEchConfigList()
+    {
+        return null;
+    }
+
     public Vector getEarlyKeyShareGroups()
     {
         /*

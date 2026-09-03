@@ -28,6 +28,7 @@ public class TlsExtensionsUtils
     public static final Integer EXT_early_data = Integers.valueOf(ExtensionType.early_data);
     public static final Integer EXT_ec_point_formats = Integers.valueOf(ExtensionType.ec_point_formats);
     public static final Integer EXT_encrypt_then_mac = Integers.valueOf(ExtensionType.encrypt_then_mac);
+    public static final Integer EXT_encrypted_client_hello = Integers.valueOf(ExtensionType.encrypted_client_hello);
     public static final Integer EXT_extended_master_secret = Integers.valueOf(ExtensionType.extended_master_secret);
     public static final Integer EXT_heartbeat = Integers.valueOf(ExtensionType.heartbeat);
     public static final Integer EXT_key_share = Integers.valueOf(ExtensionType.key_share);

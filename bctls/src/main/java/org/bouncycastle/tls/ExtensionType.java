@@ -290,6 +290,7 @@ public class ExtensionType
         case key_share:
         case connection_id:
         case renegotiation_info:
+        case encrypted_client_hello:
             return true;
         default:
             return false;

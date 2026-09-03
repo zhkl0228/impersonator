@@ -47,4 +47,9 @@ class SecureRandomWrap extends SecureRandom implements Impersonator {
         return impersonator.onSendClientHelloMessage(clientHello, clientExtensions);
     }
 
+    @Override
+    public byte[] getEchConfigList(String host) {
+        return impersonator.getEchConfigList(host);
+    }
+
 }
