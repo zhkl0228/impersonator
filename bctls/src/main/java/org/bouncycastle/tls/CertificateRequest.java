@@ -197,7 +197,6 @@ public class CertificateRequest
 
         if (isTLSv12)
         {
-            // TODO Check whether SignatureAlgorithm.anonymous is allowed here
             TlsUtils.encodeSupportedSignatureAlgorithms(supportedSignatureAlgorithms, output);
         }
 

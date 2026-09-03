@@ -183,12 +183,15 @@ public class JcaTlsCrypto
     public TlsCertificate createCertificate(short type, byte[] encoding)
         throws IOException
     {
-        if (type != CertificateType.X509)
+        switch (type)
         {
+        case CertificateType.X509:
+            return new JcaTlsCertificate(this, encoding);
+        case CertificateType.RawPublicKey:
+            return new JcaTlsRawKeyCertificate(this, encoding);
+        default:
             throw new TlsFatalAlert(AlertDescription.unsupported_certificate);
         }
-
-        return new JcaTlsCertificate(this, encoding);
     }
 
     public TlsCipher createCipher(TlsCryptoParameters cryptoParams, int encryptionAlgorithm, int macAlgorithm)
@@ -575,7 +578,7 @@ public class JcaTlsCrypto
         case CryptoSignatureAlgorithm.rsa_pss_pss_sha256:
         case CryptoSignatureAlgorithm.rsa_pss_pss_sha384:
         case CryptoSignatureAlgorithm.rsa_pss_pss_sha512:
-        case CryptoSignatureAlgorithm.sm2:         // [RFC 8998]
+        case CryptoSignatureAlgorithm.sm2: // RFC 8998
             return true;
 
         // TODO[RFC 9189]

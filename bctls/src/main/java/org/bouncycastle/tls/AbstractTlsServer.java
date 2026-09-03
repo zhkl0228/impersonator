@@ -348,7 +348,7 @@ public abstract class AbstractTlsServer
         return null;
     }
 
-    public TlsPSKExternal getExternalPSK(Vector identities)
+    public TlsPSKExternal getExternalPSK(Vector identities) throws IOException
     {
         return null;
     }

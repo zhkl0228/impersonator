@@ -418,6 +418,12 @@ class ProvTlsServer
     }
 
     @Override
+    public int getHandshakeTimeoutMillis()
+    {
+        return manager.getContextData().getHandshakeTimeoutMillis();
+    }
+
+    @Override
     public int getMaxHandshakeMessageSize()
     {
         return manager.getContextData().getMaxHandshakeMessageSize();
@@ -831,9 +837,9 @@ class ProvTlsServer
     {
         super.notifyConnectionClosed();
 
-        if (LOG.isLoggable(Level.INFO))
+        if (LOG.isLoggable(Level.FINE))
         {
-            LOG.info(serverID + " disconnected from " + JsseUtils.getPeerReport(manager));
+            LOG.fine(serverID + " disconnected from " + JsseUtils.getPeerReport(manager));
         }
     }
 
@@ -842,9 +848,9 @@ class ProvTlsServer
     {
         super.notifyHandshakeBeginning();
 
-        if (LOG.isLoggable(Level.INFO))
+        if (LOG.isLoggable(Level.FINE))
         {
-            LOG.info(serverID + " accepting connection from " + JsseUtils.getPeerReport(manager));
+            LOG.fine(serverID + " accepting connection from " + JsseUtils.getPeerReport(manager));
         }
     }
 
@@ -855,9 +861,9 @@ class ProvTlsServer
 
         this.handshakeComplete = true;
 
-        if (LOG.isLoggable(Level.INFO))
+        if (LOG.isLoggable(Level.FINE))
         {
-            LOG.info(serverID + " established connection with " + JsseUtils.getPeerReport(manager));
+            LOG.fine(serverID + " established connection with " + JsseUtils.getPeerReport(manager));
         }
 
         TlsSession connectionTlsSession = context.getSession();
