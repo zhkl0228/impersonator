@@ -30,7 +30,8 @@ import java.util.Date
 import java.util.concurrent.TimeUnit.SECONDS
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.internal.http.StatusLine
+import okhttp3.internal.http.HTTP_PERM_REDIRECT
+import okhttp3.internal.http.HTTP_TEMP_REDIRECT
 import okhttp3.internal.http.toHttpDateOrNull
 import okhttp3.internal.toNonNegativeInt
 
@@ -46,13 +47,12 @@ class CacheStrategy internal constructor(
   /** The request to send on the network, or null if this call doesn't use the network. */
   val networkRequest: Request?,
   /** The cached response to return or validate; or null if this call doesn't use a cache. */
-  val cacheResponse: Response?
+  val cacheResponse: Response?,
 ) {
-
   class Factory(
     private val nowMillis: Long,
     internal val request: Request,
-    private val cacheResponse: Response?
+    private val cacheResponse: Response?,
   ) {
     /** The server's time when the cached response was served, if known. */
     private var servedDate: Date? = null
@@ -90,9 +90,7 @@ class CacheStrategy internal constructor(
      * Returns true if computeFreshnessLifetime used a heuristic. If we used a heuristic to serve a
      * cached response older than 24 hours, we are required to attach a warning.
      */
-    private fun isFreshnessLifetimeHeuristic(): Boolean {
-      return cacheResponse!!.cacheControl.maxAgeSeconds == -1 && expires == null
-    }
+    private fun isFreshnessLifetimeHeuristic(): Boolean = cacheResponse!!.cacheControl.maxAgeSeconds == -1 && expires == null
 
     init {
       if (cacheResponse != null) {
@@ -107,16 +105,20 @@ class CacheStrategy internal constructor(
               servedDate = value.toHttpDateOrNull()
               servedDateString = value
             }
+
             fieldName.equals("Expires", ignoreCase = true) -> {
               expires = value.toHttpDateOrNull()
             }
+
             fieldName.equals("Last-Modified", ignoreCase = true) -> {
               lastModified = value.toHttpDateOrNull()
               lastModifiedString = value
             }
+
             fieldName.equals("ETag", ignoreCase = true) -> {
               etag = value
             }
+
             fieldName.equals("Age", ignoreCase = true) -> {
               ageSeconds = value.toNonNegativeInt(-1)
             }
@@ -212,13 +214,17 @@ class CacheStrategy internal constructor(
           conditionValue = servedDateString
         }
 
-        else -> return CacheStrategy(request, null) // No condition! Make a regular request.
+        else -> {
+          return CacheStrategy(request, null)
+        } // No condition! Make a regular request.
       }
 
       val conditionalRequestHeaders = request.headers.newBuilder()
       conditionalRequestHeaders.addLenient(conditionName, conditionValue!!)
 
-      val conditionalRequest = request.newBuilder()
+      val conditionalRequest =
+        request
+          .newBuilder()
           .headers(conditionalRequestHeaders.build())
           .build()
       return CacheStrategy(conditionalRequest, cacheResponse)
@@ -259,20 +265,22 @@ class CacheStrategy internal constructor(
      */
     private fun cacheResponseAge(): Long {
       val servedDate = this.servedDate
-      val apparentReceivedAge = if (servedDate != null) {
-        maxOf(0, receivedResponseMillis - servedDate.time)
-      } else {
-        0
-      }
+      val apparentReceivedAge =
+        if (servedDate != null) {
+          maxOf(0, receivedResponseMillis - servedDate.time)
+        } else {
+          0
+        }
 
-      val receivedAge = if (ageSeconds != -1) {
-        maxOf(apparentReceivedAge, SECONDS.toMillis(ageSeconds.toLong()))
-      } else {
-        apparentReceivedAge
-      }
+      val receivedAge =
+        if (ageSeconds != -1) {
+          maxOf(apparentReceivedAge, SECONDS.toMillis(ageSeconds.toLong()))
+        } else {
+          apparentReceivedAge
+        }
 
-      val responseDuration = receivedResponseMillis - sentRequestMillis
-      val residentDuration = nowMillis - receivedResponseMillis
+      val responseDuration = maxOf(0, receivedResponseMillis - sentRequestMillis)
+      val residentDuration = maxOf(0, nowMillis - receivedResponseMillis)
       return receivedAge + responseDuration + residentDuration
     }
 
@@ -282,12 +290,15 @@ class CacheStrategy internal constructor(
      * response cache won't be used.
      */
     private fun hasConditions(request: Request): Boolean =
-        request.header("If-Modified-Since") != null || request.header("If-None-Match") != null
+      request.header("If-Modified-Since") != null || request.header("If-None-Match") != null
   }
 
   companion object {
     /** Returns true if [response] can be stored to later serve another request. */
-    fun isCacheable(response: Response, request: Request): Boolean {
+    fun isCacheable(
+      response: Response,
+      request: Request,
+    ): Boolean {
       // Always go to network for uncacheable response codes (RFC 7231 section 6.1), This
       // implementation doesn't support caching partial content.
       when (response.code) {
@@ -301,19 +312,22 @@ class CacheStrategy internal constructor(
         HTTP_GONE,
         HTTP_REQ_TOO_LONG,
         HTTP_NOT_IMPLEMENTED,
-        StatusLine.HTTP_PERM_REDIRECT -> {
+        HTTP_PERM_REDIRECT,
+        -> {
           // These codes can be cached unless headers forbid it.
         }
 
         HTTP_MOVED_TEMP,
-        StatusLine.HTTP_TEMP_REDIRECT -> {
+        HTTP_TEMP_REDIRECT,
+        -> {
           // These codes can only be cached with the right response headers.
           // http://tools.ietf.org/html/rfc7234#section-3
           // s-maxage is not checked because OkHttp is a private cache that should ignore s-maxage.
           if (response.header("Expires") == null &&
-              response.cacheControl.maxAgeSeconds == -1 &&
-              !response.cacheControl.isPublic &&
-              !response.cacheControl.isPrivate) {
+            response.cacheControl.maxAgeSeconds == -1 &&
+            !response.cacheControl.isPublic &&
+            !response.cacheControl.isPrivate
+          ) {
             return false
           }
         }

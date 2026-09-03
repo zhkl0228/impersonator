@@ -19,18 +19,31 @@ import java.io.IOException
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.internal.connection.RealConnection
+import okhttp3.Route
+import okhttp3.internal.OkHttpInternalApi
+import okhttp3.internal.connection.RealCall
 import okio.Sink
+import okio.Socket
 import okio.Source
 
 /** Encodes HTTP requests and decodes HTTP responses. */
+@OkHttpInternalApi
 interface ExchangeCodec {
-  /** Returns the connection that carries this codec. */
-  val connection: RealConnection
+  /** The connection or CONNECT tunnel that owns this codec. */
+  val carrier: Carrier
+
+  /** Returns true if the response body and (possibly empty) trailers have been received. */
+  val isResponseComplete: Boolean
+
+  /** The socket that carries this exchange. */
+  val socket: Socket
 
   /** Returns an output stream where the request body can be streamed. */
   @Throws(IOException::class)
-  fun createRequestBody(request: Request, contentLength: Long): Sink
+  fun createRequestBody(
+    request: Request,
+    contentLength: Long,
+  ): Sink
 
   /** This should update the HTTP engine's sentRequestMillis field. */
   @Throws(IOException::class)
@@ -59,15 +72,32 @@ interface ExchangeCodec {
   @Throws(IOException::class)
   fun openResponseBodySource(response: Response): Source
 
-  /** Returns the trailers after the HTTP response. May be empty. */
+  /** Returns the trailers after the HTTP response if they're ready. May be empty. */
   @Throws(IOException::class)
-  fun trailers(): Headers
+  fun peekTrailers(): Headers?
 
   /**
    * Cancel this stream. Resources held by this stream will be cleaned up, though not synchronously.
    * That may happen later by the connection pool thread.
    */
   fun cancel()
+
+  /**
+   * Carries an exchange. This is usually a connection, but it could also be a connect plan for
+   * CONNECT tunnels. Note that CONNECT tunnels are significantly less capable than connections.
+   */
+  interface Carrier {
+    val route: Route
+
+    fun trackFailure(
+      call: RealCall,
+      e: IOException?,
+    )
+
+    fun noNewExchanges()
+
+    fun cancel()
+  }
 
   companion object {
     /**

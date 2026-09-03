@@ -15,23 +15,26 @@
  */
 package okhttp3.internal.http2
 
-import okhttp3.Headers
-import okhttp3.internal.EMPTY_HEADERS
-import okhttp3.internal.assertThreadDoesntHoldLock
-import okhttp3.internal.notifyAll
-import okhttp3.internal.toHeaderList
-import okhttp3.internal.wait
-import okio.AsyncTimeout
-import okio.Buffer
-import okio.BufferedSource
-import okio.Sink
-import okio.Source
-import okio.Timeout
 import java.io.EOFException
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.util.ArrayDeque
+import okhttp3.Headers
+import okhttp3.internal.concurrent.Lockable
+import okhttp3.internal.concurrent.assertLockNotHeld
+import okhttp3.internal.concurrent.notifyAll
+import okhttp3.internal.concurrent.wait
+import okhttp3.internal.concurrent.withLock
+import okhttp3.internal.http2.flowcontrol.WindowCounter
+import okhttp3.internal.toHeaderList
+import okio.AsyncTimeout
+import okio.Buffer
+import okio.BufferedSource
+import okio.Sink
+import okio.Socket
+import okio.Source
+import okio.Timeout
 
 /** A logical bidirectional stream. */
 @Suppress("NAME_SHADOWING")
@@ -40,18 +43,14 @@ class Http2Stream internal constructor(
   val connection: Http2Connection,
   outFinished: Boolean,
   inFinished: Boolean,
-  headers: Headers?
-) {
-  // Internal state is guarded by this. No long-running or potentially blocking operations are
+  headers: Headers?,
+) : Lockable,
+  Socket {
+  // Internal state is guarded by `this`. No long-running or potentially blocking operations are
   // performed while the lock is held.
 
-  /** The total number of bytes consumed by the application. */
-  var readBytesTotal = 0L
-    internal set
-
-  /** The total number of bytes acknowledged by outgoing `WINDOW_UPDATE` frames. */
-  var readBytesAcknowledged = 0L
-    internal set
+  /** The bytes consumed and acknowledged by the stream. */
+  val readBytes: WindowCounter = WindowCounter(id)
 
   /** The total number of bytes produced by the application. */
   var writeBytesTotal = 0L
@@ -67,13 +66,15 @@ class Http2Stream internal constructor(
   /** True if response headers have been sent or received. */
   private var hasResponseHeaders: Boolean = false
 
-  internal val source = FramingSource(
+  override val source =
+    FramingSource(
       maxByteCount = connection.okHttpSettings.initialWindowSize.toLong(),
-      finished = inFinished
-  )
-  internal val sink = FramingSink(
-      finished = outFinished
-  )
+      finished = inFinished,
+    )
+  override val sink =
+    FramingSink(
+      finished = outFinished,
+    )
   internal val readTimeout = StreamTimeout()
   internal val writeTimeout = StreamTimeout()
 
@@ -84,7 +85,8 @@ class Http2Stream internal constructor(
    * If there are multiple reasons to abnormally close this stream (such as both peers closing it
    * near-simultaneously) then this is the first reason known to this peer.
    */
-  @get:Synchronized internal var errorCode: ErrorCode? = null
+  internal var errorCode: ErrorCode? = null
+    get() = withLock { field }
 
   /** The exception that explains [errorCode]. Null if no exception was provided. */
   internal var errorException: IOException? = null
@@ -108,16 +110,19 @@ class Http2Stream internal constructor(
    * not open. This is because input data is buffered.
    */
   val isOpen: Boolean
-    @Synchronized get() {
-      if (errorCode != null) {
-        return false
-      }
-      if ((source.finished || source.closed) &&
+    get() {
+      withLock {
+        if (errorCode != null) {
+          return false
+        }
+        if ((source.finished || source.closed) &&
           (sink.finished || sink.closed) &&
-          hasResponseHeaders) {
-        return false
+          hasResponseHeaders
+        ) {
+          return false
+        }
+        return true
       }
-      return true
     }
 
   /** Returns true if this stream was created by this peer. */
@@ -127,40 +132,55 @@ class Http2Stream internal constructor(
       return connection.client == streamIsClient
     }
 
+  val isSourceComplete: Boolean
+    get() = withLock { source.finished && source.readBuffer.exhausted() }
+
   /**
    * Removes and returns the stream's received response headers, blocking if necessary until headers
    * have been received. If the returned list contains multiple blocks of headers the blocks will be
    * delimited by 'null'.
+   *
+   * @param callerIsIdle true if the caller isn't sending any more bytes until the peer responds.
+   *     This is true after a `Expect-Continue` request, false for duplex requests, and false for
+   *     all other requests.
    */
-  @Synchronized @Throws(IOException::class)
-  fun takeHeaders(): Headers {
-    readTimeout.enter()
-    try {
+  @Throws(IOException::class)
+  fun takeHeaders(callerIsIdle: Boolean = false): Headers {
+    withLock {
       while (headersQueue.isEmpty() && errorCode == null) {
-        waitForIo()
+        val doReadTimeout = callerIsIdle || doReadTimeout()
+        if (doReadTimeout) {
+          readTimeout.enter()
+        }
+        try {
+          waitForIo()
+        } finally {
+          if (doReadTimeout) {
+            readTimeout.exitAndThrowIfTimedOut()
+          }
+        }
       }
-    } finally {
-      readTimeout.exitAndThrowIfTimedOut()
+      if (headersQueue.isNotEmpty()) {
+        return headersQueue.removeFirst()
+      }
+      throw errorException ?: StreamResetException(errorCode!!)
     }
-    if (headersQueue.isNotEmpty()) {
-      return headersQueue.removeFirst()
-    }
-    throw errorException ?: StreamResetException(errorCode!!)
   }
 
   /**
-   * Returns the trailers. It is only safe to call this once the source stream has been completely
-   * exhausted.
+   * Returns the trailers if they're immediately available.
    */
-  @Synchronized @Throws(IOException::class)
-  fun trailers(): Headers {
-    if (source.finished && source.receiveBuffer.exhausted() && source.readBuffer.exhausted()) {
-      return source.trailers ?: EMPTY_HEADERS
+  @Throws(IOException::class)
+  fun peekTrailers(): Headers? {
+    withLock {
+      if (source.finished && source.receiveBuffer.exhausted() && source.readBuffer.exhausted()) {
+        return source.trailers ?: Headers.EMPTY
+      }
+      if (errorCode != null) {
+        throw errorException ?: StreamResetException(errorCode!!)
+      }
+      return null
     }
-    if (errorCode != null) {
-      throw errorException ?: StreamResetException(errorCode!!)
-    }
-    throw IllegalStateException("too early; can't read the trailers yet")
   }
 
   /**
@@ -172,21 +192,26 @@ class Http2Stream internal constructor(
    *     response body exists and will be written immediately.
    */
   @Throws(IOException::class)
-  fun writeHeaders(responseHeaders: List<Header>, outFinished: Boolean, flushHeaders: Boolean) {
-    this@Http2Stream.assertThreadDoesntHoldLock()
+  fun writeHeaders(
+    responseHeaders: List<Header>,
+    outFinished: Boolean,
+    flushHeaders: Boolean,
+  ) {
+    assertLockNotHeld()
 
     var flushHeaders = flushHeaders
-    synchronized(this) {
+    withLock {
       this.hasResponseHeaders = true
       if (outFinished) {
         this.sink.finished = true
+        notifyAll() // Because doReadTimeout() may have changed.
       }
     }
 
     // Only DATA frames are subject to flow-control. Transmit the HEADER frame if the connection
     // flow-control window is fully depleted.
     if (!flushHeaders) {
-      synchronized(connection) {
+      withLock {
         flushHeaders = (connection.writeBytesTotal >= connection.writeBytesMaximum)
       }
     }
@@ -199,7 +224,7 @@ class Http2Stream internal constructor(
   }
 
   fun enqueueTrailers(trailers: Headers) {
-    synchronized(this) {
+    withLock {
       check(!sink.finished) { "already finished" }
       require(trailers.size != 0) { "trailers.size() == 0" }
       this.sink.trailers = trailers
@@ -210,34 +235,23 @@ class Http2Stream internal constructor(
 
   fun writeTimeout(): Timeout = writeTimeout
 
-  /** Returns a source that reads data from the peer. */
-  fun getSource(): Source = source
-
-  /**
-   * Returns a sink that can be used to write data to the peer.
-   *
-   * @throws IllegalStateException if this stream was initiated by the peer and a [writeHeaders] has
-   *     not yet been sent.
-   */
-  fun getSink(): Sink {
-    synchronized(this) {
-      check(hasResponseHeaders || isLocallyInitiated) {
-        "reply before requesting the sink"
-      }
-    }
-    return sink
-  }
-
   /**
    * Abnormally terminate this stream. This blocks until the `RST_STREAM` frame has been
    * transmitted.
    */
   @Throws(IOException::class)
-  fun close(rstStatusCode: ErrorCode, errorException: IOException?) {
+  fun close(
+    rstStatusCode: ErrorCode,
+    errorException: IOException?,
+  ) {
     if (!closeInternal(rstStatusCode, errorException)) {
       return // Already closed.
     }
     connection.writeSynReset(id, rstStatusCode)
+  }
+
+  override fun cancel() {
+    closeLater(ErrorCode.CANCEL)
   }
 
   /**
@@ -251,10 +265,13 @@ class Http2Stream internal constructor(
   }
 
   /** Returns true if this stream was closed. */
-  private fun closeInternal(errorCode: ErrorCode, errorException: IOException?): Boolean {
-    this.assertThreadDoesntHoldLock()
+  private fun closeInternal(
+    errorCode: ErrorCode,
+    errorException: IOException?,
+  ): Boolean {
+    assertLockNotHeld()
 
-    synchronized(this) {
+    withLock {
       if (this.errorCode != null) {
         return false
       }
@@ -270,19 +287,28 @@ class Http2Stream internal constructor(
   }
 
   @Throws(IOException::class)
-  fun receiveData(source: BufferedSource, length: Int) {
-    this@Http2Stream.assertThreadDoesntHoldLock()
+  fun receiveData(
+    source: BufferedSource,
+    length: Int,
+  ) {
+    assertLockNotHeld()
 
     this.source.receive(source, length.toLong())
   }
 
   /** Accept headers from the network and store them until the client calls [takeHeaders]. */
-  fun receiveHeaders(headers: Headers, inFinished: Boolean) {
-    this@Http2Stream.assertThreadDoesntHoldLock()
+  fun receiveHeaders(
+    headers: Headers,
+    inFinished: Boolean,
+  ) {
+    assertLockNotHeld()
 
     val open: Boolean
-    synchronized(this) {
-      if (!hasResponseHeaders || !inFinished) {
+    withLock {
+      if (!hasResponseHeaders ||
+        headers[Header.RESPONSE_STATUS_UTF8] != null ||
+        headers[Header.TARGET_METHOD_UTF8] != null
+      ) {
         hasResponseHeaders = true
         headersQueue += headers
       } else {
@@ -299,12 +325,24 @@ class Http2Stream internal constructor(
     }
   }
 
-  @Synchronized fun receiveRstStream(errorCode: ErrorCode) {
-    if (this.errorCode == null) {
-      this.errorCode = errorCode
-      notifyAll()
+  fun receiveRstStream(errorCode: ErrorCode) {
+    withLock {
+      if (this.errorCode == null) {
+        this.errorCode = errorCode
+        notifyAll()
+      }
     }
   }
+
+  /**
+   * Returns true if read timeouts should be enforced while reading response headers or body bytes.
+   * We always do timeouts in the HTTP server role. For clients, we only do timeouts after the
+   * request is transmitted. This is only interesting for duplex calls where the request and
+   * response may be interleaved.
+   *
+   * Read this value only once for each enter/exit pair because its value can change.
+   */
+  private fun doReadTimeout() = !connection.client || sink.closed || sink.finished
 
   /**
    * A source that reads the incoming data frames of a stream. Although this class uses
@@ -314,12 +352,11 @@ class Http2Stream internal constructor(
   inner class FramingSource internal constructor(
     /** Maximum number of bytes to buffer before reporting a flow control error. */
     private val maxByteCount: Long,
-
     /**
      * True if either side has cleanly shut down this stream. We will receive no more bytes beyond
      * those already in the buffer.
      */
-    internal var finished: Boolean
+    internal var finished: Boolean,
   ) : Source {
     /** Buffer to receive data from the network into. Only accessed by the reader thread. */
     val receiveBuffer = Buffer()
@@ -337,7 +374,10 @@ class Http2Stream internal constructor(
     internal var closed: Boolean = false
 
     @Throws(IOException::class)
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun read(
+      sink: Buffer,
+      byteCount: Long,
+    ): Long {
       require(byteCount >= 0L) { "byteCount < 0: $byteCount" }
 
       while (true) {
@@ -347,8 +387,11 @@ class Http2Stream internal constructor(
 
         // 1. Decide what to do in a synchronized block.
 
-        synchronized(this@Http2Stream) {
-          readTimeout.enter()
+        withLock {
+          val doReadTimeout = doReadTimeout()
+          if (doReadTimeout) {
+            readTimeout.enter()
+          }
           try {
             if (errorCode != null && !finished) {
               // Prepare to deliver an error.
@@ -360,16 +403,16 @@ class Http2Stream internal constructor(
             } else if (readBuffer.size > 0L) {
               // Prepare to read bytes. Start by moving them to the caller's buffer.
               readBytesDelivered = readBuffer.read(sink, minOf(byteCount, readBuffer.size))
-              readBytesTotal += readBytesDelivered
+              readBytes.update(total = readBytesDelivered)
 
-              val unacknowledgedBytesRead = readBytesTotal - readBytesAcknowledged
+              val unacknowledgedBytesRead = readBytes.unacknowledged
               if (errorExceptionToDeliver == null &&
                 unacknowledgedBytesRead >= connection.okHttpSettings.initialWindowSize / 2
               ) {
                 // Flow control: notify the peer that we're ready for more data! Only send a
                 // WINDOW_UPDATE if the stream isn't in error.
                 connection.writeWindowUpdateLater(id, unacknowledgedBytesRead)
-                readBytesAcknowledged = readBytesTotal
+                readBytes.update(acknowledged = unacknowledgedBytesRead)
               }
             } else if (!finished && errorExceptionToDeliver == null) {
               // Nothing to do. Wait until that changes then try again.
@@ -377,9 +420,12 @@ class Http2Stream internal constructor(
               tryAgain = true
             }
           } finally {
-            readTimeout.exitAndThrowIfTimedOut()
+            if (doReadTimeout) {
+              readTimeout.exitAndThrowIfTimedOut()
+            }
           }
         }
+        connection.flowControlListener.receivingStreamWindowChanged(id, readBytes, readBuffer.size)
 
         // 2. Do it outside of the synchronized block and timeout.
 
@@ -404,7 +450,7 @@ class Http2Stream internal constructor(
     }
 
     private fun updateConnectionFlowControl(read: Long) {
-      this@Http2Stream.assertThreadDoesntHoldLock()
+      assertLockNotHeld()
 
       connection.updateConnectionFlowControl(read)
     }
@@ -414,15 +460,18 @@ class Http2Stream internal constructor(
      * performs blocking reads for the incoming bytes.
      */
     @Throws(IOException::class)
-    internal fun receive(source: BufferedSource, byteCount: Long) {
-      this@Http2Stream.assertThreadDoesntHoldLock()
+    internal fun receive(
+      source: BufferedSource,
+      byteCount: Long,
+    ) {
+      assertLockNotHeld()
 
       var remainingByteCount = byteCount
 
       while (remainingByteCount > 0L) {
         val finished: Boolean
         val flowControlError: Boolean
-        synchronized(this@Http2Stream) {
+        withLock {
           finished = this.finished
           flowControlError = remainingByteCount + readBuffer.size > maxByteCount
         }
@@ -448,14 +497,14 @@ class Http2Stream internal constructor(
         // Move the received data to the read buffer to the reader can read it. If this source has
         // been closed since this read began we must discard the incoming data and tell the
         // connection we've done so.
-        synchronized(this@Http2Stream) {
+        withLock {
           if (closed) {
             receiveBuffer.clear()
           } else {
             val wasEmpty = readBuffer.size == 0L
             readBuffer.writeAll(receiveBuffer)
             if (wasEmpty) {
-              this@Http2Stream.notifyAll()
+              notifyAll()
             }
           }
         }
@@ -466,6 +515,9 @@ class Http2Stream internal constructor(
       // But delay updating the stream flow control until that stream has been
       // consumed
       updateConnectionFlowControl(byteCount)
+
+      // Notify that buffer size changed
+      connection.flowControlListener.receivingStreamWindowChanged(id, readBytes, readBuffer.size)
     }
 
     override fun timeout(): Timeout = readTimeout
@@ -473,11 +525,11 @@ class Http2Stream internal constructor(
     @Throws(IOException::class)
     override fun close() {
       val bytesDiscarded: Long
-      synchronized(this@Http2Stream) {
+      withLock {
         closed = true
         bytesDiscarded = readBuffer.size
         readBuffer.clear()
-        this@Http2Stream.notifyAll() // TODO(jwilson): Unnecessary?
+        notifyAll() // TODO(jwilson): Unnecessary?
       }
       if (bytesDiscarded > 0L) {
         updateConnectionFlowControl(bytesDiscarded)
@@ -488,11 +540,11 @@ class Http2Stream internal constructor(
 
   @Throws(IOException::class)
   internal fun cancelStreamIfNecessary() {
-    this@Http2Stream.assertThreadDoesntHoldLock()
+    assertLockNotHeld()
 
     val open: Boolean
     val cancel: Boolean
-    synchronized(this) {
+    withLock {
       cancel = !source.finished && source.closed && (sink.finished || sink.closed)
       open = isOpen
     }
@@ -507,11 +559,10 @@ class Http2Stream internal constructor(
   }
 
   /** A sink that writes outgoing data frames of a stream. This class is not thread safe. */
-  internal inner class FramingSink(
+  inner class FramingSink(
     /** True if either side has cleanly shut down this stream. We shall send no more bytes. */
-    var finished: Boolean = false
+    var finished: Boolean = false,
   ) : Sink {
-
     /**
      * Buffer of outgoing data. This batches writes of small writes into this sink as larges frames
      * written to the outgoing connection. Batching saves the (small) framing overhead.
@@ -524,8 +575,11 @@ class Http2Stream internal constructor(
     var closed: Boolean = false
 
     @Throws(IOException::class)
-    override fun write(source: Buffer, byteCount: Long) {
-      this@Http2Stream.assertThreadDoesntHoldLock()
+    override fun write(
+      source: Buffer,
+      byteCount: Long,
+    ) {
+      assertLockNotHeld()
 
       sendBuffer.write(source, byteCount)
       while (sendBuffer.size >= EMIT_BUFFER_SIZE) {
@@ -541,13 +595,14 @@ class Http2Stream internal constructor(
     private fun emitFrame(outFinishedOnLastFrame: Boolean) {
       val toWrite: Long
       val outFinished: Boolean
-      synchronized(this@Http2Stream) {
+      withLock {
         writeTimeout.enter()
         try {
           while (writeBytesTotal >= writeBytesMaximum &&
-              !finished &&
-              !closed &&
-              errorCode == null) {
+            !finished &&
+            !closed &&
+            errorCode == null
+          ) {
             waitForIo() // Wait until we receive a WINDOW_UPDATE for this stream.
           }
         } finally {
@@ -570,9 +625,9 @@ class Http2Stream internal constructor(
 
     @Throws(IOException::class)
     override fun flush() {
-      this@Http2Stream.assertThreadDoesntHoldLock()
+      assertLockNotHeld()
 
-      synchronized(this@Http2Stream) {
+      withLock {
         checkOutNotClosed()
       }
       // TODO(jwilson): flush the connection?!
@@ -586,10 +641,10 @@ class Http2Stream internal constructor(
 
     @Throws(IOException::class)
     override fun close() {
-      this@Http2Stream.assertThreadDoesntHoldLock()
+      assertLockNotHeld()
 
       val outFinished: Boolean
-      synchronized(this@Http2Stream) {
+      withLock {
         if (closed) return
         outFinished = errorCode == null
       }
@@ -618,8 +673,9 @@ class Http2Stream internal constructor(
           }
         }
       }
-      synchronized(this@Http2Stream) {
+      withLock {
         closed = true
+        notifyAll() // Because doReadTimeout() may have changed.
       }
       connection.flush()
       cancelStreamIfNecessary()
@@ -634,7 +690,7 @@ class Http2Stream internal constructor(
   fun addBytesToWriteWindow(delta: Long) {
     writeBytesMaximum += delta
     if (delta > 0L) {
-      this@Http2Stream.notifyAll()
+      notifyAll()
     }
   }
 
@@ -671,13 +727,12 @@ class Http2Stream internal constructor(
       connection.sendDegradedPingLater()
     }
 
-    override fun newTimeoutException(cause: IOException?): IOException {
-      return SocketTimeoutException("timeout").apply {
+    override fun newTimeoutException(cause: IOException?): IOException =
+      SocketTimeoutException("timeout").apply {
         if (cause != null) {
           initCause(cause)
         }
       }
-    }
 
     @Throws(IOException::class)
     fun exitAndThrowIfTimedOut() {

@@ -21,23 +21,34 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.security.GeneralSecurityException
 import java.security.KeyStore
-import java.security.Security
 import java.util.logging.Level
 import java.util.logging.Logger
+import javax.net.ServerSocketFactory
+import javax.net.SocketFactory
+import javax.net.ssl.ExtendedSSLSession
+import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.internal.OkHttpInternalApi
+import okhttp3.internal.dns.InetAddressDns
+import okhttp3.internal.ech.EchRetryPlan
+import okhttp3.internal.publicsuffix.PublicSuffixDatabase
 import okhttp3.internal.readFieldOrNull
 import okhttp3.internal.tls.BasicCertificateChainCleaner
 import okhttp3.internal.tls.BasicTrustRootIndex
 import okhttp3.internal.tls.CertificateChainCleaner
 import okhttp3.internal.tls.TrustRootIndex
 import okio.Buffer
+import okio.ByteString
+import org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
 
 /**
  * Access to platform-specific features.
@@ -66,16 +77,29 @@ import okio.Buffer
  *
  * Supported on Android 6.0+ via `NetworkSecurityPolicy`.
  */
+@OkHttpInternalApi
 open class Platform {
+  open val socketFactory: SocketFactory
+    get() = SocketFactory.getDefault()
+
+  open val serverSocketFactory: ServerSocketFactory
+    get() = ServerSocketFactory.getDefault()
+
+  /** The default [Dns] for the system, by default [InetAddressDns]. */
+  open val systemDns: Dns
+    get() = InetAddressDns
 
   /** Prefix used on custom headers. */
-  fun getPrefix() = "OkHttp"
+  val prefix: String
+    get() = "OkHttp"
 
   open fun newSSLContext(): SSLContext = SSLContext.getInstance("TLS")
 
   open fun platformTrustManager(): X509TrustManager {
-    val factory = TrustManagerFactory.getInstance(
-        TrustManagerFactory.getDefaultAlgorithm())
+    val factory =
+      TrustManagerFactory.getInstance(
+        TrustManagerFactory.getDefaultAlgorithm(),
+      )
     factory.init(null as KeyStore?)
     val trustManagers = factory.trustManagers!!
     check(trustManagers.size == 1 && trustManagers[0] is X509TrustManager) {
@@ -111,9 +135,13 @@ open class Platform {
   open fun configureTlsExtensions(
     sslSocket: SSLSocket,
     hostname: String?,
-    protocols: List<@JvmSuppressWildcards Protocol>
+    protocols: List<@JvmSuppressWildcards Protocol>,
+    echConfigList: ByteString?,
   ) {
   }
+
+  /** Returns a plan to recover when a handshake that failed due to Encrypted Client Hello. */
+  open fun echRetryPlan(exception: SSLException): EchRetryPlan? = null
 
   /** Called after the TLS handshake to release resources allocated by [configureTlsExtensions]. */
   open fun afterHandshake(sslSocket: SSLSocket) {
@@ -122,12 +150,34 @@ open class Platform {
   /** Returns the negotiated protocol, or null if no protocol was negotiated. */
   open fun getSelectedProtocol(sslSocket: SSLSocket): String? = null
 
+  /** For MockWebServer. This returns the inbound SNI names. */
+  @Suppress("NewApi")
+  @IgnoreJRERequirement // This function is overridden to require API >= 24.
+  open fun getHandshakeServerNames(sslSocket: SSLSocket): List<String> {
+    val session = sslSocket.session as? ExtendedSSLSession ?: return listOf()
+    return try {
+      session.requestedServerNames.mapNotNull { (it as? SNIHostName)?.asciiName }
+    } catch (_: UnsupportedOperationException) {
+      // UnsupportedOperationException – if the underlying provider does not implement the operation
+      // https://github.com/bcgit/bc-java/issues/1773
+      listOf()
+    }
+  }
+
   @Throws(IOException::class)
-  open fun connectSocket(socket: Socket, address: InetSocketAddress, connectTimeout: Int) {
+  open fun connectSocket(
+    socket: Socket,
+    address: InetSocketAddress,
+    connectTimeout: Int,
+  ) {
     socket.connect(address, connectTimeout)
   }
 
-  open fun log(message: String, level: Int = INFO, t: Throwable? = null) {
+  open fun log(
+    message: String,
+    level: Int = INFO,
+    t: Throwable? = null,
+  ) {
     val logLevel = if (level == WARN) Level.WARNING else Level.INFO
     logger.log(logLevel, message, t)
   }
@@ -139,33 +189,37 @@ open class Platform {
    * should be used specifically for [java.io.Closeable] objects and in conjunction with
    * [logCloseableLeak].
    */
-  open fun getStackTraceForCloseable(closer: String): Any? {
-    return when {
-      logger.isLoggable(Level.FINE) -> Throwable(closer) // These are expensive to allocate.
+  open fun getStackTraceForCloseable(closer: String): Any? =
+    when {
+      logger.isLoggable(Level.FINE) -> Throwable(closer)
+
+      // These are expensive to allocate.
       else -> null
     }
-  }
 
-  open fun logCloseableLeak(message: String, stackTrace: Any?) {
+  open fun logCloseableLeak(
+    message: String,
+    stackTrace: Any?,
+  ) {
     var logMessage = message
     if (stackTrace == null) {
       logMessage += " To see where this was allocated, set the OkHttpClient logger level to " +
-          "FINE: Logger.getLogger(OkHttpClient.class.getName()).setLevel(Level.FINE);"
+        "FINE: Logger.getLogger(OkHttpClient.class.getName()).setLevel(Level.FINE);"
     }
     log(logMessage, WARN, stackTrace as Throwable?)
   }
 
   open fun buildCertificateChainCleaner(trustManager: X509TrustManager): CertificateChainCleaner =
-      BasicCertificateChainCleaner(buildTrustRootIndex(trustManager))
+    BasicCertificateChainCleaner(buildTrustRootIndex(trustManager))
 
-  open fun buildTrustRootIndex(trustManager: X509TrustManager): TrustRootIndex =
-      BasicTrustRootIndex(*trustManager.acceptedIssuers)
+  open fun buildTrustRootIndex(trustManager: X509TrustManager): TrustRootIndex = BasicTrustRootIndex(*trustManager.acceptedIssuers)
 
   open fun newSslSocketFactory(trustManager: X509TrustManager): SSLSocketFactory {
     try {
-      return newSSLContext().apply {
-        init(null, arrayOf<TrustManager>(trustManager), null)
-      }.socketFactory
+      return newSSLContext()
+        .apply {
+          init(null, arrayOf<TrustManager>(trustManager), null)
+        }.socketFactory
     } catch (e: GeneralSecurityException) {
       throw AssertionError("No System TLS: $e", e) // The system has no TLS. Just give up.
     }
@@ -186,66 +240,16 @@ open class Platform {
 
     fun resetForTests(platform: Platform = findPlatform()) {
       this.platform = platform
+      PublicSuffixDatabase.resetForTests()
     }
 
-    fun alpnProtocolNames(protocols: List<Protocol>) =
-        protocols.filter { it != Protocol.HTTP_1_0 }.map { it.toString() }
+    fun alpnProtocolNames(protocols: List<Protocol>) = protocols.filter { it != Protocol.HTTP_1_0 }.map { it.toString() }
 
-    // This explicit check avoids activating in Android Studio with Android specific classes
-    // available when running plugins inside the IDE.
     val isAndroid: Boolean
-        get() = "Dalvik" == System.getProperty("java.vm.name")
-
-    private val isConscryptPreferred: Boolean
-      get() {
-        val preferredProvider = Security.getProviders()[0].name
-        return "Conscrypt" == preferredProvider
-      }
-
-    private val isOpenJSSEPreferred: Boolean
-      get() {
-        val preferredProvider = Security.getProviders()[0].name
-        return "OpenJSSE" == preferredProvider
-      }
-
-    private val isBouncyCastlePreferred: Boolean
-      get() {
-        val preferredProvider = Security.getProviders()[0].name
-        return "BC" == preferredProvider
-      }
+      get() = PlatformRegistry.isAndroid
 
     /** Attempt to match the host runtime to a capable Platform implementation. */
-    private fun findPlatform(): Platform = if (isAndroid) {
-      throw UnsupportedOperationException("Android platform does not support ${Platform::class.java.name}")
-    } else {
-      findJvmPlatform()
-    }
-
-    private fun findJvmPlatform(): Platform {
-      if (isBouncyCastlePreferred) {
-        val bc = BouncyCastlePlatform.buildIfSupported()
-
-        if (bc != null) {
-          return bc
-        }
-      }
-
-      // An Oracle JDK 9 like OpenJDK, or JDK 8 251+.
-      val jdk9 = Jdk9Platform.buildIfSupported()
-
-      if (jdk9 != null) {
-        return jdk9
-      }
-
-      // An Oracle JDK 8 like OpenJDK, pre 251.
-      val jdkWithJettyBoot = Jdk8WithJettyBootPlatform.buildIfSupported()
-
-      if (jdkWithJettyBoot != null) {
-        return jdkWithJettyBoot
-      }
-
-      return Platform()
-    }
+    private fun findPlatform(): Platform = PlatformRegistry.findPlatform()
 
     /**
      * Returns the concatenation of 8-bit, length prefixed protocol names.

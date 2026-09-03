@@ -15,40 +15,38 @@
  */
 package okhttp3.internal.http2
 
-import okhttp3.PriorityFrame
-import okhttp3.Request
 import java.io.Closeable
 import java.io.IOException
-import java.io.InterruptedIOException
-import java.net.Socket
-import java.util.concurrent.TimeUnit
-import okhttp3.internal.EMPTY_BYTE_ARRAY
-import okhttp3.internal.EMPTY_HEADERS
-import okhttp3.internal.assertThreadDoesntHoldLock
-import okhttp3.internal.closeQuietly
-import okhttp3.internal.concurrent.TaskRunner
+import okhttp3.PriorityFrame
+import okhttp3.Request
 import okhttp3.internal.http.RequestLine
-import okhttp3.internal.http2.ErrorCode.REFUSED_STREAM
 import okhttp3.internal.http2.Header.Companion.TARGET_AUTHORITY
 import okhttp3.internal.http2.Header.Companion.TARGET_METHOD
 import okhttp3.internal.http2.Header.Companion.TARGET_PATH
 import okhttp3.internal.http2.Header.Companion.TARGET_SCHEME
+import java.io.InterruptedIOException
+import java.util.concurrent.TimeUnit
+import okhttp3.Headers
+import okhttp3.internal.EMPTY_BYTE_ARRAY
+import okhttp3.internal.closeQuietly
+import okhttp3.internal.concurrent.Lockable
+import okhttp3.internal.concurrent.TaskRunner
+import okhttp3.internal.concurrent.assertLockNotHeld
+import okhttp3.internal.concurrent.notifyAll
+import okhttp3.internal.concurrent.wait
+import okhttp3.internal.concurrent.withLock
+import okhttp3.internal.connection.BufferedSocket
+import okhttp3.internal.http2.ErrorCode.REFUSED_STREAM
 import okhttp3.internal.http2.Settings.Companion.DEFAULT_INITIAL_WINDOW_SIZE
+import okhttp3.internal.http2.flowcontrol.WindowCounter
 import okhttp3.internal.ignoreIoExceptions
-import okhttp3.internal.notifyAll
 import okhttp3.internal.okHttpName
-import okhttp3.internal.peerName
 import okhttp3.internal.platform.Platform
 import okhttp3.internal.platform.Platform.Companion.INFO
 import okhttp3.internal.toHeaders
-import okhttp3.internal.wait
 import okio.Buffer
-import okio.BufferedSink
 import okio.BufferedSource
 import okio.ByteString
-import okio.buffer
-import okio.sink
-import okio.source
 
 /**
  * A socket connection to a remote peer. A connection hosts streams which can send and receive
@@ -59,9 +57,12 @@ import okio.source
  * an [IOException] that was triggered by a certain caller can be caught and handled by that caller.
  */
 @Suppress("NAME_SHADOWING")
-class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp3.Http2Connection {
-
-  // Internal state of this connection is guarded by 'this'. No blocking operations may be
+class Http2Connection internal constructor(
+  builder: Builder,
+) : Closeable,
+  Lockable,
+  okhttp3.Http2Connection {
+  // Internal state of this connection is guarded by 'lock'. No blocking operations may be
   // performed while holding this lock!
   //
   // Socket writes are guarded by frameWriter.
@@ -112,18 +113,67 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   /** Consider this connection to be unhealthy if a degraded pong isn't received by this time. */
   private var degradedPongDeadlineNs = 0L
 
+  internal val flowControlListener: FlowControlListener = builder.flowControlListener
+
   /** Settings we communicate to the peer. */
-  val okHttpSettings = Settings().apply {
-    // Flow control was designed more for servers, or proxies than edge clients. If we are a client,
-    // set the flow control window to 16MiB.  This avoids thrashing window updates every 64KiB, yet
-    // small enough to avoid blowing up the heap.
-    if (builder.client) {
-      set(Settings.INITIAL_WINDOW_SIZE, OKHTTP_CLIENT_WINDOW_SIZE)
+  val okHttpSettings =
+    Settings().apply {
+      // Flow control was designed more for servers, or proxies than edge clients. If we are a client,
+      // set the flow control window to 16MiB.  This avoids thrashing window updates every 64KiB, yet
+      // small enough to avoid blowing up the heap.
+      if (builder.client) {
+        set(Settings.INITIAL_WINDOW_SIZE, OKHTTP_CLIENT_WINDOW_SIZE)
+      }
+    }
+
+  override fun setSetting(
+    id: Int,
+    value: Int,
+  ) {
+    okHttpSettings[id] = value
+  }
+
+  private var headerOrder: String? = null
+
+  override fun setHeaderOrder(order: String?) {
+    headerOrder = order
+  }
+
+  /**
+   * Appends the pseudo headers in the impersonated order. Leaves [result] untouched when no order
+   * was configured, so the caller falls back to okhttp's own order.
+   */
+  fun fillHeaderOrder(
+    result: ArrayList<Header>,
+    request: Request,
+  ) {
+    val headerOrder = this.headerOrder ?: return
+    for (token in headerOrder.split(",")) {
+      when (token) {
+        "a" -> {
+          val host = request.header("Host")
+          if (host != null) {
+            result.add(Header(TARGET_AUTHORITY, host)) // Optional.
+          }
+        }
+        "m" -> result.add(Header(TARGET_METHOD, request.method))
+        "p" -> result.add(Header(TARGET_PATH, RequestLine.requestPath(request.url)))
+        "s" -> result.add(Header(TARGET_SCHEME, request.url.scheme))
+        else -> throw IllegalStateException("headerOrder: $headerOrder")
+      }
     }
   }
 
-  override fun setSetting(id: Int, value: Int) {
-    okHttpSettings[id] = value;
+  private var windowSizeIncrement = -1L
+
+  override fun setWindowSizeIncrement(windowSizeIncrement: Long) {
+    this.windowSizeIncrement = windowSizeIncrement
+  }
+
+  private val priorityFrames = ArrayList<PriorityFrame>(10)
+
+  override fun addPriorityFrame(frame: PriorityFrame) {
+    priorityFrames.add(frame)
   }
 
   /**
@@ -132,13 +182,8 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
    */
   var peerSettings = DEFAULT_SETTINGS
 
-  /** The total number of bytes consumed by the application. */
-  var readBytesTotal = 0L
-    private set
-
-  /** The total number of bytes acknowledged by outgoing `WINDOW_UPDATE` frames. */
-  var readBytesAcknowledged = 0L
-    private set
+  /** The bytes consumed and acknowledged by the application. */
+  val readBytes: WindowCounter = WindowCounter(streamId = 0)
 
   /** The total number of bytes produced by the application. */
   var writeBytesTotal = 0L
@@ -148,11 +193,11 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   var writeBytesMaximum: Long = peerSettings.initialWindowSize.toLong()
     private set
 
-  internal val socket: Socket = builder.socket
-  val writer = Http2Writer(builder.sink, client)
+  internal val socket: BufferedSocket = builder.socket
+  val writer = Http2Writer(socket.sink, client)
 
   // Visible for testing
-  val readerRunnable = ReaderRunnable(Http2Reader(builder.source, client))
+  val readerRunnable = ReaderRunnable(Http2Reader(socket.source, client))
 
   // Guarded by this.
   private val currentPushRequests = mutableSetOf<Int>()
@@ -161,14 +206,15 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     if (builder.pingIntervalMillis != 0) {
       val pingIntervalNanos = TimeUnit.MILLISECONDS.toNanos(builder.pingIntervalMillis.toLong())
       writerQueue.schedule("$connectionName ping", pingIntervalNanos) {
-        val failDueToMissingPong = synchronized(this@Http2Connection) {
-          if (intervalPongsReceived < intervalPingsSent) {
-            return@synchronized true
-          } else {
-            intervalPingsSent++
-            return@synchronized false
+        val failDueToMissingPong =
+          withLock {
+            if (intervalPongsReceived < intervalPingsSent) {
+              return@withLock true
+            } else {
+              intervalPingsSent++
+              return@withLock false
+            }
           }
-        }
         if (failDueToMissingPong) {
           failConnection(null)
           return@schedule -1L
@@ -183,25 +229,30 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   /**
    * Returns the number of [open streams][Http2Stream.isOpen] on this connection.
    */
-  @Synchronized fun openStreamCount(): Int = streams.size
+  fun openStreamCount(): Int = withLock { streams.size }
 
-  @Synchronized fun getStream(id: Int): Http2Stream? = streams[id]
+  fun getStream(id: Int): Http2Stream? = withLock { streams[id] }
 
-  @Synchronized internal fun removeStream(streamId: Int): Http2Stream? {
-    val stream = streams.remove(streamId)
+  internal fun removeStream(streamId: Int): Http2Stream? {
+    withLock {
+      val stream = streams.remove(streamId)
 
-    // The removed stream may be blocked on a connection-wide window update.
-    notifyAll()
+      // The removed stream may be blocked on a connection-wide window update.
+      notifyAll()
 
-    return stream
+      return stream
+    }
   }
 
-  @Synchronized internal fun updateConnectionFlowControl(read: Long) {
-    readBytesTotal += read
-    val readBytesToAcknowledge = readBytesTotal - readBytesAcknowledged
-    if (readBytesToAcknowledge >= okHttpSettings.initialWindowSize / 2) {
-      writeWindowUpdateLater(0, readBytesToAcknowledge)
-      readBytesAcknowledged += readBytesToAcknowledge
+  internal fun updateConnectionFlowControl(read: Long) {
+    withLock {
+      readBytes.update(total = read)
+      val readBytesToAcknowledge = readBytes.unacknowledged
+      if (readBytesToAcknowledge >= okHttpSettings.initialWindowSize / 2) {
+        writeWindowUpdateLater(0, readBytesToAcknowledge)
+        readBytes.update(acknowledged = readBytesToAcknowledge)
+      }
+      flowControlListener.receivingConnectionWindowChanged(readBytes)
     }
   }
 
@@ -216,7 +267,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   fun pushStream(
     associatedStreamId: Int,
     requestHeaders: List<Header>,
-    out: Boolean
+    out: Boolean,
   ): Http2Stream {
     check(!client) { "Client cannot push requests." }
     return newStream(associatedStreamId, requestHeaders, out)
@@ -231,16 +282,14 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   @Throws(IOException::class)
   fun newStream(
     requestHeaders: List<Header>,
-    out: Boolean
-  ): Http2Stream {
-    return newStream(0, requestHeaders, out)
-  }
+    out: Boolean,
+  ): Http2Stream = newStream(0, requestHeaders, out)
 
   @Throws(IOException::class)
   private fun newStream(
     associatedStreamId: Int,
     requestHeaders: List<Header>,
-    out: Boolean
+    out: Boolean,
   ): Http2Stream {
     val outFinished = !out
     val inFinished = false
@@ -248,8 +297,8 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     val stream: Http2Stream
     val streamId: Int
 
-    synchronized(writer) {
-      synchronized(this) {
+    writer.withLock {
+      withLock {
         if (nextStreamId > Int.MAX_VALUE / 2) {
           shutdown(REFUSED_STREAM)
         }
@@ -260,8 +309,8 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
         nextStreamId += 2
         stream = Http2Stream(streamId, this, outFinished, inFinished, null)
         flushHeaders = !out ||
-            writeBytesTotal >= writeBytesMaximum ||
-            stream.writeBytesTotal >= stream.writeBytesMaximum
+          writeBytesTotal >= writeBytesMaximum ||
+          stream.writeBytesTotal >= stream.writeBytesMaximum
         if (stream.isOpen) {
           streams[streamId] = stream
         }
@@ -286,7 +335,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   internal fun writeHeaders(
     streamId: Int,
     outFinished: Boolean,
-    alternating: List<Header>
+    alternating: List<Header>,
   ) {
     writer.headers(outFinished, streamId, alternating)
   }
@@ -308,7 +357,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     streamId: Int,
     outFinished: Boolean,
     buffer: Buffer?,
-    byteCount: Long
+    byteCount: Long,
   ) {
     // Empty data frames are not flow-controlled.
     if (byteCount == 0L) {
@@ -319,7 +368,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     var byteCount = byteCount
     while (byteCount > 0L) {
       var toWrite: Int
-      synchronized(this@Http2Connection) {
+      withLock {
         try {
           while (writeBytesTotal >= writeBytesMaximum) {
             // Before blocking, confirm that the stream we're writing is still open. It's possible
@@ -327,7 +376,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
             if (!streams.containsKey(streamId)) {
               throw IOException("stream closed")
             }
-            this@Http2Connection.wait() // Wait until we receive a WINDOW_UPDATE.
+            wait() // Wait until we receive a WINDOW_UPDATE.
           }
         } catch (e: InterruptedException) {
           Thread.currentThread().interrupt() // Retain interrupted status.
@@ -346,7 +395,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
 
   internal fun writeSynResetLater(
     streamId: Int,
-    errorCode: ErrorCode
+    errorCode: ErrorCode,
   ) {
     writerQueue.execute("$connectionName[$streamId] writeSynReset") {
       try {
@@ -360,14 +409,14 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   @Throws(IOException::class)
   internal fun writeSynReset(
     streamId: Int,
-    statusCode: ErrorCode
+    statusCode: ErrorCode,
   ) {
     writer.rstStream(streamId, statusCode)
   }
 
   internal fun writeWindowUpdateLater(
     streamId: Int,
-    unacknowledgedBytesRead: Long
+    unacknowledgedBytesRead: Long,
   ) {
     writerQueue.execute("$connectionName[$streamId] windowUpdate") {
       try {
@@ -381,7 +430,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   fun writePing(
     reply: Boolean,
     payload1: Int,
-    payload2: Int
+    payload2: Int,
   ) {
     try {
       writer.ping(reply, payload1, payload2)
@@ -400,17 +449,21 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   /** For testing: sends a ping to be awaited with [awaitPong]. */
   @Throws(InterruptedException::class)
   fun writePing() {
-    synchronized(this) {
+    withLock {
       awaitPingsSent++
     }
-    writePing(false, AWAIT_PING, 0x4f4b6f6b /* "OKok" */)
+
+    // 0x4f 0x4b 0x6f 0x6b is "OKok".
+    writePing(false, AWAIT_PING, 0x4f4b6f6b)
   }
 
   /** For testing: awaits a pong. */
-  @Synchronized @Throws(InterruptedException::class)
+  @Throws(InterruptedException::class)
   fun awaitPong() {
-    while (awaitPongsReceived < awaitPingsSent) {
-      wait()
+    withLock {
+      while (awaitPongsReceived < awaitPingsSent) {
+        wait()
+      }
     }
   }
 
@@ -426,9 +479,9 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
    */
   @Throws(IOException::class)
   fun shutdown(statusCode: ErrorCode) {
-    synchronized(writer) {
+    writer.withLock {
       val lastGoodStreamId: Int
-      synchronized(this) {
+      withLock {
         if (isShutdown) {
           return
         }
@@ -452,16 +505,16 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   internal fun close(
     connectionCode: ErrorCode,
     streamCode: ErrorCode,
-    cause: IOException?
+    cause: IOException?,
   ) {
-    this.assertThreadDoesntHoldLock()
+    assertLockNotHeld()
 
     ignoreIoExceptions {
       shutdown(connectionCode)
     }
 
     var streamsToClose: Array<Http2Stream>? = null
-    synchronized(this) {
+    withLock {
       if (streams.isNotEmpty()) {
         streamsToClose = streams.values.toTypedArray()
         streams.clear()
@@ -479,9 +532,9 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       writer.close()
     }
 
-    // Close the socket to break out the reader thread, which will clean up after itself.
+    // Cancel the socket to break out the reader thread, which will clean up after itself.
     ignoreIoExceptions {
-      socket.close()
+      socket.cancel()
     }
 
     // Release the threads.
@@ -494,49 +547,6 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     close(ErrorCode.PROTOCOL_ERROR, ErrorCode.PROTOCOL_ERROR, e)
   }
 
-  private var headerOrder: String? = null
-  override fun setHeaderOrder(order: String?) {
-    headerOrder = order
-  }
-
-  fun fillHeaderOrder(result: ArrayList<Header>, request: Request) {
-    if (headerOrder != null) {
-      for(token in headerOrder!!.split(",")) {
-        when (token) {
-          "a" -> {
-            val host = request.header("Host")
-            if (host != null) {
-              result.add(Header(TARGET_AUTHORITY, host)) // Optional.
-            }
-          }
-          "m" -> {
-            result.add(Header(TARGET_METHOD, request.method))
-          }
-          "p" -> {
-            result.add(Header(TARGET_PATH, RequestLine.requestPath(request.url)))
-          }
-          "s" -> {
-            result.add(Header(TARGET_SCHEME, request.url.scheme))
-          }
-          else -> {
-            throw IllegalStateException("headerOrder: $headerOrder")
-          }
-        }
-      }
-    }
-  }
-
-  private var windowSizeIncrement = -1L
-
-  override fun setWindowSizeIncrement(windowUpdate: Long) {
-    windowSizeIncrement = windowUpdate;
-  }
-
-  private var priorityFrames = ArrayList<PriorityFrame>(10)
-  override fun addPriorityFrame(frame: PriorityFrame) {
-    priorityFrames.add(frame)
-  }
-
   /**
    * Sends any initial frames and starts reading frames from the remote peer. This should be called
    * after [Builder.build] for all new connections.
@@ -545,12 +555,13 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
    *     except for in tests that don't check for a connection preface.
    * @param taskRunner the TaskRunner to use, daemon by default.
    */
-  @Throws(IOException::class) @JvmOverloads
-  fun start(sendConnectionPreface: Boolean = true, taskRunner: TaskRunner = TaskRunner.INSTANCE) {
+  @Throws(IOException::class)
+  @JvmOverloads
+  fun start(sendConnectionPreface: Boolean = true) {
     if (sendConnectionPreface) {
       writer.connectionPreface()
       writer.settings(okHttpSettings)
-      if(windowSizeIncrement >= 0) {
+      if (windowSizeIncrement >= 0) {
         if (windowSizeIncrement > 0) {
           writer.windowUpdate(0, windowSizeIncrement)
         }
@@ -560,7 +571,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
           writer.windowUpdate(0, (windowSize - DEFAULT_INITIAL_WINDOW_SIZE).toLong())
         }
       }
-      for(frame in priorityFrames) {
+      for (frame in priorityFrames) {
         writer.priority(frame)
       }
     }
@@ -572,8 +583,8 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   /** Merges [settings] into this peer's settings and sends them to the remote peer. */
   @Throws(IOException::class)
   fun setSettings(settings: Settings) {
-    synchronized(writer) {
-      synchronized(this) {
+    writer.withLock {
+      withLock {
         if (isShutdown) {
           throw ConnectionShutdownException()
         }
@@ -583,14 +594,15 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     }
   }
 
-  @Synchronized
   fun isHealthy(nowNs: Long): Boolean {
-    if (isShutdown) return false
+    withLock {
+      if (isShutdown) return false
 
-    // A degraded pong is overdue.
-    if (degradedPongsReceived < degradedPingsSent && nowNs >= degradedPongDeadlineNs) return false
+      // A degraded pong is overdue.
+      if (degradedPongsReceived < degradedPingsSent && nowNs >= degradedPongDeadlineNs) return false
 
-    return true
+      return true
+    }
   }
 
   /**
@@ -609,7 +621,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
    * The deadline is currently hardcoded. We may make this configurable in the future!
    */
   internal fun sendDegradedPingLater() {
-    synchronized(this) {
+    withLock {
       if (degradedPongsReceived < degradedPingsSent) return // Already awaiting a degraded pong.
       degradedPingsSent++
       degradedPongDeadlineNs = System.nanoTime() + DEGRADED_PONG_TIMEOUT_NS
@@ -622,47 +634,49 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   class Builder(
     /** True if this peer initiated the connection; false if this peer accepted the connection. */
     internal var client: Boolean,
-    internal val taskRunner: TaskRunner
+    internal val taskRunner: TaskRunner,
   ) {
-    internal lateinit var socket: Socket
+    internal lateinit var socket: BufferedSocket
     internal lateinit var connectionName: String
-    internal lateinit var source: BufferedSource
-    internal lateinit var sink: BufferedSink
     internal var listener = Listener.REFUSE_INCOMING_STREAMS
     internal var pushObserver = PushObserver.CANCEL
     internal var pingIntervalMillis: Int = 0
+    internal var flowControlListener: FlowControlListener = FlowControlListener.None
 
-    @Throws(IOException::class) @JvmOverloads
+    @Throws(IOException::class)
     fun socket(
-      socket: Socket,
-      peerName: String = socket.peerName(),
-      source: BufferedSource = socket.source().buffer(),
-      sink: BufferedSink = socket.sink().buffer()
+      socket: BufferedSocket,
+      peerName: String,
     ) = apply {
       this.socket = socket
-      this.connectionName = when {
-        client -> "$okHttpName $peerName"
-        else -> "MockWebServer $peerName"
+      this.connectionName =
+        when {
+          client -> "$okHttpName $peerName"
+          else -> "MockWebServer $peerName"
+        }
+    }
+
+    fun listener(listener: Listener) =
+      apply {
+        this.listener = listener
       }
-      this.source = source
-      this.sink = sink
-    }
 
-    fun listener(listener: Listener) = apply {
-      this.listener = listener
-    }
+    fun pushObserver(pushObserver: PushObserver) =
+      apply {
+        this.pushObserver = pushObserver
+      }
 
-    fun pushObserver(pushObserver: PushObserver) = apply {
-      this.pushObserver = pushObserver
-    }
+    fun pingIntervalMillis(pingIntervalMillis: Int) =
+      apply {
+        this.pingIntervalMillis = pingIntervalMillis
+      }
 
-    fun pingIntervalMillis(pingIntervalMillis: Int) = apply {
-      this.pingIntervalMillis = pingIntervalMillis
-    }
+    fun flowControlListener(flowControlListener: FlowControlListener) =
+      apply {
+        this.flowControlListener = flowControlListener
+      }
 
-    fun build(): Http2Connection {
-      return Http2Connection(this)
-    }
+    fun build(): Http2Connection = Http2Connection(this)
   }
 
   /**
@@ -670,8 +684,9 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
    * async task to do so.
    */
   inner class ReaderRunnable internal constructor(
-    internal val reader: Http2Reader
-  ) : Http2Reader.Handler, () -> Unit {
+    internal val reader: Http2Reader,
+  ) : Http2Reader.Handler,
+    () -> Unit {
     override fun invoke() {
       var connectionErrorCode = ErrorCode.INTERNAL_ERROR
       var streamErrorCode = ErrorCode.INTERNAL_ERROR
@@ -697,7 +712,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       inFinished: Boolean,
       streamId: Int,
       source: BufferedSource,
-      length: Int
+      length: Int,
     ) {
       if (pushedStream(streamId)) {
         pushDataLater(streamId, source, length, inFinished)
@@ -712,7 +727,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       }
       dataStream.receiveData(source, length)
       if (inFinished) {
-        dataStream.receiveHeaders(EMPTY_HEADERS, true)
+        dataStream.receiveHeaders(Headers.EMPTY, true)
       }
     }
 
@@ -720,14 +735,14 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       inFinished: Boolean,
       streamId: Int,
       associatedStreamId: Int,
-      headerBlock: List<Header>
+      headerBlock: List<Header>,
     ) {
       if (pushedStream(streamId)) {
         pushHeadersLater(streamId, headerBlock, inFinished)
         return
       }
       val stream: Http2Stream?
-      synchronized(this@Http2Connection) {
+      withLock {
         stream = getStream(streamId)
 
         if (stream == null) {
@@ -765,7 +780,10 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       stream!!.receiveHeaders(headerBlock.toHeaders(), inFinished)
     }
 
-    override fun rstStream(streamId: Int, errorCode: ErrorCode) {
+    override fun rstStream(
+      streamId: Int,
+      errorCode: ErrorCode,
+    ) {
       if (pushedStream(streamId)) {
         pushResetLater(streamId, errorCode)
         return
@@ -774,7 +792,10 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       rstStream?.receiveRstStream(errorCode)
     }
 
-    override fun settings(clearPrevious: Boolean, settings: Settings) {
+    override fun settings(
+      clearPrevious: Boolean,
+      settings: Settings,
+    ) {
       writerQueue.execute("$connectionName applyAndAckSettings") {
         applyAndAckSettings(clearPrevious, settings)
       }
@@ -793,28 +814,35 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
      * writer task queue won't reorder tasks; otherwise settings could be applied in the opposite
      * order than received.
      */
-    fun applyAndAckSettings(clearPrevious: Boolean, settings: Settings) {
+    fun applyAndAckSettings(
+      clearPrevious: Boolean,
+      settings: Settings,
+    ) {
       var delta: Long
       var streamsToNotify: Array<Http2Stream>?
       var newPeerSettings: Settings
-      synchronized(writer) {
-        synchronized(this@Http2Connection) {
+      writer.withLock {
+        withLock {
           val previousPeerSettings = peerSettings
-          newPeerSettings = if (clearPrevious) {
-            settings
-          } else {
-            Settings().apply {
-              merge(previousPeerSettings)
-              merge(settings)
+          newPeerSettings =
+            if (clearPrevious) {
+              settings
+            } else {
+              Settings().apply {
+                merge(previousPeerSettings)
+                merge(settings)
+              }
             }
-          }
 
           val peerInitialWindowSize = newPeerSettings.initialWindowSize.toLong()
           delta = peerInitialWindowSize - previousPeerSettings.initialWindowSize.toLong()
-          streamsToNotify = when {
-            delta == 0L || streams.isEmpty() -> null // No adjustment is necessary.
-            else -> streams.values.toTypedArray()
-          }
+          streamsToNotify =
+            when {
+              delta == 0L || streams.isEmpty() -> null
+
+              // No adjustment is necessary.
+              else -> streams.values.toTypedArray()
+            }
 
           peerSettings = newPeerSettings
 
@@ -829,8 +857,8 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
         }
       }
       if (streamsToNotify != null) {
-        for (stream in streamsToNotify!!) {
-          synchronized(stream) {
+        for (stream in streamsToNotify) {
+          stream.withLock {
             stream.addBytesToWriteWindow(delta)
           }
         }
@@ -844,21 +872,24 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     override fun ping(
       ack: Boolean,
       payload1: Int,
-      payload2: Int
+      payload2: Int,
     ) {
       if (ack) {
-        synchronized(this@Http2Connection) {
+        withLock {
           when (payload1) {
             INTERVAL_PING -> {
               intervalPongsReceived++
             }
+
             DEGRADED_PING -> {
               degradedPongsReceived++
             }
+
             AWAIT_PING -> {
               awaitPongsReceived++
-              this@Http2Connection.notifyAll()
+              notifyAll()
             }
+
             else -> {
               // Ignore an unexpected pong.
             }
@@ -875,7 +906,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     override fun goAway(
       lastGoodStreamId: Int,
       errorCode: ErrorCode,
-      debugData: ByteString
+      debugData: ByteString,
     ) {
       if (debugData.size > 0) {
         // TODO: log the debugData
@@ -883,7 +914,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
 
       // Copy the streams first. We don't want to hold a lock when we call receiveRstStream().
       val streamsCopy: Array<Http2Stream>
-      synchronized(this@Http2Connection) {
+      withLock {
         streamsCopy = streams.values.toTypedArray()
         isShutdown = true
       }
@@ -897,16 +928,19 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       }
     }
 
-    override fun windowUpdate(streamId: Int, windowSizeIncrement: Long) {
+    override fun windowUpdate(
+      streamId: Int,
+      windowSizeIncrement: Long,
+    ) {
       if (streamId == 0) {
-        synchronized(this@Http2Connection) {
+        withLock {
           writeBytesMaximum += windowSizeIncrement
-          this@Http2Connection.notifyAll()
+          notifyAll()
         }
       } else {
         val stream = getStream(streamId)
         if (stream != null) {
-          synchronized(stream) {
+          stream.withLock {
             stream.addBytesToWriteWindow(windowSizeIncrement)
           }
         }
@@ -917,7 +951,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       streamId: Int,
       streamDependency: Int,
       weight: Int,
-      exclusive: Boolean
+      exclusive: Boolean,
     ) {
       // TODO: honor priority.
     }
@@ -925,7 +959,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     override fun pushPromise(
       streamId: Int,
       promisedStreamId: Int,
-      requestHeaders: List<Header>
+      requestHeaders: List<Header>,
     ) {
       pushRequestLater(promisedStreamId, requestHeaders)
     }
@@ -936,7 +970,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       protocol: ByteString,
       host: String,
       port: Int,
-      maxAge: Long
+      maxAge: Long,
     ) {
       // TODO: register alternate service.
     }
@@ -945,8 +979,11 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   /** Even, positive numbered streams are pushed streams in HTTP/2. */
   internal fun pushedStream(streamId: Int): Boolean = streamId != 0 && streamId and 1 == 0
 
-  internal fun pushRequestLater(streamId: Int, requestHeaders: List<Header>) {
-    synchronized(this) {
+  internal fun pushRequestLater(
+    streamId: Int,
+    requestHeaders: List<Header>,
+  ) {
+    withLock {
       if (streamId in currentPushRequests) {
         writeSynResetLater(streamId, ErrorCode.PROTOCOL_ERROR)
         return
@@ -958,7 +995,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
       ignoreIoExceptions {
         if (cancel) {
           writer.rstStream(streamId, ErrorCode.CANCEL)
-          synchronized(this@Http2Connection) {
+          withLock {
             currentPushRequests.remove(streamId)
           }
         }
@@ -969,14 +1006,14 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
   internal fun pushHeadersLater(
     streamId: Int,
     requestHeaders: List<Header>,
-    inFinished: Boolean
+    inFinished: Boolean,
   ) {
     pushQueue.execute("$connectionName[$streamId] onHeaders") {
       val cancel = pushObserver.onHeaders(streamId, requestHeaders, inFinished)
       ignoreIoExceptions {
         if (cancel) writer.rstStream(streamId, ErrorCode.CANCEL)
         if (cancel || inFinished) {
-          synchronized(this@Http2Connection) {
+          withLock {
             currentPushRequests.remove(streamId)
           }
         }
@@ -993,7 +1030,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     streamId: Int,
     source: BufferedSource,
     byteCount: Int,
-    inFinished: Boolean
+    inFinished: Boolean,
   ) {
     val buffer = Buffer()
     source.require(byteCount.toLong()) // Eagerly read the frame before firing client thread.
@@ -1003,7 +1040,7 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
         val cancel = pushObserver.onData(streamId, buffer, byteCount, inFinished)
         if (cancel) writer.rstStream(streamId, ErrorCode.CANCEL)
         if (cancel || inFinished) {
-          synchronized(this@Http2Connection) {
+          withLock {
             currentPushRequests.remove(streamId)
           }
         }
@@ -1011,10 +1048,13 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
     }
   }
 
-  internal fun pushResetLater(streamId: Int, errorCode: ErrorCode) {
+  internal fun pushResetLater(
+    streamId: Int,
+    errorCode: ErrorCode,
+  ) {
     pushQueue.execute("$connectionName[$streamId] onReset") {
       pushObserver.onReset(streamId, errorCode)
-      synchronized(this@Http2Connection) {
+      withLock {
         currentPushRequests.remove(streamId)
       }
     }
@@ -1039,26 +1079,31 @@ class Http2Connection internal constructor(builder: Builder) : Closeable, okhttp
      * Methods to this method may be made concurrently with [onStream]. But a calls to this method
      * are serialized.
      */
-    open fun onSettings(connection: Http2Connection, settings: Settings) {}
+    open fun onSettings(
+      connection: Http2Connection,
+      settings: Settings,
+    ) {}
 
     companion object {
       @JvmField
-      val REFUSE_INCOMING_STREAMS: Listener = object : Listener() {
-        @Throws(IOException::class)
-        override fun onStream(stream: Http2Stream) {
-          stream.close(REFUSED_STREAM, null)
+      val REFUSE_INCOMING_STREAMS: Listener =
+        object : Listener() {
+          @Throws(IOException::class)
+          override fun onStream(stream: Http2Stream) {
+            stream.close(REFUSED_STREAM, null)
+          }
         }
-      }
     }
   }
 
   companion object {
     const val OKHTTP_CLIENT_WINDOW_SIZE = 16 * 1024 * 1024
 
-    val DEFAULT_SETTINGS = Settings().apply {
-      set(Settings.INITIAL_WINDOW_SIZE, DEFAULT_INITIAL_WINDOW_SIZE)
-      set(Settings.MAX_FRAME_SIZE, Http2.INITIAL_MAX_FRAME_SIZE)
-    }
+    val DEFAULT_SETTINGS =
+      Settings().apply {
+        set(Settings.INITIAL_WINDOW_SIZE, DEFAULT_INITIAL_WINDOW_SIZE)
+        set(Settings.MAX_FRAME_SIZE, Http2.INITIAL_MAX_FRAME_SIZE)
+      }
 
     const val INTERVAL_PING = 1
     const val DEGRADED_PING = 2

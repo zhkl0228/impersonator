@@ -17,7 +17,6 @@ package okhttp3.internal.concurrent
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.RejectedExecutionException
-import okhttp3.internal.assertThreadDoesntHoldLock
 import okhttp3.internal.okHttpName
 
 /**
@@ -28,7 +27,7 @@ import okhttp3.internal.okHttpName
  */
 class TaskQueue internal constructor(
   internal val taskRunner: TaskRunner,
-  internal val name: String
+  internal val name: String,
 ) {
   internal var shutdown = false
 
@@ -46,7 +45,7 @@ class TaskQueue internal constructor(
    * currently-executing task unless it is also scheduled for future execution.
    */
   val scheduledTasks: List<Task>
-    get() = synchronized(taskRunner) { futureTasks.toList() }
+    get() = taskRunner.withLock { futureTasks.toList() }
 
   /**
    * Schedules [task] for execution in [delayNanos]. A task may only have one future execution
@@ -58,14 +57,17 @@ class TaskQueue internal constructor(
    *
    * @throws RejectedExecutionException if the queue is shut down and the task is not cancelable.
    */
-  fun schedule(task: Task, delayNanos: Long = 0L) {
-    synchronized(taskRunner) {
+  fun schedule(
+    task: Task,
+    delayNanos: Long = 0L,
+  ) {
+    taskRunner.withLock {
       if (shutdown) {
         if (task.cancelable) {
-          taskLog(task, this) { "schedule canceled (queue is shutdown)" }
+          taskRunner.logger.taskLog(task, this) { "schedule canceled (queue is shutdown)" }
           return
         }
-        taskLog(task, this) { "schedule failed (queue is shutdown)" }
+        taskRunner.logger.taskLog(task, this) { "schedule failed (queue is shutdown)" }
         throw RejectedExecutionException()
       }
 
@@ -75,35 +77,49 @@ class TaskQueue internal constructor(
     }
   }
 
-  /** Overload of [schedule] that uses a lambda for a repeating task. */
-  inline fun schedule(
+  /**
+   * Overload of [schedule] that uses a lambda for a repeating task.
+   *
+   * TODO: make this inline once this is fixed: https://github.com/oracle/graal/issues/3466
+   */
+  fun schedule(
     name: String,
     delayNanos: Long = 0L,
-    crossinline block: () -> Long
+    block: () -> Long,
   ) {
-    schedule(object : Task(name) {
-      override fun runOnce() = block()
-    }, delayNanos)
+    schedule(
+      object : Task(name) {
+        override fun runOnce(): Long = block()
+      },
+      delayNanos,
+    )
   }
 
-  /** Executes [block] once on a task runner thread. */
-  inline fun execute(
+  /**
+   * Executes [block] once on a task runner thread.
+   *
+   * TODO: make this inline once this is fixed: https://github.com/oracle/graal/issues/3466
+   */
+  fun execute(
     name: String,
     delayNanos: Long = 0L,
     cancelable: Boolean = true,
-    crossinline block: () -> Unit
+    block: () -> Unit,
   ) {
-    schedule(object : Task(name, cancelable) {
-      override fun runOnce(): Long {
-        block()
-        return -1L
-      }
-    }, delayNanos)
+    schedule(
+      object : Task(name, cancelable) {
+        override fun runOnce(): Long {
+          block()
+          return -1L
+        }
+      },
+      delayNanos,
+    )
   }
 
   /** Returns a latch that reaches 0 when the queue is next idle. */
   fun idleLatch(): CountDownLatch {
-    synchronized(taskRunner) {
+    taskRunner.withLock {
       // If the queue is already idle, that's easy.
       if (activeTask == null && futureTasks.isEmpty()) {
         return CountDownLatch(0)
@@ -140,7 +156,11 @@ class TaskQueue internal constructor(
   }
 
   /** Adds [task] to run in [delayNanos]. Returns true if the coordinator is impacted. */
-  internal fun scheduleAndDecide(task: Task, delayNanos: Long, recurrence: Boolean): Boolean {
+  internal fun scheduleAndDecide(
+    task: Task,
+    delayNanos: Long,
+    recurrence: Boolean,
+  ): Boolean {
     task.initQueue(this)
 
     val now = taskRunner.backend.nanoTime()
@@ -150,15 +170,18 @@ class TaskQueue internal constructor(
     val existingIndex = futureTasks.indexOf(task)
     if (existingIndex != -1) {
       if (task.nextExecuteNanoTime <= executeNanoTime) {
-        taskLog(task, this) { "already scheduled" }
+        taskRunner.logger.taskLog(task, this) { "already scheduled" }
         return false
       }
       futureTasks.removeAt(existingIndex) // Already scheduled later: reschedule below!
     }
     task.nextExecuteNanoTime = executeNanoTime
-    taskLog(task, this) {
-      if (recurrence) "run again after ${formatDuration(executeNanoTime - now)}"
-      else "scheduled after ${formatDuration(executeNanoTime - now)}"
+    taskRunner.logger.taskLog(task, this) {
+      if (recurrence) {
+        "run again after ${formatDuration(executeNanoTime - now)}"
+      } else {
+        "scheduled after ${formatDuration(executeNanoTime - now)}"
+      }
     }
 
     // Insert in chronological order. Always compare deltas because nanoTime() is permitted to wrap.
@@ -176,9 +199,9 @@ class TaskQueue internal constructor(
    * be removed from the execution schedule.
    */
   fun cancelAll() {
-    this.assertThreadDoesntHoldLock()
+    taskRunner.assertLockNotHeld()
 
-    synchronized(taskRunner) {
+    taskRunner.withLock {
       if (cancelAllAndDecide()) {
         taskRunner.kickCoordinator(this)
       }
@@ -186,9 +209,9 @@ class TaskQueue internal constructor(
   }
 
   fun shutdown() {
-    this.assertThreadDoesntHoldLock()
+    taskRunner.assertLockNotHeld()
 
-    synchronized(taskRunner) {
+    taskRunner.withLock {
       shutdown = true
       if (cancelAllAndDecide()) {
         taskRunner.kickCoordinator(this)
@@ -205,7 +228,7 @@ class TaskQueue internal constructor(
     var tasksCanceled = false
     for (i in futureTasks.size - 1 downTo 0) {
       if (futureTasks[i].cancelable) {
-        taskLog(futureTasks[i], this) { "canceled" }
+        taskRunner.logger.taskLog(futureTasks[i], this) { "canceled" }
         tasksCanceled = true
         futureTasks.removeAt(i)
       }
@@ -213,5 +236,5 @@ class TaskQueue internal constructor(
     return tasksCanceled
   }
 
-  override fun toString() = name
+  override fun toString(): String = name
 }

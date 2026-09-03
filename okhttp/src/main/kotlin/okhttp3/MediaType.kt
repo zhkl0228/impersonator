@@ -16,8 +16,6 @@
 package okhttp3
 
 import java.nio.charset.Charset
-import java.util.Locale
-import java.util.regex.Pattern
 
 /**
  * An [RFC 2045][rfc_2045] Media Type, appropriate to describe the content type of an HTTP request
@@ -25,26 +23,22 @@ import java.util.regex.Pattern
  *
  * [rfc_2045]: http://tools.ietf.org/html/rfc2045
  */
-class MediaType private constructor(
-  private val mediaType: String,
-
+class MediaType internal constructor(
+  internal val mediaType: String,
   /**
    * Returns the high-level media type, such as "text", "image", "audio", "video", or "application".
    */
   @get:JvmName("type") val type: String,
-
   /**
    * Returns a specific media subtype, such as "plain" or "png", "mpeg", "mp4" or "xml".
    */
   @get:JvmName("subtype") val subtype: String,
-
   /** Alternating parameter names with their values, like `["charset", "utf-8"]`. */
-  private val parameterNamesAndValues: Array<String>
+  private val parameterNamesAndValues: Array<String>,
 ) {
-
   /**
    * Returns the charset of this media type, or [defaultValue] if either this media type doesn't
-   * specify a charset, of it its charset is unsupported by the current runtime.
+   * specify a charset, or if its charset is unsupported by the current runtime.
    */
   @JvmOverloads
   fun charset(defaultValue: Charset? = null): Charset? {
@@ -71,33 +65,35 @@ class MediaType private constructor(
 
   @JvmName("-deprecated_type")
   @Deprecated(
-      message = "moved to val",
-      replaceWith = ReplaceWith(expression = "type"),
-      level = DeprecationLevel.ERROR)
-  fun type() = type
+    message = "moved to val",
+    replaceWith = ReplaceWith(expression = "type"),
+    level = DeprecationLevel.ERROR,
+  )
+  fun type(): String = type
 
   @JvmName("-deprecated_subtype")
   @Deprecated(
-      message = "moved to val",
-      replaceWith = ReplaceWith(expression = "subtype"),
-      level = DeprecationLevel.ERROR)
-  fun subtype() = subtype
+    message = "moved to val",
+    replaceWith = ReplaceWith(expression = "subtype"),
+    level = DeprecationLevel.ERROR,
+  )
+  fun subtype(): String = subtype
 
   /**
    * Returns the encoded media type, like "text/plain; charset=utf-8", appropriate for use in a
    * Content-Type header.
    */
-  override fun toString() = mediaType
+  override fun toString(): String = mediaType
 
-  override fun equals(other: Any?) = other is MediaType && other.mediaType == mediaType
+  override fun equals(other: Any?): Boolean = other is MediaType && other.mediaType == mediaType
 
-  override fun hashCode() = mediaType.hashCode()
+  override fun hashCode(): Int = mediaType.hashCode()
 
   companion object {
     private const val TOKEN = "([a-zA-Z0-9-!#$%&'*+.^_`{|}~]+)"
     private const val QUOTED = "\"([^\"]*)\""
-    private val TYPE_SUBTYPE = Pattern.compile("$TOKEN/$TOKEN")
-    private val PARAMETER = Pattern.compile(";\\s*(?:$TOKEN=(?:$TOKEN|$QUOTED))?")
+    private val TYPE_SUBTYPE = Regex("$TOKEN/$TOKEN")
+    private val PARAMETER = Regex(";\\s*(?:$TOKEN=(?:$TOKEN|$QUOTED))?")
 
     /**
      * Returns a media type for this string.
@@ -107,42 +103,47 @@ class MediaType private constructor(
     @JvmStatic
     @JvmName("get")
     fun String.toMediaType(): MediaType {
-      val typeSubtype = TYPE_SUBTYPE.matcher(this)
-      require(typeSubtype.lookingAt()) { "No subtype found for: \"$this\"" }
-      val type = typeSubtype.group(1).toLowerCase(Locale.US)
-      val subtype = typeSubtype.group(2).toLowerCase(Locale.US)
+      val typeSubtype =
+        TYPE_SUBTYPE.matchAt(this, 0)
+          ?: throw IllegalArgumentException("No subtype found for: \"$this\"")
+      val type = typeSubtype.groupValues[1].lowercase()
+      val subtype = typeSubtype.groupValues[2].lowercase()
 
       val parameterNamesAndValues = mutableListOf<String>()
-      val parameter = PARAMETER.matcher(this)
-      var s = typeSubtype.end()
+      var s = typeSubtype.range.last + 1
       while (s < length) {
-        parameter.region(s, length)
-        require(parameter.lookingAt()) {
+        val parameter = PARAMETER.matchAt(this, s)
+        require(parameter != null) {
           "Parameter is not formatted correctly: \"${substring(s)}\" for: \"$this\""
         }
 
-        val name = parameter.group(1)
+        val name = parameter.groups[1]?.value
         if (name == null) {
-          s = parameter.end()
+          s = parameter.range.last + 1
           continue
         }
 
-        val token = parameter.group(2)
-        val value = when {
-          token == null -> {
-            // Value is "double-quoted". That's valid and our regex group already strips the quotes.
-            parameter.group(3)
+        val token = parameter.groups[2]?.value
+        val value =
+          when {
+            token == null -> {
+              // Value is "double-quoted". That's valid and our regex group already strips the quotes.
+              parameter.groups[3]!!.value
+            }
+
+            token.startsWith('\'') && token.endsWith('\'') && token.length > 2 -> {
+              // If the token is 'single-quoted' it's invalid! But we're lenient and strip the quotes.
+              token.substring(1, token.length - 1)
+            }
+
+            else -> {
+              token
+            }
           }
-          token.startsWith("'") && token.endsWith("'") && token.length > 2 -> {
-            // If the token is 'single-quoted' it's invalid! But we're lenient and strip the quotes.
-            token.substring(1, token.length - 1)
-          }
-          else -> token
-        }
 
         parameterNamesAndValues += name
         parameterNamesAndValues += value
-        s = parameter.end()
+        s = parameter.range.last + 1
       }
 
       return MediaType(this, type, subtype, parameterNamesAndValues.toTypedArray())
@@ -151,30 +152,35 @@ class MediaType private constructor(
     /** Returns a media type for this, or null if this is not a well-formed media type. */
     @JvmStatic
     @JvmName("parse")
-    fun String.toMediaTypeOrNull(): MediaType? {
-      return try {
+    fun String.toMediaTypeOrNull(): MediaType? =
+      try {
         toMediaType()
       } catch (_: IllegalArgumentException) {
         null
       }
-    }
 
     @JvmName("-deprecated_get")
     @Deprecated(
-        message = "moved to extension function",
-        replaceWith = ReplaceWith(
-            expression = "mediaType.toMediaType()",
-            imports = ["okhttp3.MediaType.Companion.toMediaType"]),
-        level = DeprecationLevel.ERROR)
+      message = "moved to extension function",
+      replaceWith =
+        ReplaceWith(
+          expression = "mediaType.toMediaType()",
+          imports = ["okhttp3.MediaType.Companion.toMediaType"],
+        ),
+      level = DeprecationLevel.ERROR,
+    )
     fun get(mediaType: String): MediaType = mediaType.toMediaType()
 
     @JvmName("-deprecated_parse")
     @Deprecated(
-        message = "moved to extension function",
-        replaceWith = ReplaceWith(
-            expression = "mediaType.toMediaTypeOrNull()",
-            imports = ["okhttp3.MediaType.Companion.toMediaTypeOrNull"]),
-        level = DeprecationLevel.ERROR)
+      message = "moved to extension function",
+      replaceWith =
+        ReplaceWith(
+          expression = "mediaType.toMediaTypeOrNull()",
+          imports = ["okhttp3.MediaType.Companion.toMediaTypeOrNull"],
+        ),
+      level = DeprecationLevel.ERROR,
+    )
     fun parse(mediaType: String): MediaType? = mediaType.toMediaTypeOrNull()
   }
 }

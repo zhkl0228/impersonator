@@ -17,19 +17,18 @@ package okhttp3.internal.connection
 
 import java.io.IOException
 import java.net.ProtocolException
-import java.net.SocketException
-import okhttp3.EventListener
 import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
+import okhttp3.internal.OkHttpInternalApi
 import okhttp3.internal.http.ExchangeCodec
 import okhttp3.internal.http.RealResponseBody
-import okhttp3.internal.ws.RealWebSocket
 import okio.Buffer
 import okio.ForwardingSink
 import okio.ForwardingSource
 import okio.Sink
+import okio.Socket
 import okio.Source
 import okio.buffer
 
@@ -37,11 +36,11 @@ import okio.buffer
  * Transmits a single HTTP request and a response pair. This layers connection management and events
  * on [ExchangeCodec], which handles the actual I/O.
  */
+@OkHttpInternalApi
 class Exchange(
   internal val call: RealCall,
-  internal val eventListener: EventListener,
   internal val finder: ExchangeFinder,
-  private val codec: ExchangeCodec
+  private val codec: ExchangeCodec,
 ) {
   /** True if the request body need not complete before the response body starts. */
   internal var isDuplex: Boolean = false
@@ -51,31 +50,39 @@ class Exchange(
   internal var hasFailure: Boolean = false
     private set
 
-  internal val connection: RealConnection = codec.connection
+  internal val connection: RealConnection
+    get() = codec.carrier as? RealConnection ?: error("no connection for CONNECT tunnels")
 
   internal val isCoalescedConnection: Boolean
-    get() = finder.address.url.host != connection.route().address.url.host
+    get() = finder.routePlanner.address.url.host != codec.carrier.route.address.url.host
 
   @Throws(IOException::class)
   fun writeRequestHeaders(request: Request) {
     try {
-      eventListener.requestHeadersStart(call)
+      call.eventListener.requestHeadersStart(call)
       codec.writeRequestHeaders(request)
-      eventListener.requestHeadersEnd(call, request)
+      call.eventListener.requestHeadersEnd(call, request)
     } catch (e: IOException) {
-      eventListener.requestFailed(call, e)
+      call.eventListener.requestFailed(call, e)
       trackFailure(e)
       throw e
     }
   }
 
   @Throws(IOException::class)
-  fun createRequestBody(request: Request, duplex: Boolean): Sink {
+  fun createRequestBody(
+    request: Request,
+    duplex: Boolean,
+  ): Sink {
     this.isDuplex = duplex
     val contentLength = request.body!!.contentLength()
-    eventListener.requestBodyStart(call)
+    call.eventListener.requestBodyStart(call)
     val rawRequestBody = codec.createRequestBody(request, contentLength)
-    return RequestBodySink(rawRequestBody, contentLength)
+    return RequestBodySink(
+      delegate = rawRequestBody,
+      contentLength = contentLength,
+      isSocket = false,
+    )
   }
 
   @Throws(IOException::class)
@@ -83,7 +90,7 @@ class Exchange(
     try {
       codec.flushRequest()
     } catch (e: IOException) {
-      eventListener.requestFailed(call, e)
+      call.eventListener.requestFailed(call, e)
       trackFailure(e)
       throw e
     }
@@ -94,14 +101,14 @@ class Exchange(
     try {
       codec.finishRequest()
     } catch (e: IOException) {
-      eventListener.requestFailed(call, e)
+      call.eventListener.requestFailed(call, e)
       trackFailure(e)
       throw e
     }
   }
 
   fun responseHeadersStart() {
-    eventListener.responseHeadersStart(call)
+    call.eventListener.responseHeadersStart(call)
   }
 
   @Throws(IOException::class)
@@ -111,14 +118,14 @@ class Exchange(
       result?.initExchange(this)
       return result
     } catch (e: IOException) {
-      eventListener.responseFailed(call, e)
+      call.eventListener.responseFailed(call, e)
       trackFailure(e)
       throw e
     }
   }
 
   fun responseHeadersEnd(response: Response) {
-    eventListener.responseHeadersEnd(call, response)
+    call.eventListener.responseHeadersEnd(call, response)
   }
 
   @Throws(IOException::class)
@@ -127,30 +134,49 @@ class Exchange(
       val contentType = response.header("Content-Type")
       val contentLength = codec.reportedContentLength(response)
       val rawSource = codec.openResponseBodySource(response)
-      val source = ResponseBodySource(rawSource, contentLength)
+      val source =
+        ResponseBodySource(
+          delegate = rawSource,
+          contentLength = contentLength,
+          isSocket = false,
+        )
       return RealResponseBody(contentType, contentLength, source.buffer())
     } catch (e: IOException) {
-      eventListener.responseFailed(call, e)
+      call.eventListener.responseFailed(call, e)
       trackFailure(e)
       throw e
     }
   }
 
   @Throws(IOException::class)
-  fun trailers(): Headers = codec.trailers()
+  fun peekTrailers(): Headers? = codec.peekTrailers()
 
-  @Throws(SocketException::class)
-  fun newWebSocketStreams(): RealWebSocket.Streams {
-    call.timeoutEarlyExit()
-    return codec.connection.newWebSocketStreams(this)
-  }
+  fun upgradeToSocket(): Socket {
+    call.upgradeToSocket()
+    (codec.carrier as RealConnection).useAsSocket()
 
-  fun webSocketUpgradeFailed() {
-    bodyComplete(-1L, responseDone = true, requestDone = true, e = null)
+    return object : Socket {
+      override fun cancel() {
+        this@Exchange.cancel()
+      }
+
+      override val sink =
+        RequestBodySink(
+          delegate = codec.socket.sink,
+          contentLength = -1L,
+          isSocket = true,
+        )
+      override val source =
+        ResponseBodySource(
+          delegate = codec.socket.source,
+          contentLength = -1L,
+          isSocket = true,
+        )
+    }
   }
 
   fun noNewExchangesOnConnection() {
-    codec.connection.noNewExchanges()
+    codec.carrier.noNewExchanges()
   }
 
   fun cancel() {
@@ -163,67 +189,96 @@ class Exchange(
    */
   fun detachWithViolence() {
     codec.cancel()
-    call.messageDone(this, requestDone = true, responseDone = true, e = null)
+    call.messageDone(
+      exchange = this,
+      requestDone = true,
+      responseDone = true,
+      socketSinkDone = true,
+      socketSourceDone = true,
+      e = null,
+    )
   }
 
   private fun trackFailure(e: IOException) {
     hasFailure = true
-    finder.trackFailure(e)
-    codec.connection.trackFailure(call, e)
+    codec.carrier.trackFailure(call, e)
   }
 
-  fun <E : IOException?> bodyComplete(
-    bytesRead: Long,
-    responseDone: Boolean,
-    requestDone: Boolean,
-    e: E
-  ): E {
+  /** If [e] is non-null, this will return a non-null value. */
+  fun bodyComplete(
+    bytesRead: Long = -1L,
+    isSocket: Boolean,
+    responseDone: Boolean = false,
+    requestDone: Boolean = false,
+    e: IOException?,
+  ): IOException? {
     if (e != null) {
       trackFailure(e)
     }
     if (requestDone) {
       if (e != null) {
-        eventListener.requestFailed(call, e)
+        call.eventListener.requestFailed(call, e)
       } else {
-        eventListener.requestBodyEnd(call, bytesRead)
+        call.eventListener.requestBodyEnd(call, bytesRead)
       }
     }
     if (responseDone) {
       if (e != null) {
-        eventListener.responseFailed(call, e)
+        call.eventListener.responseFailed(call, e)
       } else {
-        eventListener.responseBodyEnd(call, bytesRead)
+        call.eventListener.responseBodyEnd(call, bytesRead)
       }
     }
-    return call.messageDone(this, requestDone, responseDone, e)
+    return call.messageDone(
+      exchange = this,
+      requestDone = requestDone && !isSocket,
+      responseDone = responseDone && !isSocket,
+      socketSinkDone = requestDone && isSocket,
+      socketSourceDone = responseDone && isSocket,
+      e = e,
+    )
   }
 
   fun noRequestBody() {
-    call.messageDone(this, requestDone = true, responseDone = false, e = null)
+    call.messageDone(
+      exchange = this,
+      requestDone = true,
+      e = null,
+    )
   }
 
   /** A request body that fires events when it completes. */
   private inner class RequestBodySink(
     delegate: Sink,
     /** The exact number of bytes to be written, or -1L if that is unknown. */
-    private val contentLength: Long
+    private val contentLength: Long,
+    private val isSocket: Boolean,
   ) : ForwardingSink(delegate) {
     private var completed = false
     private var bytesReceived = 0L
+    private var invokeStartEvent = isSocket
     private var closed = false
 
     @Throws(IOException::class)
-    override fun write(source: Buffer, byteCount: Long) {
+    override fun write(
+      source: Buffer,
+      byteCount: Long,
+    ) {
       check(!closed) { "closed" }
       if (contentLength != -1L && bytesReceived + byteCount > contentLength) {
         throw ProtocolException(
-            "expected $contentLength bytes but received ${bytesReceived + byteCount}")
+          "expected $contentLength bytes but received ${bytesReceived + byteCount}",
+        )
       }
       try {
+        if (invokeStartEvent) {
+          invokeStartEvent = false
+          call.eventListener.requestBodyStart(call)
+        }
         super.write(source, byteCount)
         this.bytesReceived += byteCount
       } catch (e: IOException) {
-        throw complete(e)
+        throw complete(e)!!
       }
     }
 
@@ -232,7 +287,7 @@ class Exchange(
       try {
         super.flush()
       } catch (e: IOException) {
-        throw complete(e)
+        throw complete(e)!!
       }
     }
 
@@ -247,21 +302,28 @@ class Exchange(
         super.close()
         complete(null)
       } catch (e: IOException) {
-        throw complete(e)
+        throw complete(e)!!
       }
     }
 
-    private fun <E : IOException?> complete(e: E): E {
+    /** If [e] is non-null, this will return a non-null value. */
+    private fun complete(e: IOException?): IOException? {
       if (completed) return e
       completed = true
-      return bodyComplete(bytesReceived, responseDone = false, requestDone = true, e = e)
+      return bodyComplete(
+        bytesRead = bytesReceived,
+        isSocket = isSocket,
+        requestDone = true,
+        e = e,
+      )
     }
   }
 
   /** A response body that fires events when it completes. */
   internal inner class ResponseBodySource(
     delegate: Source,
-    private val contentLength: Long
+    private val contentLength: Long,
+    private val isSocket: Boolean,
   ) : ForwardingSource(delegate) {
     private var bytesReceived = 0L
     private var invokeStartEvent = true
@@ -275,14 +337,17 @@ class Exchange(
     }
 
     @Throws(IOException::class)
-    override fun read(sink: Buffer, byteCount: Long): Long {
+    override fun read(
+      sink: Buffer,
+      byteCount: Long,
+    ): Long {
       check(!closed) { "closed" }
       try {
         val read = delegate.read(sink, byteCount)
 
         if (invokeStartEvent) {
           invokeStartEvent = false
-          eventListener.responseBodyStart(call)
+          call.eventListener.responseBodyStart(call)
         }
 
         if (read == -1L) {
@@ -296,13 +361,13 @@ class Exchange(
         }
 
         bytesReceived = newBytesReceived
-        if (newBytesReceived == contentLength) {
+        if (codec.isResponseComplete) {
           complete(null)
         }
 
         return read
       } catch (e: IOException) {
-        throw complete(e)
+        throw complete(e)!!
       }
     }
 
@@ -314,19 +379,25 @@ class Exchange(
         super.close()
         complete(null)
       } catch (e: IOException) {
-        throw complete(e)
+        throw complete(e)!!
       }
     }
 
-    fun <E : IOException?> complete(e: E): E {
+    /** If [e] is non-null, this will return a non-null value. */
+    fun complete(e: IOException?): IOException? {
       if (completed) return e
       completed = true
       // If the body is closed without reading any bytes send a responseBodyStart() now.
       if (e == null && invokeStartEvent) {
         invokeStartEvent = false
-        eventListener.responseBodyStart(call)
+        call.eventListener.responseBodyStart(call)
       }
-      return bodyComplete(bytesReceived, responseDone = true, requestDone = false, e = e)
+      return bodyComplete(
+        bytesRead = bytesReceived,
+        isSocket = isSocket,
+        responseDone = true,
+        e = e,
+      )
     }
   }
 }

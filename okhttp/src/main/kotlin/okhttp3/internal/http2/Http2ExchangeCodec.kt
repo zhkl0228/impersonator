@@ -17,7 +17,6 @@ package okhttp3.internal.http2
 
 import java.io.IOException
 import java.net.ProtocolException
-import java.util.ArrayList
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import okhttp3.Headers
@@ -25,13 +24,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.internal.connection.RealConnection
 import okhttp3.internal.headersContentLength
 import okhttp3.internal.http.ExchangeCodec
+import okhttp3.internal.http.ExchangeCodec.Carrier
+import okhttp3.internal.http.HTTP_CONTINUE
 import okhttp3.internal.http.RealInterceptorChain
 import okhttp3.internal.http.RequestLine
 import okhttp3.internal.http.StatusLine
-import okhttp3.internal.http.StatusLine.Companion.HTTP_CONTINUE
 import okhttp3.internal.http.promisesBody
 import okhttp3.internal.http2.Header.Companion.RESPONSE_STATUS_UTF8
 import okhttp3.internal.http2.Header.Companion.TARGET_AUTHORITY
@@ -44,29 +43,38 @@ import okhttp3.internal.http2.Header.Companion.TARGET_SCHEME
 import okhttp3.internal.http2.Header.Companion.TARGET_SCHEME_UTF8
 import okhttp3.internal.immutableListOf
 import okio.Sink
+import okio.Socket
 import okio.Source
 
 /** Encode requests and responses using HTTP/2 frames. */
 class Http2ExchangeCodec(
   client: OkHttpClient,
-  override val connection: RealConnection,
+  override val carrier: Carrier,
   private val chain: RealInterceptorChain,
-  private val http2Connection: Http2Connection
+  private val http2Connection: Http2Connection,
 ) : ExchangeCodec {
   @Volatile private var stream: Http2Stream? = null
 
-  private val protocol: Protocol = if (Protocol.H2_PRIOR_KNOWLEDGE in client.protocols) {
-    Protocol.H2_PRIOR_KNOWLEDGE
-  } else {
-    Protocol.HTTP_2
-  }
+  private val protocol: Protocol =
+    if (Protocol.H2_PRIOR_KNOWLEDGE in client.protocols) {
+      Protocol.H2_PRIOR_KNOWLEDGE
+    } else {
+      Protocol.HTTP_2
+    }
 
   @Volatile
   private var canceled = false
 
-  override fun createRequestBody(request: Request, contentLength: Long): Sink {
-    return stream!!.getSink()
-  }
+  override val isResponseComplete: Boolean
+    get() = stream?.isSourceComplete == true
+
+  override val socket: Socket
+    get() = stream!!
+
+  override fun createRequestBody(
+    request: Request,
+    contentLength: Long,
+  ): Sink = stream!!.sink
 
   override fun writeRequestHeaders(request: Request) {
     if (stream != null) return
@@ -89,12 +97,12 @@ class Http2ExchangeCodec(
   }
 
   override fun finishRequest() {
-    stream!!.getSink().close()
+    stream!!.sink.close()
   }
 
   override fun readResponseHeaders(expectContinue: Boolean): Response.Builder? {
     val stream = stream ?: throw IOException("stream wasn't created")
-    val headers = stream.takeHeaders()
+    val headers = stream.takeHeaders(callerIsIdle = expectContinue)
     val responseBuilder = readHttp2HeadersList(headers, protocol)
     return if (expectContinue && responseBuilder.code == HTTP_CONTINUE) {
       null
@@ -103,20 +111,15 @@ class Http2ExchangeCodec(
     }
   }
 
-  override fun reportedContentLength(response: Response): Long {
-    return when {
+  override fun reportedContentLength(response: Response): Long =
+    when {
       !response.promisesBody() -> 0L
       else -> response.headersContentLength()
     }
-  }
 
-  override fun openResponseBodySource(response: Response): Source {
-    return stream!!.source
-  }
+  override fun openResponseBodySource(response: Response): Source = stream!!.source
 
-  override fun trailers(): Headers {
-    return stream!!.trailers()
-  }
+  override fun peekTrailers(): Headers? = stream!!.peekTrailers()
 
   override fun cancel() {
     canceled = true
@@ -134,7 +137,8 @@ class Http2ExchangeCodec(
     private const val UPGRADE = "upgrade"
 
     /** See http://tools.ietf.org/html/draft-ietf-httpbis-http2-09#section-8.1.3. */
-    private val HTTP_2_SKIPPED_REQUEST_HEADERS = immutableListOf(
+    private val HTTP_2_SKIPPED_REQUEST_HEADERS =
+      immutableListOf(
         CONNECTION,
         HOST,
         KEEP_ALIVE,
@@ -146,8 +150,10 @@ class Http2ExchangeCodec(
         TARGET_METHOD_UTF8,
         TARGET_PATH_UTF8,
         TARGET_SCHEME_UTF8,
-        TARGET_AUTHORITY_UTF8)
-    private val HTTP_2_SKIPPED_RESPONSE_HEADERS = immutableListOf(
+        TARGET_AUTHORITY_UTF8,
+      )
+    private val HTTP_2_SKIPPED_RESPONSE_HEADERS =
+      immutableListOf(
         CONNECTION,
         HOST,
         KEEP_ALIVE,
@@ -155,14 +161,17 @@ class Http2ExchangeCodec(
         TE,
         TRANSFER_ENCODING,
         ENCODING,
-        UPGRADE)
+        UPGRADE,
+      )
 
-    fun http2HeadersList(request: Request,
-                         http2Connection : Http2Connection): List<Header> {
+    fun http2HeadersList(
+      request: Request,
+      http2Connection: Http2Connection,
+    ): List<Header> {
       val headers = request.headers
       val result = ArrayList<Header>(headers.size + 4)
       http2Connection.fillHeaderOrder(result, request)
-      if(result.size != 4) {
+      if (result.size != 4) {
         result.clear()
         result.add(Header(TARGET_METHOD, request.method))
         result.add(Header(TARGET_PATH, RequestLine.requestPath(request.url)))
@@ -175,9 +184,11 @@ class Http2ExchangeCodec(
 
       for (i in 0 until headers.size) {
         // header names must be lowercase.
-        val name = headers.name(i).toLowerCase(Locale.US)
+        val name = headers.name(i).lowercase(Locale.US)
         if (name !in HTTP_2_SKIPPED_REQUEST_HEADERS ||
-            name == TE && headers.value(i) == "trailers") {
+          name == TE &&
+          headers.value(i) == "trailers"
+        ) {
           result.add(Header(name, headers.value(i)))
         }
       }
@@ -185,7 +196,10 @@ class Http2ExchangeCodec(
     }
 
     /** Returns headers for a name value block containing an HTTP/2 response. */
-    fun readHttp2HeadersList(headerBlock: Headers, protocol: Protocol): Response.Builder {
+    fun readHttp2HeadersList(
+      headerBlock: Headers,
+      protocol: Protocol,
+    ): Response.Builder {
       var statusLine: StatusLine? = null
       val headersBuilder = Headers.Builder()
       for (i in 0 until headerBlock.size) {
@@ -199,11 +213,12 @@ class Http2ExchangeCodec(
       }
       if (statusLine == null) throw ProtocolException("Expected ':status' header not present")
 
-      return Response.Builder()
-          .protocol(protocol)
-          .code(statusLine.code)
-          .message(statusLine.message)
-          .headers(headersBuilder.build())
+      return Response
+        .Builder()
+        .protocol(protocol)
+        .code(statusLine.code)
+        .message(statusLine.message)
+        .headers(headersBuilder.build())
     }
   }
 }

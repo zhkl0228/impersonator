@@ -24,16 +24,25 @@ import okio.InflaterSource
 private const val OCTETS_TO_ADD_BEFORE_INFLATION = 0x0000ffff
 
 class MessageInflater(
-  private val noContextTakeover: Boolean
+  private val noContextTakeover: Boolean,
 ) : Closeable {
   private val deflatedBytes = Buffer()
-  private val inflater = Inflater(true /* omit zlib header */)
-  private val inflaterSource = InflaterSource(deflatedBytes, inflater)
+
+  // Lazily-created.
+  private var inflater: Inflater? = null
+  private var inflaterSource: InflaterSource? = null
 
   /** Inflates [buffer] in place as described in RFC 7692 section 7.2.2. */
   @Throws(IOException::class)
   fun inflate(buffer: Buffer) {
     require(deflatedBytes.size == 0L)
+
+    val inflater =
+      this.inflater
+        ?: Inflater(true).also { this.inflater = it }
+    val inflaterSource =
+      this.inflaterSource
+        ?: InflaterSource(deflatedBytes, inflater).also { this.inflaterSource = it }
 
     if (noContextTakeover) {
       inflater.reset()
@@ -48,9 +57,22 @@ class MessageInflater(
     // Instead, we ensure that all bytes from source have been processed by inflater.
     do {
       inflaterSource.readOrInflate(buffer, Long.MAX_VALUE)
-    } while (inflater.bytesRead < totalBytesToRead)
+    } while (inflater.bytesRead < totalBytesToRead && !inflater.finished())
+
+    // The inflater data was self-terminated and there's unexpected trailing data. Tear it all down
+    // so we don't leak that data into the input of the next message.
+    if (inflater.bytesRead < totalBytesToRead) {
+      deflatedBytes.clear()
+      inflaterSource.close()
+      this.inflaterSource = null
+      this.inflater = null
+    }
   }
 
   @Throws(IOException::class)
-  override fun close() = inflaterSource.close()
+  override fun close() {
+    inflaterSource?.close()
+    inflaterSource = null
+    inflater = null
+  }
 }

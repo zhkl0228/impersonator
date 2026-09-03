@@ -21,13 +21,14 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.Reader
 import java.nio.charset.Charset
-import kotlin.text.Charsets.UTF_8
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.internal.charsetOrUtf8
+import okhttp3.internal.chooseCharset
 import okhttp3.internal.closeQuietly
 import okhttp3.internal.readBomAsCharset
 import okio.Buffer
 import okio.BufferedSource
 import okio.ByteString
+import okio.use
 
 /**
  * A one-shot stream from the origin server to the client application with the raw bytes of the
@@ -58,7 +59,7 @@ import okio.ByteString
  * block. With this structure the compiler inserts an implicit `finally` clause that calls
  * [close()][Response.close] for you.
  *
- * ```
+ * ```java
  * Call call = client.newCall(request);
  * try (Response response = call.execute()) {
  * ... // Use the response.
@@ -67,7 +68,7 @@ import okio.ByteString
  *
  * You can use a similar block for asynchronous calls:
  *
- * ```
+ * ```java
  * Call call = client.newCall(request);
  * call.enqueue(new Callback() {
  *   public void onResponse(Call call, Response response) throws IOException {
@@ -133,9 +134,9 @@ abstract class ResponseBody : Closeable {
   @Throws(IOException::class)
   fun byteString() = consumeSource(BufferedSource::readByteString) { it.size }
 
-  private inline fun <T : Any> consumeSource(
+  private inline fun <T : Any> ResponseBody.consumeSource(
     consumer: (BufferedSource) -> T,
-    sizeMapper: (T) -> Int
+    sizeMapper: (T) -> Int,
   ): T {
     val contentLength = contentLength()
     if (contentLength > Int.MAX_VALUE) {
@@ -162,9 +163,10 @@ abstract class ResponseBody : Closeable {
    *
    * Otherwise the response bytes are decoded as UTF-8.
    */
-  fun charStream(): Reader = reader ?: BomAwareReader(source(), charset()).also {
-    reader = it
-  }
+  fun charStream(): Reader =
+    reader ?: BomAwareReader(source(), charset()).also {
+      reader = it
+    }
 
   /**
    * Returns the response as a string.
@@ -183,31 +185,37 @@ abstract class ResponseBody : Closeable {
    * possibility for your response.
    */
   @Throws(IOException::class)
-  fun string(): String = source().use { source ->
-    source.readString(charset = source.readBomAsCharset(charset()))
-  }
+  fun string(): String =
+    source().use { source ->
+      source.readString(charset = source.readBomAsCharset(charset()))
+    }
 
-  private fun charset() = contentType()?.charset(UTF_8) ?: UTF_8
+  private fun charset() = contentType().charsetOrUtf8()
 
   override fun close() = source().closeQuietly()
 
   internal class BomAwareReader(
     private val source: BufferedSource,
-    private val charset: Charset
+    private val charset: Charset,
   ) : Reader() {
-
     private var closed: Boolean = false
     private var delegate: Reader? = null
 
     @Throws(IOException::class)
-    override fun read(cbuf: CharArray, off: Int, len: Int): Int {
+    override fun read(
+      cbuf: CharArray,
+      off: Int,
+      len: Int,
+    ): Int {
       if (closed) throw IOException("Stream closed")
 
-      val finalDelegate = delegate ?: InputStreamReader(
+      val finalDelegate =
+        delegate ?: InputStreamReader(
           source.inputStream(),
-          source.readBomAsCharset(charset)).also {
-        delegate = it
-      }
+          source.readBomAsCharset(charset),
+        ).also {
+          delegate = it
+        }
       return finalDelegate.read(cbuf, off, len)
     }
 
@@ -219,24 +227,22 @@ abstract class ResponseBody : Closeable {
   }
 
   companion object {
+    /** Empty response body with no content-type. Closing this response body does nothing. */
+    @JvmField
+    val EMPTY: ResponseBody = ByteString.EMPTY.toResponseBody()
+
     /**
      * Returns a new response body that transmits this string. If [contentType] is non-null and
-     * lacks a charset, this will use UTF-8.
+     * has a charset other than utf-8 the behaviour differs by platform.
+     *
+     * On the JVM the encoding will be used instead of utf-8.
+     *
+     * On non JVM platforms, this method will fail for encodings other than utf-8.
      */
     @JvmStatic
     @JvmName("create")
     fun String.toResponseBody(contentType: MediaType? = null): ResponseBody {
-      var charset: Charset = UTF_8
-      var finalContentType: MediaType? = contentType
-      if (contentType != null) {
-        val resolvedCharset = contentType.charset()
-        if (resolvedCharset == null) {
-          charset = UTF_8
-          finalContentType = "$contentType; charset=utf-8".toMediaTypeOrNull()
-        } else {
-          charset = resolvedCharset
-        }
-      }
+      val (charset, finalContentType) = contentType.chooseCharset()
       val buffer = Buffer().writeString(this, charset)
       return buffer.asResponseBody(finalContentType, buffer.size)
     }
@@ -244,77 +250,93 @@ abstract class ResponseBody : Closeable {
     /** Returns a new response body that transmits this byte array. */
     @JvmStatic
     @JvmName("create")
-    fun ByteArray.toResponseBody(contentType: MediaType? = null): ResponseBody {
-      return Buffer()
-          .write(this)
-          .asResponseBody(contentType, size.toLong())
-    }
+    fun ByteArray.toResponseBody(contentType: MediaType? = null): ResponseBody =
+      Buffer()
+        .write(this)
+        .asResponseBody(contentType, size.toLong())
 
     /** Returns a new response body that transmits this byte string. */
     @JvmStatic
     @JvmName("create")
-    fun ByteString.toResponseBody(contentType: MediaType? = null): ResponseBody {
-      return Buffer()
-          .write(this)
-          .asResponseBody(contentType, size.toLong())
-    }
+    fun ByteString.toResponseBody(contentType: MediaType? = null): ResponseBody =
+      Buffer()
+        .write(this)
+        .asResponseBody(contentType, size.toLong())
 
     /** Returns a new response body that transmits this source. */
     @JvmStatic
     @JvmName("create")
     fun BufferedSource.asResponseBody(
       contentType: MediaType? = null,
-      contentLength: Long = -1L
-    ): ResponseBody = object : ResponseBody() {
-      override fun contentType() = contentType
+      contentLength: Long = -1L,
+    ): ResponseBody =
+      object : ResponseBody() {
+        override fun contentType(): MediaType? = contentType
 
-      override fun contentLength() = contentLength
+        override fun contentLength(): Long = contentLength
 
-      override fun source() = this@asResponseBody
-    }
-
-    @JvmStatic
-    @Deprecated(
-        message = "Moved to extension function. Put the 'content' argument first to fix Java",
-        replaceWith = ReplaceWith(
-            expression = "content.toResponseBody(contentType)",
-            imports = ["okhttp3.ResponseBody.Companion.toResponseBody"]
-        ),
-        level = DeprecationLevel.WARNING)
-    fun create(contentType: MediaType?, content: String) = content.toResponseBody(contentType)
+        override fun source(): BufferedSource = this@asResponseBody
+      }
 
     @JvmStatic
     @Deprecated(
-        message = "Moved to extension function. Put the 'content' argument first to fix Java",
-        replaceWith = ReplaceWith(
-            expression = "content.toResponseBody(contentType)",
-            imports = ["okhttp3.ResponseBody.Companion.toResponseBody"]
+      message = "Moved to extension function. Put the 'content' argument first to fix Java",
+      replaceWith =
+        ReplaceWith(
+          expression = "content.toResponseBody(contentType)",
+          imports = ["okhttp3.ResponseBody.Companion.toResponseBody"],
         ),
-        level = DeprecationLevel.WARNING)
-    fun create(contentType: MediaType?, content: ByteArray) = content.toResponseBody(contentType)
+      level = DeprecationLevel.WARNING,
+    )
+    fun create(
+      contentType: MediaType?,
+      content: String,
+    ): ResponseBody = content.toResponseBody(contentType)
 
     @JvmStatic
     @Deprecated(
-        message = "Moved to extension function. Put the 'content' argument first to fix Java",
-        replaceWith = ReplaceWith(
-            expression = "content.toResponseBody(contentType)",
-            imports = ["okhttp3.ResponseBody.Companion.toResponseBody"]
+      message = "Moved to extension function. Put the 'content' argument first to fix Java",
+      replaceWith =
+        ReplaceWith(
+          expression = "content.toResponseBody(contentType)",
+          imports = ["okhttp3.ResponseBody.Companion.toResponseBody"],
         ),
-        level = DeprecationLevel.WARNING)
-    fun create(contentType: MediaType?, content: ByteString) = content.toResponseBody(contentType)
+      level = DeprecationLevel.WARNING,
+    )
+    fun create(
+      contentType: MediaType?,
+      content: ByteArray,
+    ): ResponseBody = content.toResponseBody(contentType)
 
     @JvmStatic
     @Deprecated(
-        message = "Moved to extension function. Put the 'content' argument first to fix Java",
-        replaceWith = ReplaceWith(
-            expression = "content.asResponseBody(contentType, contentLength)",
-            imports = ["okhttp3.ResponseBody.Companion.asResponseBody"]
+      message = "Moved to extension function. Put the 'content' argument first to fix Java",
+      replaceWith =
+        ReplaceWith(
+          expression = "content.toResponseBody(contentType)",
+          imports = ["okhttp3.ResponseBody.Companion.toResponseBody"],
         ),
-        level = DeprecationLevel.WARNING)
+      level = DeprecationLevel.WARNING,
+    )
+    fun create(
+      contentType: MediaType?,
+      content: ByteString,
+    ): ResponseBody = content.toResponseBody(contentType)
+
+    @JvmStatic
+    @Deprecated(
+      message = "Moved to extension function. Put the 'content' argument first to fix Java",
+      replaceWith =
+        ReplaceWith(
+          expression = "content.asResponseBody(contentType, contentLength)",
+          imports = ["okhttp3.ResponseBody.Companion.asResponseBody"],
+        ),
+      level = DeprecationLevel.WARNING,
+    )
     fun create(
       contentType: MediaType?,
       contentLength: Long,
-      content: BufferedSource
-    ) = content.asResponseBody(contentType, contentLength)
+      content: BufferedSource,
+    ): ResponseBody = content.asResponseBody(contentType, contentLength)
   }
 }

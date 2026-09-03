@@ -21,8 +21,8 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.Interceptor
 import okhttp3.Response
+import okhttp3.internal.USER_AGENT
 import okhttp3.internal.toHostHeader
-import okhttp3.internal.userAgent
 import okio.GzipSource
 import okio.buffer
 
@@ -31,8 +31,7 @@ import okio.buffer
  * request. Then it proceeds to call the network. Finally it builds a user response from the network
  * response.
  */
-class BridgeInterceptor(private val cookieJar: CookieJar) : Interceptor {
-
+class BridgeInterceptor : Interceptor {
   @Throws(IOException::class)
   override fun intercept(chain: Interceptor.Chain): Response {
     val userRequest = chain.request()
@@ -71,46 +70,51 @@ class BridgeInterceptor(private val cookieJar: CookieJar) : Interceptor {
       requestBuilder.header("Accept-Encoding", "gzip")
     }
 
-    val cookies = cookieJar.loadForRequest(userRequest.url)
+    val cookies = chain.cookieJar.loadForRequest(userRequest.url)
     if (cookies.isNotEmpty()) {
       requestBuilder.header("Cookie", cookieHeader(cookies))
     }
 
     if (userRequest.header("User-Agent") == null) {
-      requestBuilder.header("User-Agent", userAgent)
+      requestBuilder.header("User-Agent", USER_AGENT)
     }
 
-    val networkResponse = chain.proceed(requestBuilder.build())
+    val networkRequest = requestBuilder.build()
+    val networkResponse = chain.proceed(networkRequest)
 
-    cookieJar.receiveHeaders(userRequest.url, networkResponse.headers)
+    chain.cookieJar.receiveHeaders(networkRequest.url, networkResponse.headers)
 
-    val responseBuilder = networkResponse.newBuilder()
-        .request(userRequest)
+    val responseBuilder =
+      networkResponse
+        .newBuilder()
+        .request(networkRequest)
 
     if (transparentGzip &&
-        "gzip".equals(networkResponse.header("Content-Encoding"), ignoreCase = true) &&
-        networkResponse.promisesBody()) {
+      "gzip".equals(networkResponse.header("Content-Encoding"), ignoreCase = true) &&
+      networkResponse.promisesBody()
+    ) {
       val responseBody = networkResponse.body
-      if (responseBody != null) {
-        val gzipSource = GzipSource(responseBody.source())
-        val strippedHeaders = networkResponse.headers.newBuilder()
-            .removeAll("Content-Encoding")
-            .removeAll("Content-Length")
-            .build()
-        responseBuilder.headers(strippedHeaders)
-        val contentType = networkResponse.header("Content-Type")
-        responseBuilder.body(RealResponseBody(contentType, -1L, gzipSource.buffer()))
-      }
+      val gzipSource = GzipSource(responseBody.source())
+      val strippedHeaders =
+        networkResponse.headers
+          .newBuilder()
+          .removeAll("Content-Encoding")
+          .removeAll("Content-Length")
+          .build()
+      responseBuilder.headers(strippedHeaders)
+      val contentType = networkResponse.header("Content-Type")
+      responseBuilder.body(RealResponseBody(contentType, -1L, gzipSource.buffer()))
     }
 
     return responseBuilder.build()
   }
 
   /** Returns a 'Cookie' HTTP request header with all cookies, like `a=b; c=d`. */
-  private fun cookieHeader(cookies: List<Cookie>): String = buildString {
-    cookies.forEachIndexed { index, cookie ->
-      if (index > 0) append("; ")
-      append(cookie.name).append('=').append(cookie.value)
+  private fun cookieHeader(cookies: List<Cookie>): String =
+    buildString {
+      cookies.forEachIndexed { index, cookie ->
+        if (index > 0) append("; ")
+        append(cookie.name).append('=').append(cookie.value)
+      }
     }
-  }
 }

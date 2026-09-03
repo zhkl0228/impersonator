@@ -46,19 +46,29 @@ object Http2 {
   const val FLAG_COMPRESSED = 0x20 // Used for data.
 
   /** Lookup table for valid frame types. */
-  private val FRAME_NAMES = arrayOf(
-      "DATA", "HEADERS", "PRIORITY", "RST_STREAM", "SETTINGS", "PUSH_PROMISE", "PING", "GOAWAY",
-      "WINDOW_UPDATE", "CONTINUATION"
-  )
+  private val FRAME_NAMES =
+    arrayOf(
+      "DATA",
+      "HEADERS",
+      "PRIORITY",
+      "RST_STREAM",
+      "SETTINGS",
+      "PUSH_PROMISE",
+      "PING",
+      "GOAWAY",
+      "WINDOW_UPDATE",
+      "CONTINUATION",
+    )
 
   /**
    * Lookup table for valid flags for DATA, HEADERS, CONTINUATION. Invalid combinations are
    * represented in binary.
    */
   private val FLAGS = arrayOfNulls<String>(0x40) // Highest bit flag is 0x20.
-  private val BINARY = Array(256) {
-    format("%8s", Integer.toBinaryString(it)).replace(' ', '0')
-  }
+  private val BINARY =
+    Array(256) {
+      format("%8s", Integer.toBinaryString(it)).replace(' ', '0')
+    }
 
   init {
     FLAGS[FLAG_NONE] = ""
@@ -80,7 +90,7 @@ object Http2 {
       for (prefixFlag in prefixFlags) {
         FLAGS[prefixFlag or frameFlag] = FLAGS[prefixFlag] + '|'.toString() + FLAGS[frameFlag]
         FLAGS[prefixFlag or frameFlag or FLAG_PADDED] =
-            FLAGS[prefixFlag] + '|'.toString() + FLAGS[frameFlag] + "|PADDED"
+          FLAGS[prefixFlag] + '|'.toString() + FLAGS[frameFlag] + "|PADDED"
       }
     }
 
@@ -90,7 +100,7 @@ object Http2 {
   }
 
   /**
-   * Returns human-readable representation of HTTP/2 frame headers.
+   * Returns a human-readable representation of HTTP/2 frame headers.
    *
    * The format is:
    *
@@ -110,28 +120,58 @@ object Http2 {
     streamId: Int,
     length: Int,
     type: Int,
-    flags: Int
+    flags: Int,
   ): String {
     val formattedType = formattedType(type)
     val formattedFlags = formatFlags(type, flags)
     val direction = if (inbound) "<<" else ">>"
-    return format("%s 0x%08x %5d %-13s %s",
-        direction, streamId, length, formattedType, formattedFlags)
+    return format(
+      "%s 0x%08x %5d %-13s %s",
+      direction,
+      streamId,
+      length,
+      formattedType,
+      formattedFlags,
+    )
   }
 
-  internal fun formattedType(type: Int) =
-    if (type < FRAME_NAMES.size) FRAME_NAMES[type] else format("0x%02x", type)
+  /**
+   * Returns a human-readable representation of a `WINDOW_UPDATE` frame. This frame includes the
+   * window size increment instead of flags.
+   */
+  fun frameLogWindowUpdate(
+    inbound: Boolean,
+    streamId: Int,
+    length: Int,
+    windowSizeIncrement: Long,
+  ): String {
+    val formattedType = formattedType(TYPE_WINDOW_UPDATE)
+    val direction = if (inbound) "<<" else ">>"
+    return format(
+      "%s 0x%08x %5d %-13s %d",
+      direction,
+      streamId,
+      length,
+      formattedType,
+      windowSizeIncrement,
+    )
+  }
+
+  internal fun formattedType(type: Int): String = if (type < FRAME_NAMES.size) FRAME_NAMES[type] else format("0x%02x", type)
 
   /**
    * Looks up valid string representing flags from the table. Invalid combinations are represented
    * in binary.
    */
-  // Visible for testing.
-  fun formatFlags(type: Int, flags: Int): String {
+  fun formatFlags(
+    type: Int,
+    flags: Int,
+  ): String {
     if (flags == 0) return ""
     when (type) {
       // Special case types that have 0 or 1 flag.
       TYPE_SETTINGS, TYPE_PING -> return if (flags == FLAG_ACK) "ACK" else BINARY[flags]
+
       TYPE_PRIORITY, TYPE_RST_STREAM, TYPE_GOAWAY, TYPE_WINDOW_UPDATE -> return BINARY[flags]
     }
     val result = if (flags < FLAGS.size) FLAGS[flags]!! else BINARY[flags]
@@ -140,10 +180,14 @@ object Http2 {
       type == TYPE_PUSH_PROMISE && flags and FLAG_END_PUSH_PROMISE != 0 -> {
         result.replace("HEADERS", "PUSH_PROMISE") // TODO: Avoid allocation.
       }
+
       type == TYPE_DATA && flags and FLAG_COMPRESSED != 0 -> {
         result.replace("PRIORITY", "COMPRESSED") // TODO: Avoid allocation.
       }
-      else -> result
+
+      else -> {
+        result
+      }
     }
   }
 }

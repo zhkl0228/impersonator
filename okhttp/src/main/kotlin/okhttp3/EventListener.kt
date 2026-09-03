@@ -18,6 +18,7 @@ package okhttp3
 import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.ProtocolException
 import java.net.Proxy
 
 /**
@@ -32,6 +33,7 @@ import java.net.Proxy
  * Events are typically nested with this structure:
  *
  *  * call ([callStart], [callEnd], [callFailed])
+ *    * dispatcher queue ([dispatcherQueueStart], [dispatcherQueueEnd])
  *    * proxy selection ([proxySelectStart], [proxySelectEnd])
  *    * dns ([dnsStart], [dnsEnd])
  *    * connect ([connectStart], [connectEnd], [connectFailed])
@@ -66,8 +68,30 @@ abstract class EventListener {
    * This will be invoked only once for a single [Call]. Retries of different routes or redirects
    * will be handled within the boundaries of a single [callStart] and [callEnd]/[callFailed] pair.
    */
-  open fun callStart(
-    call: Call
+  open fun callStart(call: Call) {
+  }
+
+  /**
+   * Invoked for calls that were not executed immediately because resources weren't available. The
+   * call will remain in the queue until resources are available.
+   *
+   * Use [Dispatcher.maxRequests] and [Dispatcher.maxRequestsPerHost] to configure how many calls
+   * OkHttp performs concurrently.
+   */
+  open fun dispatcherQueueStart(
+    call: Call,
+    dispatcher: Dispatcher,
+  ) {
+  }
+
+  /**
+   * Invoked when [call] will be executed immediately.
+   *
+   * This method is invoked after [dispatcherQueueStart].
+   */
+  open fun dispatcherQueueEnd(
+    call: Call,
+    dispatcher: Dispatcher,
   ) {
   }
 
@@ -81,7 +105,7 @@ abstract class EventListener {
    */
   open fun proxySelectStart(
     call: Call,
-    url: HttpUrl
+    url: HttpUrl,
   ) {
   }
 
@@ -103,7 +127,7 @@ abstract class EventListener {
   open fun proxySelectEnd(
     call: Call,
     url: HttpUrl,
-    proxies: List<@JvmSuppressWildcards Proxy>
+    proxies: List<@JvmSuppressWildcards Proxy>,
   ) {
   }
 
@@ -118,7 +142,7 @@ abstract class EventListener {
    */
   open fun dnsStart(
     call: Call,
-    domainName: String
+    domainName: String,
   ) {
   }
 
@@ -130,7 +154,7 @@ abstract class EventListener {
   open fun dnsEnd(
     call: Call,
     domainName: String,
-    inetAddressList: List<@JvmSuppressWildcards InetAddress>
+    inetAddressList: List<@JvmSuppressWildcards InetAddress>,
   ) {
   }
 
@@ -145,7 +169,7 @@ abstract class EventListener {
   open fun connectStart(
     call: Call,
     inetSocketAddress: InetSocketAddress,
-    proxy: Proxy
+    proxy: Proxy,
   ) {
   }
 
@@ -161,9 +185,7 @@ abstract class EventListener {
    * This can be invoked more than 1 time for a single [Call]. For example, if the response to the
    * [Call.request] is a redirect to a different address, or a connection is retried.
    */
-  open fun secureConnectStart(
-    call: Call
-  ) {
+  open fun secureConnectStart(call: Call) {
   }
 
   /**
@@ -173,13 +195,16 @@ abstract class EventListener {
    */
   open fun secureConnectEnd(
     call: Call,
-    handshake: Handshake?
+    handshake: Handshake?,
   ) {
   }
 
-  open fun onHttp2ConnectionInit(
-    http2Connection: Http2Connection
-  ) {
+  /**
+   * Invoked once an HTTP/2 connection has been created but before its connection preface is
+   * written, so the listener can impersonate a browser's SETTINGS, WINDOW_UPDATE, PRIORITY frames
+   * and pseudo header order.
+   */
+  open fun onHttp2ConnectionInit(http2Connection: Http2Connection) {
   }
 
   /**
@@ -192,7 +217,7 @@ abstract class EventListener {
     call: Call,
     inetSocketAddress: InetSocketAddress,
     proxy: Proxy,
-    protocol: Protocol?
+    protocol: Protocol?,
   ) {
   }
 
@@ -200,7 +225,7 @@ abstract class EventListener {
    * Invoked when a connection attempt fails. This failure is not terminal if further routes are
    * available and failure recovery is enabled.
    *
-   * If the `call` uses HTTPS, this will be invoked after [secureConnectEnd], otherwise it will
+   * If the `call` uses HTTPS, this will be invoked after [secureConnectStart], otherwise it will
    * invoked after [connectStart].
    */
   open fun connectFailed(
@@ -208,7 +233,7 @@ abstract class EventListener {
     inetSocketAddress: InetSocketAddress,
     proxy: Proxy,
     protocol: Protocol?,
-    ioe: IOException
+    ioe: IOException,
   ) {
   }
 
@@ -220,7 +245,7 @@ abstract class EventListener {
    */
   open fun connectionAcquired(
     call: Call,
-    connection: Connection
+    connection: Connection,
   ) {
   }
 
@@ -234,7 +259,7 @@ abstract class EventListener {
    */
   open fun connectionReleased(
     call: Call,
-    connection: Connection
+    connection: Connection,
   ) {
   }
 
@@ -246,9 +271,7 @@ abstract class EventListener {
    * This can be invoked more than 1 time for a single [Call]. For example, if the response to the
    * [Call.request] is a redirect to a different address.
    */
-  open fun requestHeadersStart(
-    call: Call
-  ) {
+  open fun requestHeadersStart(call: Call) {
   }
 
   /**
@@ -259,7 +282,10 @@ abstract class EventListener {
    * @param request the request sent over the network. It is an error to access the body of this
    *     request.
    */
-  open fun requestHeadersEnd(call: Call, request: Request) {
+  open fun requestHeadersEnd(
+    call: Call,
+    request: Request,
+  ) {
   }
 
   /**
@@ -271,9 +297,7 @@ abstract class EventListener {
    * This can be invoked more than 1 time for a single [Call]. For example, if the response to the
    * [Call.request] is a redirect to a different address.
    */
-  open fun requestBodyStart(
-    call: Call
-  ) {
+  open fun requestBodyStart(call: Call) {
   }
 
   /**
@@ -283,7 +307,7 @@ abstract class EventListener {
    */
   open fun requestBodyEnd(
     call: Call,
-    byteCount: Long
+    byteCount: Long,
   ) {
   }
 
@@ -295,7 +319,7 @@ abstract class EventListener {
    */
   open fun requestFailed(
     call: Call,
-    ioe: IOException
+    ioe: IOException,
   ) {
   }
 
@@ -310,9 +334,7 @@ abstract class EventListener {
    * Prior to OkHttp 4.3 this was incorrectly invoked when the client was ready to read headers.
    * This was misleading for tracing because it was too early.
    */
-  open fun responseHeadersStart(
-    call: Call
-  ) {
+  open fun responseHeadersStart(call: Call) {
   }
 
   /**
@@ -325,7 +347,7 @@ abstract class EventListener {
    */
   open fun responseHeadersEnd(
     call: Call,
-    response: Response
+    response: Response,
   ) {
   }
 
@@ -346,9 +368,7 @@ abstract class EventListener {
    * Prior to OkHttp 4.3 this was incorrectly invoked when the client was ready to read the response
    * body. This was misleading for tracing because it was too early.
    */
-  open fun responseBodyStart(
-    call: Call
-  ) {
+  open fun responseBodyStart(call: Call) {
   }
 
   /**
@@ -365,7 +385,7 @@ abstract class EventListener {
    */
   open fun responseBodyEnd(
     call: Call,
-    byteCount: Long
+    byteCount: Long,
   ) {
   }
 
@@ -380,7 +400,7 @@ abstract class EventListener {
    */
   open fun responseFailed(
     call: Call,
-    ioe: IOException
+    ioe: IOException,
   ) {
   }
 
@@ -390,9 +410,7 @@ abstract class EventListener {
    *
    * This method is always invoked after [callStart].
    */
-  open fun callEnd(
-    call: Call
-  ) {
+  open fun callEnd(call: Call) {
   }
 
   /**
@@ -402,7 +420,7 @@ abstract class EventListener {
    */
   open fun callFailed(
     call: Call,
-    ioe: IOException
+    ioe: IOException,
   ) {
   }
 
@@ -422,16 +440,17 @@ abstract class EventListener {
    * This is invoked at most once, even if [Call.cancel] is invoked multiple times. It may be
    * invoked at any point in a call's life, including before [callStart] and after [callEnd].
    */
-  open fun canceled(
-    call: Call
-  ) {
+  open fun canceled(call: Call) {
   }
 
   /**
    * Invoked when a call fails due to cache rules.
    * For example, we're forbidden from using the network and the cache is insufficient
    */
-  open fun satisfactionFailure(call: Call, response: Response) {
+  open fun satisfactionFailure(
+    call: Call,
+    response: Response,
+  ) {
   }
 
   /**
@@ -440,7 +459,10 @@ abstract class EventListener {
    *
    * This event will only be received when a Cache is configured for the client.
    */
-  open fun cacheHit(call: Call, response: Response) {
+  open fun cacheHit(
+    call: Call,
+    response: Response,
+  ) {
   }
 
   /**
@@ -459,7 +481,84 @@ abstract class EventListener {
    *
    * This event will only be received when a Cache is configured for the client.
    */
-  open fun cacheConditionalHit(call: Call, cachedResponse: Response) {
+  open fun cacheConditionalHit(
+    call: Call,
+    cachedResponse: Response,
+  ) {
+  }
+
+  /**
+   * Invoked when OkHttp decides whether to retry after a connectivity failure.
+   *
+   * OkHttp won't retry when it is configured not to:
+   *
+   *  * If retries are forbidden with [OkHttpClient.retryOnConnectionFailure]. (OkHttp's defaults
+   *    permit retries.)
+   *  * If OkHttp already attempted to transmit the request body, and [RequestBody.isOneShot] is
+   *    true.
+   *
+   * It won't retry if the exception is a bug or a configuration problem, such as:
+   *
+   *  * If the remote peer is untrusted: [exception] is an [SSLPeerUnverifiedException].
+   *  * If received data is unexpected: [exception] is a [ProtocolException].
+   *
+   * Each call is made on either a reused [Connection] from a pool, or on a new connection
+   * established from a planned [Route]. OkHttp won't retry if it's already attempted all
+   * available routes.
+   *
+   * @param retry true if OkHttp will make another attempt
+   */
+  open fun retryDecision(
+    call: Call,
+    exception: IOException,
+    retry: Boolean,
+  ) {
+  }
+
+  /**
+   * Invoked when OkHttp decides whether to perform a follow-up request.
+   *
+   * The network response's status code is most influential when deciding how to follow up:
+   *
+   *  * For redirects (301: Moved Permanently, 302: Temporary Redirect, etc.)
+   *  * For auth challenges (401: Unauthorized, 407: Proxy Authentication Required.)
+   *  * For client timeouts (408: Request Time-Out.)
+   *  * For server failures (503: Service Unavailable.)
+   *
+   * Response header values like `Location` and `Retry-After` are also considered.
+   *
+   * Client configuration may be used to make follow-up decisions, such as:
+   *
+   *  * [OkHttpClient.followRedirects] must be true to follow redirects.
+   *  * [OkHttpClient.followSslRedirects] must be true to follow redirects that add or remove HTTPS.
+   *  * [OkHttpClient.authenticator] must respond to an authorization challenge.
+   *
+   * @param networkResponse the intermediate response that may require a follow-up request.
+   * @param nextRequest the follow-up request that will be made. Null if no follow-up will be made.
+   */
+  open fun followUpDecision(
+    call: Call,
+    networkResponse: Response,
+    nextRequest: Request?,
+  ) {
+  }
+
+  /** Returns a new `EventListener` that publishes events to this and then `other`. */
+  operator fun plus(other: EventListener): EventListener {
+    val left =
+      when {
+        this === NONE -> return other
+        this is AggregateEventListener -> this.eventListeners
+        else -> arrayOf(this)
+      }
+    val right =
+      when {
+        other === NONE -> return this
+        other is AggregateEventListener -> other.eventListeners
+        else -> arrayOf(other)
+      }
+
+    return AggregateEventListener(left + right)
   }
 
   fun interface Factory {
@@ -477,7 +576,292 @@ abstract class EventListener {
 
   companion object {
     @JvmField
-    val NONE: EventListener = object : EventListener() {
+    val NONE: EventListener =
+      object : EventListener() {
+      }
+  }
+
+  private class AggregateEventListener(
+    val eventListeners: Array<EventListener>,
+  ) : EventListener() {
+    override fun callStart(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.callStart(call)
+      }
+    }
+
+    override fun dispatcherQueueStart(
+      call: Call,
+      dispatcher: Dispatcher,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.dispatcherQueueStart(call, dispatcher)
+      }
+    }
+
+    override fun dispatcherQueueEnd(
+      call: Call,
+      dispatcher: Dispatcher,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.dispatcherQueueEnd(call, dispatcher)
+      }
+    }
+
+    override fun proxySelectStart(
+      call: Call,
+      url: HttpUrl,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.proxySelectStart(call, url)
+      }
+    }
+
+    override fun proxySelectEnd(
+      call: Call,
+      url: HttpUrl,
+      proxies: List<@JvmSuppressWildcards Proxy>,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.proxySelectEnd(call, url, proxies)
+      }
+    }
+
+    override fun dnsStart(
+      call: Call,
+      domainName: String,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.dnsStart(call, domainName)
+      }
+    }
+
+    override fun dnsEnd(
+      call: Call,
+      domainName: String,
+      inetAddressList: List<@JvmSuppressWildcards InetAddress>,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.dnsEnd(call, domainName, inetAddressList)
+      }
+    }
+
+    override fun connectStart(
+      call: Call,
+      inetSocketAddress: InetSocketAddress,
+      proxy: Proxy,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.connectStart(call, inetSocketAddress, proxy)
+      }
+    }
+
+    override fun secureConnectStart(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.secureConnectStart(call)
+      }
+    }
+
+    override fun secureConnectEnd(
+      call: Call,
+      handshake: Handshake?,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.secureConnectEnd(call, handshake)
+      }
+    }
+
+    override fun connectEnd(
+      call: Call,
+      inetSocketAddress: InetSocketAddress,
+      proxy: Proxy,
+      protocol: Protocol?,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.connectEnd(call, inetSocketAddress, proxy, protocol)
+      }
+    }
+
+    override fun connectFailed(
+      call: Call,
+      inetSocketAddress: InetSocketAddress,
+      proxy: Proxy,
+      protocol: Protocol?,
+      ioe: IOException,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.connectFailed(call, inetSocketAddress, proxy, protocol, ioe)
+      }
+    }
+
+    override fun connectionAcquired(
+      call: Call,
+      connection: Connection,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.connectionAcquired(call, connection)
+      }
+    }
+
+    override fun connectionReleased(
+      call: Call,
+      connection: Connection,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.connectionReleased(call, connection)
+      }
+    }
+
+    override fun requestHeadersStart(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.requestHeadersStart(call)
+      }
+    }
+
+    override fun requestHeadersEnd(
+      call: Call,
+      request: Request,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.requestHeadersEnd(call, request)
+      }
+    }
+
+    override fun requestBodyStart(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.requestBodyStart(call)
+      }
+    }
+
+    override fun requestBodyEnd(
+      call: Call,
+      byteCount: Long,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.requestBodyEnd(call, byteCount)
+      }
+    }
+
+    override fun requestFailed(
+      call: Call,
+      ioe: IOException,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.requestFailed(call, ioe)
+      }
+    }
+
+    override fun responseHeadersStart(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.responseHeadersStart(call)
+      }
+    }
+
+    override fun responseHeadersEnd(
+      call: Call,
+      response: Response,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.responseHeadersEnd(call, response)
+      }
+    }
+
+    override fun responseBodyStart(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.responseBodyStart(call)
+      }
+    }
+
+    override fun responseBodyEnd(
+      call: Call,
+      byteCount: Long,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.responseBodyEnd(call, byteCount)
+      }
+    }
+
+    override fun responseFailed(
+      call: Call,
+      ioe: IOException,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.responseFailed(call, ioe)
+      }
+    }
+
+    override fun callEnd(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.callEnd(call)
+      }
+    }
+
+    override fun callFailed(
+      call: Call,
+      ioe: IOException,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.callFailed(call, ioe)
+      }
+    }
+
+    override fun canceled(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.canceled(call)
+      }
+    }
+
+    override fun satisfactionFailure(
+      call: Call,
+      response: Response,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.satisfactionFailure(call, response)
+      }
+    }
+
+    override fun cacheHit(
+      call: Call,
+      response: Response,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.cacheHit(call, response)
+      }
+    }
+
+    override fun cacheMiss(call: Call) {
+      for (delegate in eventListeners) {
+        delegate.cacheMiss(call)
+      }
+    }
+
+    override fun cacheConditionalHit(
+      call: Call,
+      cachedResponse: Response,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.cacheConditionalHit(call, cachedResponse)
+      }
+    }
+
+    override fun retryDecision(
+      call: Call,
+      exception: IOException,
+      retry: Boolean,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.retryDecision(call, exception, retry)
+      }
+    }
+
+    override fun followUpDecision(
+      call: Call,
+      networkResponse: Response,
+      nextRequest: Request?,
+    ) {
+      for (delegate in eventListeners) {
+        delegate.followUpDecision(call, networkResponse, nextRequest)
+      }
     }
   }
 }

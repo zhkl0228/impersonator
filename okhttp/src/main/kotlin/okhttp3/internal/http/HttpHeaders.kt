@@ -28,7 +28,6 @@ import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.Response
 import okhttp3.internal.headersContentLength
-import okhttp3.internal.http.StatusLine.Companion.HTTP_CONTINUE
 import okhttp3.internal.platform.Platform
 import okhttp3.internal.skipAll
 import okio.Buffer
@@ -94,34 +93,39 @@ private fun Buffer.readChallengeHeader(result: MutableList<Challenge>) {
       return
     }
 
-    var eqCount = skipAll('='.toByte())
+    var eqCount = skipAll('='.code.toByte())
     val commaSuffixed = skipCommasAndWhitespace()
 
     // It's a token68 because there isn't a value after it.
     if (!commaPrefixed && (commaSuffixed || exhausted())) {
-      result.add(Challenge(schemeName,
-          Collections.singletonMap<String, String>(null, peek + "=".repeat(eqCount))))
+      result.add(
+        Challenge(
+          schemeName,
+          Collections.singletonMap<String?, String>(null, peek + "=".repeat(eqCount)),
+        ),
+      )
       peek = null
       continue
     }
 
     // It's a series of parameter names and values.
     val parameters = mutableMapOf<String?, String>()
-    eqCount += skipAll('='.toByte())
+    eqCount += skipAll('='.code.toByte())
     while (true) {
       if (peek == null) {
         peek = readToken()
         if (skipCommasAndWhitespace()) break // We peeked a scheme name followed by ','.
-        eqCount = skipAll('='.toByte())
+        eqCount = skipAll('='.code.toByte())
       }
       if (eqCount == 0) break // We peeked a scheme name.
       if (eqCount > 1) return // Unexpected '=' characters.
       if (skipCommasAndWhitespace()) return // Unexpected ','.
 
-      val parameterValue = when {
-        startsWith('"'.toByte()) -> readQuotedString()
-        else -> readToken()
-      } ?: return // Expected a value.
+      val parameterValue =
+        when {
+          startsWith('"'.code.toByte()) -> readQuotedString()
+          else -> readToken()
+        } ?: return // Expected a value.
 
       val replaced = parameters.put(peek, parameterValue)
       peek = null
@@ -137,24 +141,26 @@ private fun Buffer.skipCommasAndWhitespace(): Boolean {
   var commaFound = false
   loop@ while (!exhausted()) {
     when (this[0]) {
-      ','.toByte() -> {
+      ','.code.toByte() -> {
         // Consume ','.
         readByte()
         commaFound = true
       }
 
-      ' '.toByte(), '\t'.toByte() -> {
+      ' '.code.toByte(), '\t'.code.toByte() -> {
         readByte()
         // Consume space or tab.
       }
 
-      else -> break@loop
+      else -> {
+        break@loop
+      }
     }
   }
   return commaFound
 }
 
-private fun Buffer.startsWith(prefix: Byte) = !exhausted() && this[0] == prefix
+private fun Buffer.startsWith(prefix: Byte): Boolean = !exhausted() && this[0] == prefix
 
 /**
  * Reads a double-quoted string, unescaping quoted pairs like `\"` to the 2nd character in each
@@ -163,13 +169,13 @@ private fun Buffer.startsWith(prefix: Byte) = !exhausted() && this[0] == prefix
  */
 @Throws(EOFException::class)
 private fun Buffer.readQuotedString(): String? {
-  require(readByte() == '\"'.toByte())
+  require(readByte() == '\"'.code.toByte())
   val result = Buffer()
   while (true) {
     val i = indexOfElement(QUOTED_STRING_DELIMITERS)
     if (i == -1L) return null // Unterminated quoted string.
 
-    if (this[i] == '"'.toByte()) {
+    if (this[i] == '"'.code.toByte()) {
       result.write(this, i)
       // Consume '"'.
       readByte()
@@ -198,7 +204,10 @@ private fun Buffer.readToken(): String? {
   }
 }
 
-fun CookieJar.receiveHeaders(url: HttpUrl, headers: Headers) {
+fun CookieJar.receiveHeaders(
+  url: HttpUrl,
+  headers: Headers,
+) {
   if (this === CookieJar.NO_COOKIES) return
 
   val cookies = Cookie.parseAll(url, headers)
@@ -219,15 +228,17 @@ fun Response.promisesBody(): Boolean {
 
   val responseCode = code
   if ((responseCode < HTTP_CONTINUE || responseCode >= 200) &&
-      responseCode != HTTP_NO_CONTENT &&
-      responseCode != HTTP_NOT_MODIFIED) {
+    responseCode != HTTP_NO_CONTENT &&
+    responseCode != HTTP_NOT_MODIFIED
+  ) {
     return true
   }
 
   // If the Content-Length or Transfer-Encoding headers disagree with the response code, the
   // response is malformed. For best compatibility, we honor the headers.
   if (headersContentLength() != -1L ||
-      "chunked".equals(header("Transfer-Encoding"), ignoreCase = true)) {
+    "chunked".equals(header("Transfer-Encoding"), ignoreCase = true)
+  ) {
     return true
   }
 
@@ -235,9 +246,8 @@ fun Response.promisesBody(): Boolean {
 }
 
 @Deprecated(
-    message = "No longer supported",
-    level = DeprecationLevel.ERROR,
-    replaceWith = ReplaceWith(expression = "response.promisesBody()"))
-fun hasBody(response: Response): Boolean {
-  return response.promisesBody()
-}
+  message = "No longer supported",
+  level = DeprecationLevel.ERROR,
+  replaceWith = ReplaceWith(expression = "response.promisesBody()"),
+)
+fun hasBody(response: Response): Boolean = response.promisesBody()

@@ -20,27 +20,28 @@ package okhttp3.internal.http2
  * Settings are [connection][Http2Connection] scoped.
  */
 class Settings {
-
-  /** Flag values. */
+  /**
+   * Flag values, in the order they were assigned. Insertion order matters: the SETTINGS frame is
+   * written in this order, and the order is part of the HTTP/2 fingerprint we impersonate.
+   */
   val values = LinkedHashMap<Int, Int>(COUNT)
 
   /** Returns -1 if unset. */
   val headerTableSize: Int
-    get() {
-      return values.getOrDefault(HEADER_TABLE_SIZE, -1)
-    }
+    get() = values.getOrDefault(HEADER_TABLE_SIZE, -1)
 
   val initialWindowSize: Int
-    get() {
-      return values.getOrDefault(INITIAL_WINDOW_SIZE, DEFAULT_INITIAL_WINDOW_SIZE)
-    }
+    get() = values.getOrDefault(INITIAL_WINDOW_SIZE, DEFAULT_INITIAL_WINDOW_SIZE)
 
   fun clear() {
     values.clear()
   }
 
-  operator fun set(id: Int, value: Int): Settings {
-    if(value == -1) {
+  operator fun set(
+    id: Int,
+    value: Int,
+  ): Settings {
+    if (value == -1) {
       values.remove(id)
       return this
     }
@@ -53,9 +54,7 @@ class Settings {
   }
 
   /** Returns true if a value has been assigned for the setting `id`. */
-  fun isSet(id: Int): Boolean {
-    return values.containsKey(id)
-  }
+  fun isSet(id: Int): Boolean = values.containsKey(id)
 
   /** Returns the value for the setting `id`, or 0 if unset. */
   operator fun get(id: Int): Int = values.getOrDefault(id, 0)
@@ -65,23 +64,17 @@ class Settings {
 
   // TODO: honor this setting.
   fun getEnablePush(defaultValue: Boolean): Boolean {
-    if(values.containsKey(ENABLE_PUSH)) {
+    if (values.containsKey(ENABLE_PUSH)) {
       return values[ENABLE_PUSH] == 1
     }
     return defaultValue
   }
 
-  fun getMaxConcurrentStreams(): Int {
-    return values.getOrDefault(MAX_CONCURRENT_STREAMS, Int.MAX_VALUE)
-  }
+  fun getMaxConcurrentStreams(): Int = values.getOrDefault(MAX_CONCURRENT_STREAMS, Int.MAX_VALUE)
 
-  fun getMaxFrameSize(defaultValue: Int): Int {
-    return values.getOrDefault(MAX_FRAME_SIZE, defaultValue)
-  }
+  fun getMaxFrameSize(defaultValue: Int): Int = values.getOrDefault(MAX_FRAME_SIZE, defaultValue)
 
-  fun getMaxHeaderListSize(defaultValue: Int): Int {
-    return values.getOrDefault(MAX_HEADER_LIST_SIZE, defaultValue)
-  }
+  fun getMaxHeaderListSize(defaultValue: Int): Int = values.getOrDefault(MAX_HEADER_LIST_SIZE, defaultValue)
 
   /**
    * Writes `other` into this. If any setting is populated by this and `other`, the
@@ -103,16 +96,21 @@ class Settings {
 
     /** HTTP/2: Size in bytes of the table used to decode the sender's header blocks. */
     const val HEADER_TABLE_SIZE = 1
+
     /** HTTP/2: The peer must not send a PUSH_PROMISE frame when this is 0. */
     const val ENABLE_PUSH = 2
+
     /** Sender's maximum number of concurrent streams. */
-    const val MAX_CONCURRENT_STREAMS = 4
+    const val MAX_CONCURRENT_STREAMS = 3
+
+    /** Window size in bytes. */
+    const val INITIAL_WINDOW_SIZE = 4
+
     /** HTTP/2: Size in bytes of the largest frame payload the sender will accept. */
     const val MAX_FRAME_SIZE = 5
+
     /** HTTP/2: Advisory only. Size in bytes of the largest header list the sender will accept. */
     const val MAX_HEADER_LIST_SIZE = 6
-    /** Window size in bytes. */
-    const val INITIAL_WINDOW_SIZE = 7
 
     /** Total number of settings. */
     const val COUNT = 10

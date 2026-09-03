@@ -15,7 +15,7 @@
  */
 package okhttp3
 
-import java.io.IOException
+import okio.IOException
 
 /**
  * Protocols that OkHttp implements for [ALPN][ietf_alpn] selection.
@@ -28,7 +28,9 @@ import java.io.IOException
  *
  * [ietf_alpn]: http://tools.ietf.org/html/draft-ietf-tls-applayerprotoneg
  */
-enum class Protocol(private val protocol: String) {
+enum class Protocol(
+  private val protocol: String,
+) {
   /**
    * An obsolete plaintext framing that does not use persistent sockets by default.
    */
@@ -69,7 +71,7 @@ enum class Protocol(private val protocol: String) {
    *
    * See also [Starting HTTP/2 with Prior Knowledge][rfc_7540_34].
    *
-   * [rfc_7540_34]: https://tools.ietf.org/html/rfc7540.section-3.4
+   * [rfc_7540_34]: https://datatracker.ietf.org/doc/html/rfc7540#autoid-10
    */
   H2_PRIOR_KNOWLEDGE("h2_prior_knowledge"),
 
@@ -81,7 +83,17 @@ enum class Protocol(private val protocol: String) {
    * QUIC is not natively supported by OkHttp, but provided to allow a theoretical interceptor that
    * provides support.
    */
-  QUIC("quic");
+  QUIC("quic"),
+
+  /**
+   * HTTP/3 is the third and upcoming major version of the Hypertext Transfer Protocol used to
+   * exchange information. HTTP/3 runs over QUIC, which is published as RFC 9000.
+   *
+   * HTTP/3 is not natively supported by OkHttp, but provided to allow a theoretical interceptor
+   * that provides support.
+   */
+  HTTP_3("h3"),
+  ;
 
   /**
    * Returns the string used to identify this protocol for ALPN, like "http/1.1", "spdy/3.1" or
@@ -91,7 +103,7 @@ enum class Protocol(private val protocol: String) {
    *
    * [iana]: https://www.iana.org/assignments/tls-extensiontype-values
    */
-  override fun toString() = protocol
+  override fun toString(): String = protocol
 
   companion object {
     /**
@@ -105,13 +117,34 @@ enum class Protocol(private val protocol: String) {
       // Unroll the loop over values() to save an allocation.
       @Suppress("DEPRECATION")
       return when (protocol) {
-        HTTP_1_0.protocol -> HTTP_1_0
-        HTTP_1_1.protocol -> HTTP_1_1
-        H2_PRIOR_KNOWLEDGE.protocol -> H2_PRIOR_KNOWLEDGE
-        HTTP_2.protocol -> HTTP_2
-        SPDY_3.protocol -> SPDY_3
-        QUIC.protocol -> QUIC
-        else -> throw IOException("Unexpected protocol: $protocol")
+        HTTP_1_0.protocol -> {
+          HTTP_1_0
+        }
+
+        HTTP_1_1.protocol -> {
+          HTTP_1_1
+        }
+
+        H2_PRIOR_KNOWLEDGE.protocol -> {
+          H2_PRIOR_KNOWLEDGE
+        }
+
+        HTTP_2.protocol -> {
+          HTTP_2
+        }
+
+        SPDY_3.protocol -> {
+          SPDY_3
+        }
+
+        QUIC.protocol -> {
+          QUIC
+        }
+
+        else -> {
+          // Support HTTP3 draft like h3-29
+          if (protocol.startsWith(HTTP_3.protocol)) HTTP_3 else throw IOException("Unexpected protocol: $protocol")
+        }
       }
     }
   }

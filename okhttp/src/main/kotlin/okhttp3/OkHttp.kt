@@ -15,9 +15,11 @@
  */
 package okhttp3
 
+import okhttp3.internal.CONST_VERSION
+
 object OkHttp {
   /**
-   * This is a string like "4.5.0-RC1", "4.5.0", or "4.6.0-SNAPSHOT" indicating the version of
+   * This is a string like "5.0.0", "5.0.0-alpha.762", or "5.3.0-SNAPSHOT" indicating the version of
    * OkHttp in the current runtime. Use this to include the OkHttp version in custom `User-Agent`
    * headers.
    *
@@ -31,5 +33,6 @@ object OkHttp {
    *
    * [semver]: https://semver.org
    */
-  const val VERSION = "4.12.0"
+  @JvmField
+  val VERSION: String = CONST_VERSION
 }

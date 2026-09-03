@@ -34,9 +34,8 @@ import javax.net.ssl.SSLPeerUnverifiedException
  * [Conscrypt]: https://conscrypt.org/
  */
 class BasicCertificateChainCleaner(
-  private val trustRootIndex: TrustRootIndex
+  private val trustRootIndex: TrustRootIndex,
 ) : CertificateChainCleaner() {
-
   /**
    * Returns a cleaned chain for [chain].
    *
@@ -45,7 +44,10 @@ class BasicCertificateChainCleaner(
    * what was used to establish [chain].
    */
   @Throws(SSLPeerUnverifiedException::class)
-  override fun clean(chain: List<Certificate>, hostname: String): List<Certificate> {
+  override fun clean(
+    chain: List<Certificate>,
+    hostname: String,
+  ): List<Certificate> {
     val queue: Deque<Certificate> = ArrayDeque(chain)
     val result = mutableListOf<Certificate>()
     result.add(queue.removeFirst())
@@ -63,7 +65,7 @@ class BasicCertificateChainCleaner(
         if (result.size > 1 || toVerify != trustedCert) {
           result.add(trustedCert)
         }
-        if (verifySignature(trustedCert, trustedCert)) {
+        if (verifySignature(trustedCert, trustedCert, result.size - 2)) {
           return result // The self-signed cert is a root CA. We're done.
         }
         foundTrustedCertificate = true
@@ -75,7 +77,7 @@ class BasicCertificateChainCleaner(
       val i = queue.iterator()
       while (i.hasNext()) {
         val signingCert = i.next() as X509Certificate
-        if (verifySignature(toVerify, signingCert)) {
+        if (verifySignature(toVerify, signingCert, result.size - 1)) {
           i.remove()
           result.add(signingCert)
           continue@followIssuerChain
@@ -89,16 +91,29 @@ class BasicCertificateChainCleaner(
 
       // The last link isn't trusted. Fail.
       throw SSLPeerUnverifiedException(
-          "Failed to find a trusted cert that signed $toVerify")
+        "Failed to find a trusted cert that signed $toVerify",
+      )
     }
 
     throw SSLPeerUnverifiedException("Certificate chain too long: $result")
   }
 
-  /** Returns true if [toVerify] was signed by [signingCert]'s public key. */
-  private fun verifySignature(toVerify: X509Certificate, signingCert: X509Certificate): Boolean {
+  /**
+   * Returns true if [toVerify] was signed by [signingCert]'s public key.
+   *
+   * @param minIntermediates the minimum number of intermediate certificates in [signingCert]. This
+   *     is -1 if signing cert is a lone self-signed certificate.
+   */
+  private fun verifySignature(
+    toVerify: X509Certificate,
+    signingCert: X509Certificate,
+    minIntermediates: Int,
+  ): Boolean {
     if (toVerify.issuerDN != signingCert.subjectDN) {
       return false
+    }
+    if (signingCert.basicConstraints < minIntermediates) {
+      return false // The signer can't have this many intermediates beneath it.
     }
     return try {
       toVerify.verify(signingCert.publicKey)
@@ -108,17 +123,14 @@ class BasicCertificateChainCleaner(
     }
   }
 
-  override fun hashCode(): Int {
-    return trustRootIndex.hashCode()
-  }
+  override fun hashCode(): Int = trustRootIndex.hashCode()
 
-  override fun equals(other: Any?): Boolean {
-    return if (other === this) {
+  override fun equals(other: Any?): Boolean =
+    if (other === this) {
       true
     } else {
       other is BasicCertificateChainCleaner && other.trustRootIndex == trustRootIndex
     }
-  }
 
   companion object {
     private const val MAX_SIGNERS = 9

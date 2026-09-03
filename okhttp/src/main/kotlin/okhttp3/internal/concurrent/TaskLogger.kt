@@ -16,24 +16,25 @@
 package okhttp3.internal.concurrent
 
 import java.util.logging.Level
+import java.util.logging.Logger
 
-internal inline fun taskLog(
+internal inline fun Logger.taskLog(
   task: Task,
   queue: TaskQueue,
-  messageBlock: () -> String
+  messageBlock: () -> String,
 ) {
-  if (TaskRunner.logger.isLoggable(Level.FINE)) {
+  if (isLoggable(Level.FINE)) {
     log(task, queue, messageBlock())
   }
 }
 
-internal inline fun <T> logElapsed(
+internal inline fun <T> Logger.logElapsed(
   task: Task,
   queue: TaskQueue,
-  block: () -> T
+  block: () -> T,
 ): T {
   var startNs = -1L
-  val loggingEnabled = TaskRunner.logger.isLoggable(Level.FINE)
+  val loggingEnabled = isLoggable(Level.FINE)
   if (loggingEnabled) {
     startNs = queue.taskRunner.backend.nanoTime()
     log(task, queue, "starting")
@@ -56,8 +57,12 @@ internal inline fun <T> logElapsed(
   }
 }
 
-private fun log(task: Task, queue: TaskQueue, message: String) {
-  TaskRunner.logger.fine("${queue.name} ${String.format("%-22s", message)}: ${task.name}")
+private fun Logger.log(
+  task: Task,
+  queue: TaskQueue,
+  message: String,
+) {
+  fine("${queue.name} ${String.format("%-22s", message)}: ${task.name}")
 }
 
 /**
@@ -69,13 +74,14 @@ private fun log(task: Task, queue: TaskQueue, message: String) {
  * the returned string may be longer.
  */
 fun formatDuration(ns: Long): String {
-  val s = when {
-    ns <= -999_500_000 -> "${(ns - 500_000_000) / 1_000_000_000} s "
-    ns <= -999_500 -> "${(ns - 500_000) / 1_000_000} ms"
-    ns <= 0 -> "${(ns - 500) / 1_000} µs"
-    ns < 999_500 -> "${(ns + 500) / 1_000} µs"
-    ns < 999_500_000 -> "${(ns + 500_000) / 1_000_000} ms"
-    else -> "${(ns + 500_000_000) / 1_000_000_000} s "
-  }
+  val s =
+    when {
+      ns <= -999_500_000 -> "${(ns - 500_000_000) / 1_000_000_000} s "
+      ns <= -999_500 -> "${(ns - 500_000) / 1_000_000} ms"
+      ns <= 0 -> "${(ns - 500) / 1_000} µs"
+      ns < 999_500 -> "${(ns + 500) / 1_000} µs"
+      ns < 999_500_000 -> "${(ns + 500_000) / 1_000_000} ms"
+      else -> "${(ns + 500_000_000) / 1_000_000_000} s "
+    }
   return String.format("%6s", s)
 }

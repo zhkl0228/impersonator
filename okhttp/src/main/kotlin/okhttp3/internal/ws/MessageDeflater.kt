@@ -27,10 +27,17 @@ private val EMPTY_DEFLATE_BLOCK = "000000ffff".decodeHex()
 private const val LAST_OCTETS_COUNT_TO_REMOVE_AFTER_DEFLATION = 4
 
 class MessageDeflater(
-  private val noContextTakeover: Boolean
+  private val noContextTakeover: Boolean,
 ) : Closeable {
   private val deflatedBytes = Buffer()
-  private val deflater = Deflater(Deflater.DEFAULT_COMPRESSION, true /* omit zlib header */)
+
+  private val deflater =
+    Deflater(
+      Deflater.DEFAULT_COMPRESSION,
+      // nowrap (omits zlib header):
+      true,
+    )
+
   private val deflaterSink = DeflaterSink(deflatedBytes, deflater)
 
   /** Deflates [buffer] in place as described in RFC 7692 section 7.2.1. */
@@ -61,5 +68,5 @@ class MessageDeflater(
   @Throws(IOException::class)
   override fun close() = deflaterSink.close()
 
-  private fun Buffer.endsWith(suffix: ByteString) = rangeEquals(size - suffix.size, suffix)
+  private fun Buffer.endsWith(suffix: ByteString): Boolean = rangeEquals(size - suffix.size, suffix)
 }

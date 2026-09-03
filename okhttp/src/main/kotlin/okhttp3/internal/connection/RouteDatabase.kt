@@ -18,24 +18,27 @@ package okhttp3.internal.connection
 import okhttp3.Route
 
 /**
- * A blacklist of failed routes to avoid when creating a new connection to a target address. This is
+ * A denylist of failed routes to avoid when creating a new connection to a target address. This is
  * used so that OkHttp can learn from its mistakes: if there was a failure attempting to connect to
  * a specific IP address or proxy server, that failure is remembered and alternate routes are
  * preferred.
  */
 class RouteDatabase {
-  private val failedRoutes = mutableSetOf<Route>()
+  private val _failedRoutes = mutableSetOf<Route>()
+
+  val failedRoutes: Set<Route>
+    @Synchronized get() = _failedRoutes.toSet()
 
   /** Records a failure connecting to [failedRoute]. */
   @Synchronized fun failed(failedRoute: Route) {
-    failedRoutes.add(failedRoute)
+    _failedRoutes.add(failedRoute)
   }
 
   /** Records success connecting to [route]. */
   @Synchronized fun connected(route: Route) {
-    failedRoutes.remove(route)
+    _failedRoutes.remove(route)
   }
 
   /** Returns true if [route] has failed recently and should be avoided. */
-  @Synchronized fun shouldPostpone(route: Route): Boolean = route in failedRoutes
+  @Synchronized fun shouldPostpone(route: Route): Boolean = route in _failedRoutes
 }

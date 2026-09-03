@@ -17,15 +17,17 @@ package okhttp3.internal.http
 
 import java.io.IOException
 import java.net.ProtocolException
+import okhttp3.Headers
 import okhttp3.Interceptor
 import okhttp3.Response
-import okhttp3.internal.EMPTY_RESPONSE
+import okhttp3.TrailersSource
+import okhttp3.internal.UnreadableResponseBody
 import okhttp3.internal.http2.ConnectionShutdownException
+import okhttp3.internal.skipAll
 import okio.buffer
 
 /** This is the last interceptor in the chain. It makes a network call to the server. */
-class CallServerInterceptor(private val forWebSocket: Boolean) : Interceptor {
-
+object CallServerInterceptor : Interceptor {
   @Throws(IOException::class)
   override fun intercept(chain: Interceptor.Chain): Response {
     val realChain = chain as RealInterceptorChain
@@ -37,10 +39,12 @@ class CallServerInterceptor(private val forWebSocket: Boolean) : Interceptor {
     var invokeStartEvent = true
     var responseBuilder: Response.Builder? = null
     var sendRequestException: IOException? = null
+    val hasRequestBody = HttpMethod.permitsRequestBody(request.method) && requestBody != null
+    val isUpgradeRequest = "upgrade".equals(request.header("Connection"), ignoreCase = true)
     try {
       exchange.writeRequestHeaders(request)
 
-      if (HttpMethod.permitsRequestBody(request.method) && requestBody != null) {
+      if (hasRequestBody) {
         // If there's a "Expect: 100-continue" header on the request, wait for a "HTTP/1.1 100
         // Continue" response before transmitting the request body. If we don't get that, return
         // what we did get (such as a 4xx response) without ever transmitting the request body.
@@ -96,7 +100,8 @@ class CallServerInterceptor(private val forWebSocket: Boolean) : Interceptor {
           invokeStartEvent = false
         }
       }
-      var response = responseBuilder
+      var response =
+        responseBuilder
           .request(request)
           .handshake(exchange.connection.handshake())
           .sentRequestAtMillis(sentRequestMillis)
@@ -104,12 +109,13 @@ class CallServerInterceptor(private val forWebSocket: Boolean) : Interceptor {
           .build()
       var code = response.code
 
-      if (shouldIgnoreAndWaitForRealResponse(code)) {
+      while (shouldIgnoreAndWaitForRealResponse(code)) {
         responseBuilder = exchange.readResponseHeaders(expectContinue = false)!!
         if (invokeStartEvent) {
           exchange.responseHeadersStart()
         }
-        response = responseBuilder
+        response =
+          responseBuilder
             .request(request)
             .handshake(exchange.connection.handshake())
             .sentRequestAtMillis(sentRequestMillis)
@@ -120,23 +126,60 @@ class CallServerInterceptor(private val forWebSocket: Boolean) : Interceptor {
 
       exchange.responseHeadersEnd(response)
 
-      response = if (forWebSocket && code == 101) {
-        // Connection is upgrading, but we need to ensure interceptors see a non-null response body.
-        response.newBuilder()
-            .body(EMPTY_RESPONSE)
-            .build()
-      } else {
-        response.newBuilder()
-            .body(exchange.openResponseBody(response))
-            .build()
+      val isUpgradeCode = code == HTTP_SWITCHING_PROTOCOLS
+      if (isUpgradeCode && exchange.connection.isMultiplexed) {
+        throw ProtocolException("Unexpected $HTTP_SWITCHING_PROTOCOLS code on HTTP/2 connection")
       }
+
+      val isUpgradeResponse =
+        isUpgradeCode &&
+          "upgrade".equals(response.header("Connection"), ignoreCase = true)
+
+      response =
+        when {
+          // This is an HTTP/1 upgrade. (This case includes web socket upgrades.)
+          isUpgradeRequest && isUpgradeResponse -> {
+            response
+              .newBuilder()
+              .body(
+                UnreadableResponseBody(
+                  response.body.contentType(),
+                  response.body.contentLength(),
+                ),
+              ).socket(exchange.upgradeToSocket())
+              .build()
+          }
+
+          // This is not an upgrade response.
+          else -> {
+            val responseBody = exchange.openResponseBody(response)
+            response
+              .newBuilder()
+              .body(responseBody)
+              .trailers(
+                object : TrailersSource {
+                  override fun peek() = exchange.peekTrailers()
+
+                  override fun get(): Headers {
+                    val source = responseBody.source()
+                    if (source.isOpen) {
+                      source.skipAll()
+                    }
+                    return peek() ?: error("null trailers after exhausting response body?!")
+                  }
+                },
+              ).build()
+          }
+        }
       if ("close".equals(response.request.header("Connection"), ignoreCase = true) ||
-          "close".equals(response.header("Connection"), ignoreCase = true)) {
+        "close".equals(response.header("Connection"), ignoreCase = true)
+      ) {
         exchange.noNewExchangesOnConnection()
       }
-      if ((code == 204 || code == 205) && response.body?.contentLength() ?: -1L > 0L) {
+      if ((code == 204 || code == 205) && response.body.contentLength() > 0L) {
         throw ProtocolException(
-            "HTTP $code had non-zero Content-Length: ${response.body?.contentLength()}")
+          "HTTP $code had non-zero Content-Length: ${response.body.contentLength()}",
+        )
       }
       return response
     } catch (e: IOException) {
@@ -148,16 +191,17 @@ class CallServerInterceptor(private val forWebSocket: Boolean) : Interceptor {
     }
   }
 
-  private fun shouldIgnoreAndWaitForRealResponse(code: Int): Boolean = when {
-    // Server sent a 100-continue even though we did not request one. Try again to read the
-    // actual response status.
-    code == 100 -> true
+  private fun shouldIgnoreAndWaitForRealResponse(code: Int): Boolean =
+    when {
+      // Server sent a 100-continue even though we did not request one. Try again to read the
+      // actual response status.
+      code == 100 -> true
 
-    // Handle Processing (102) & Early Hints (103) and any new codes without failing
-    // 100 and 101 are the exceptions with different meanings
-    // But Early Hints not currently exposed
-    code in (102 until 200) -> true
+      // Handle Processing (102) & Early Hints (103) and any new codes without failing
+      // 100 and 101 are the exceptions with different meanings
+      // But Early Hints not currently exposed
+      code in (102 until 200) -> true
 
-    else -> false
-  }
+      else -> false
+    }
 }

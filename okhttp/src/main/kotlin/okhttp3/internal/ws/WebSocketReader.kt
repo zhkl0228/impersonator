@@ -20,6 +20,7 @@ import java.io.IOException
 import java.net.ProtocolException
 import java.util.concurrent.TimeUnit
 import okhttp3.internal.and
+import okhttp3.internal.closeQuietly
 import okhttp3.internal.toHexString
 import okhttp3.internal.ws.WebSocketProtocol.B0_FLAG_FIN
 import okhttp3.internal.ws.WebSocketProtocol.B0_FLAG_RSV1
@@ -56,9 +57,10 @@ class WebSocketReader(
   val source: BufferedSource,
   private val frameCallback: FrameCallback,
   private val perMessageDeflate: Boolean,
-  private val noContextTakeover: Boolean
+  private val noContextTakeover: Boolean,
 ) : Closeable {
   private var closed = false
+  private var receivedCloseFrame = false
 
   // Stateful data about the current frame.
   private var opcode = 0
@@ -85,8 +87,13 @@ class WebSocketReader(
     fun onReadMessage(bytes: ByteString)
 
     fun onReadPing(payload: ByteString)
+
     fun onReadPong(payload: ByteString)
-    fun onReadClose(code: Int, reason: String)
+
+    fun onReadClose(
+      code: Int,
+      reason: String,
+    )
   }
 
   /**
@@ -99,6 +106,8 @@ class WebSocketReader(
    */
   @Throws(IOException::class)
   fun processNextFrame() {
+    check(!closed) { "closed" }
+
     readHeader()
     if (isControlFrame) {
       readControlFrame()
@@ -109,7 +118,7 @@ class WebSocketReader(
 
   @Throws(IOException::class, ProtocolException::class)
   private fun readHeader() {
-    if (closed) throw IOException("closed")
+    if (receivedCloseFrame) throw IOException("closed")
 
     // Disable the timeout to read the first byte of a new frame.
     val b0: Int
@@ -133,13 +142,15 @@ class WebSocketReader(
     val reservedFlag1 = b0 and B0_FLAG_RSV1 != 0
     when (opcode) {
       OPCODE_TEXT, OPCODE_BINARY -> {
-        readingCompressedMessage = if (reservedFlag1) {
-          if (!perMessageDeflate) throw ProtocolException("Unexpected rsv1 flag")
-          true
-        } else {
-          false
-        }
+        readingCompressedMessage =
+          if (reservedFlag1) {
+            if (!perMessageDeflate) throw ProtocolException("Unexpected rsv1 flag")
+            true
+          } else {
+            false
+          }
       }
+
       else -> {
         if (reservedFlag1) throw ProtocolException("Unexpected rsv1 flag")
       }
@@ -156,11 +167,13 @@ class WebSocketReader(
     val isMasked = b1 and B1_FLAG_MASK != 0
     if (isMasked == isClient) {
       // Masked payloads must be read on the server. Unmasked payloads must be read on the client.
-      throw ProtocolException(if (isClient) {
-        "Server-sent frames must not be masked."
-      } else {
-        "Client-sent frames must be masked."
-      })
+      throw ProtocolException(
+        if (isClient) {
+          "Server-sent frames must not be masked."
+        } else {
+          "Client-sent frames must be masked."
+        },
+      )
     }
 
     // Get frame length, optionally reading from follow-up bytes if indicated by special values.
@@ -171,7 +184,8 @@ class WebSocketReader(
       frameLength = source.readLong()
       if (frameLength < 0L) {
         throw ProtocolException(
-            "Frame length 0x${frameLength.toHexString()} > 0x7FFFFFFFFFFFFFFF")
+          "Frame length 0x${frameLength.toHexString()} > 0x7FFFFFFFFFFFFFFF",
+        )
       }
     }
 
@@ -202,9 +216,11 @@ class WebSocketReader(
       OPCODE_CONTROL_PING -> {
         frameCallback.onReadPing(controlFrameBuffer.readByteString())
       }
+
       OPCODE_CONTROL_PONG -> {
         frameCallback.onReadPong(controlFrameBuffer.readByteString())
       }
+
       OPCODE_CONTROL_CLOSE -> {
         var code = CLOSE_NO_STATUS_CODE
         var reason = ""
@@ -218,8 +234,9 @@ class WebSocketReader(
           if (codeExceptionMessage != null) throw ProtocolException(codeExceptionMessage)
         }
         frameCallback.onReadClose(code, reason)
-        closed = true
+        receivedCloseFrame = true
       }
+
       else -> {
         throw ProtocolException("Unknown control opcode: " + opcode.toHexString())
       }
@@ -236,7 +253,8 @@ class WebSocketReader(
     readMessage()
 
     if (readingCompressedMessage) {
-      val messageInflater = this.messageInflater
+      val messageInflater =
+        this.messageInflater
           ?: MessageInflater(noContextTakeover).also { this.messageInflater = it }
       messageInflater.inflate(messageFrameBuffer)
     }
@@ -251,7 +269,7 @@ class WebSocketReader(
   /** Read headers and process any control frames until we reach a non-control frame. */
   @Throws(IOException::class)
   private fun readUntilNonControlFrame() {
-    while (!closed) {
+    while (!receivedCloseFrame) {
       readHeader()
       if (!isControlFrame) {
         break
@@ -268,7 +286,7 @@ class WebSocketReader(
   @Throws(IOException::class)
   private fun readMessage() {
     while (true) {
-      if (closed) throw IOException("closed")
+      if (receivedCloseFrame) throw IOException("closed")
 
       if (frameLength > 0L) {
         source.readFully(messageFrameBuffer, frameLength)
@@ -292,6 +310,9 @@ class WebSocketReader(
 
   @Throws(IOException::class)
   override fun close() {
-    messageInflater?.close()
+    if (closed) return
+    closed = true
+    messageInflater?.closeQuietly()
+    source.closeQuietly()
   }
 }

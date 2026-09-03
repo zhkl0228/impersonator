@@ -40,19 +40,15 @@ import okhttp3.internal.canReuseConnectionFor
 import okhttp3.internal.closeQuietly
 import okhttp3.internal.connection.Exchange
 import okhttp3.internal.connection.RealCall
-import okhttp3.internal.connection.RouteException
-import okhttp3.internal.http.StatusLine.Companion.HTTP_MISDIRECTED_REQUEST
-import okhttp3.internal.http.StatusLine.Companion.HTTP_PERM_REDIRECT
-import okhttp3.internal.http.StatusLine.Companion.HTTP_TEMP_REDIRECT
 import okhttp3.internal.http2.ConnectionShutdownException
+import okhttp3.internal.stripBody
 import okhttp3.internal.withSuppressed
 
 /**
  * This interceptor recovers from failures and follows redirects as necessary. It may throw an
  * [IOException] if the call was canceled.
  */
-class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Interceptor {
-
+class RetryAndFollowUpInterceptor : Interceptor {
   @Throws(IOException::class)
   override fun intercept(chain: Interceptor.Chain): Response {
     val realChain = chain as RealInterceptorChain
@@ -60,10 +56,10 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
     val call = realChain.call
     var followUpCount = 0
     var priorResponse: Response? = null
-    var newExchangeFinder = true
+    var newRoutePlanner = true
     var recoveredFailures = listOf<IOException>()
     while (true) {
-      call.enterNetworkInterceptorExchange(request, newExchangeFinder)
+      call.enterNetworkInterceptorExchange(request, newRoutePlanner, chain)
 
       var response: Response
       var closeActiveExchange = true
@@ -74,59 +70,52 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
 
         try {
           response = realChain.proceed(request)
-          newExchangeFinder = true
-        } catch (e: RouteException) {
-          // The attempt to connect via a route failed. The request will not have been sent.
-          if (!recover(e.lastConnectException, call, request, requestSendStarted = false)) {
-            throw e.firstConnectException.withSuppressed(recoveredFailures)
-          } else {
-            recoveredFailures += e.firstConnectException
-          }
-          newExchangeFinder = false
-          continue
+          newRoutePlanner = true
         } catch (e: IOException) {
           // An attempt to communicate with a server failed. The request may have been sent.
-          if (!recover(e, call, request, requestSendStarted = e !is ConnectionShutdownException)) {
-            throw e.withSuppressed(recoveredFailures)
-          } else {
-            recoveredFailures += e
-          }
-          newExchangeFinder = false
+          val isRecoverable = recover(e, call, chain, request)
+          call.eventListener.retryDecision(call, e, isRecoverable)
+          if (!isRecoverable) throw e.withSuppressed(recoveredFailures)
+          recoveredFailures += e
+          newRoutePlanner = false
           continue
         }
 
-        // Attach the prior response if it exists. Such responses never have a body.
-        if (priorResponse != null) {
-          response = response.newBuilder()
-              .priorResponse(priorResponse.newBuilder()
-                  .body(null)
-                  .build())
-              .build()
-        }
+        // Clear out downstream interceptor's additional request headers, cookies, etc.
+        response =
+          response
+            .newBuilder()
+            .request(request)
+            .priorResponse(priorResponse?.stripBody())
+            .build()
 
         val exchange = call.interceptorScopedExchange
-        val followUp = followUpRequest(response, exchange)
+        val followUp = followUpRequest(response, exchange, chain)
 
         if (followUp == null) {
           if (exchange != null && exchange.isDuplex) {
             call.timeoutEarlyExit()
           }
           closeActiveExchange = false
+          call.eventListener.followUpDecision(call, response, null)
           return response
         }
 
         val followUpBody = followUp.body
         if (followUpBody != null && followUpBody.isOneShot()) {
           closeActiveExchange = false
+          call.eventListener.followUpDecision(call, response, null)
           return response
         }
 
-        response.body?.closeQuietly()
+        response.body.closeQuietly()
 
         if (++followUpCount > MAX_FOLLOW_UPS) {
+          call.eventListener.followUpDecision(call, response, null)
           throw ProtocolException("Too many follow-up requests: $followUpCount")
         }
 
+        call.eventListener.followUpDecision(call, response, followUp)
         request = followUp
         priorResponse = response
       } finally {
@@ -144,11 +133,13 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
   private fun recover(
     e: IOException,
     call: RealCall,
+    chain: Interceptor.Chain,
     userRequest: Request,
-    requestSendStarted: Boolean
   ): Boolean {
+    val requestSendStarted = e !is ConnectionShutdownException
+
     // The application layer has forbidden retries.
-    if (!client.retryOnConnectionFailure) return false
+    if (!chain.retryOnConnectionFailure) return false
 
     // We can't send the request body again.
     if (requestSendStarted && requestIsOneShot(e, userRequest)) return false
@@ -163,13 +154,19 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
     return true
   }
 
-  private fun requestIsOneShot(e: IOException, userRequest: Request): Boolean {
+  private fun requestIsOneShot(
+    e: IOException,
+    userRequest: Request,
+  ): Boolean {
     val requestBody = userRequest.body
     return (requestBody != null && requestBody.isOneShot()) ||
-        e is FileNotFoundException
+      e is FileNotFoundException
   }
 
-  private fun isRecoverable(e: IOException, requestSendStarted: Boolean): Boolean {
+  private fun isRecoverable(
+    e: IOException,
+    requestSendStarted: Boolean,
+  ): Boolean {
     // If there was a protocol problem, don't recover.
     if (e is ProtocolException) {
       return false
@@ -206,7 +203,11 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
    * follow-up is either unnecessary or not applicable, this returns null.
    */
   @Throws(IOException::class)
-  private fun followUpRequest(userResponse: Response, exchange: Exchange?): Request? {
+  private fun followUpRequest(
+    userResponse: Response,
+    exchange: Exchange?,
+    chain: Interceptor.Chain,
+  ): Request? {
     val route = exchange?.connection?.route()
     val responseCode = userResponse.code
 
@@ -217,20 +218,22 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
         if (selectedProxy.type() != Proxy.Type.HTTP) {
           throw ProtocolException("Received HTTP_PROXY_AUTH (407) code while not using proxy")
         }
-        return client.proxyAuthenticator.authenticate(route, userResponse)
+        return chain.proxyAuthenticator.authenticate(route, userResponse)
       }
 
-      HTTP_UNAUTHORIZED -> return client.authenticator.authenticate(route, userResponse)
+      HTTP_UNAUTHORIZED -> {
+        return chain.authenticator.authenticate(route, userResponse)
+      }
 
       HTTP_PERM_REDIRECT, HTTP_TEMP_REDIRECT, HTTP_MULT_CHOICE, HTTP_MOVED_PERM, HTTP_MOVED_TEMP, HTTP_SEE_OTHER -> {
-        return buildRedirectRequest(userResponse, method)
+        return buildRedirectRequest(userResponse, method, chain)
       }
 
       HTTP_CLIENT_TIMEOUT -> {
         // 408's are rare in practice, but some servers like HAProxy use this response code. The
         // spec says that we may repeat the request without modifications. Modern browsers also
         // repeat the request (even non-idempotent ones.)
-        if (!client.retryOnConnectionFailure) {
+        if (!chain.retryOnConnectionFailure) {
           // The application layer has directed us not to retry the request.
           return null
         }
@@ -260,7 +263,7 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
         }
 
         if (retryAfter(userResponse, Integer.MAX_VALUE) == 0) {
-          // specifically received an instruction to retry without delay
+          // specifically received an instruction to retry without delay.
           return userResponse.request
         }
 
@@ -284,13 +287,19 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
         return userResponse.request
       }
 
-      else -> return null
+      else -> {
+        return null
+      }
     }
   }
 
-  private fun buildRedirectRequest(userResponse: Response, method: String): Request? {
+  private fun buildRedirectRequest(
+    userResponse: Response,
+    method: String,
+    chain: Interceptor.Chain,
+  ): Request? {
     // Does the client allow redirects?
-    if (!client.followRedirects) return null
+    if (!chain.followRedirects) return null
 
     val location = userResponse.header("Location") ?: return null
     // Don't follow redirects to unsupported protocols.
@@ -298,25 +307,19 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
 
     // If configured, don't follow redirects between SSL and non-SSL.
     val sameScheme = url.scheme == userResponse.request.url.scheme
-    if (!sameScheme && !client.followSslRedirects) return null
+    if (!sameScheme && !chain.followSslRedirects) return null
 
     // Most redirects don't include a request body.
     val requestBuilder = userResponse.request.newBuilder()
     if (HttpMethod.permitsRequestBody(method)) {
       val responseCode = userResponse.code
-      val maintainBody = HttpMethod.redirectsWithBody(method) ||
-          responseCode == HTTP_PERM_REDIRECT ||
-          responseCode == HTTP_TEMP_REDIRECT
-      if (HttpMethod.redirectsToGet(method) && responseCode != HTTP_PERM_REDIRECT && responseCode != HTTP_TEMP_REDIRECT) {
+      if (HttpMethod.redirectsToGet(method, responseCode)) {
         requestBuilder.method("GET", null)
-      } else {
-        val requestBody = if (maintainBody) userResponse.request.body else null
-        requestBuilder.method(method, requestBody)
-      }
-      if (!maintainBody) {
         requestBuilder.removeHeader("Transfer-Encoding")
         requestBuilder.removeHeader("Content-Length")
         requestBuilder.removeHeader("Content-Type")
+      } else {
+        requestBuilder.method(method, userResponse.request.body)
       }
     }
 
@@ -330,7 +333,10 @@ class RetryAndFollowUpInterceptor(private val client: OkHttpClient) : Intercepto
     return requestBuilder.url(url).build()
   }
 
-  private fun retryAfter(userResponse: Response, defaultDelay: Int): Int {
+  private fun retryAfter(
+    userResponse: Response,
+    defaultDelay: Int,
+  ): Int {
     val header = userResponse.header("Retry-After") ?: return defaultDelay
 
     // https://tools.ietf.org/html/rfc7231#section-7.1.3

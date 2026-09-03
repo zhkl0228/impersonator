@@ -15,16 +15,14 @@
  */
 package okhttp3.internal.concurrent
 
+import java.util.concurrent.BlockingQueue
 import java.util.concurrent.SynchronousQueue
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
 import okhttp3.internal.addIfAbsent
-import okhttp3.internal.assertThreadDoesntHoldLock
-import okhttp3.internal.assertThreadHoldsLock
 import okhttp3.internal.concurrent.TaskRunner.Companion.INSTANCE
-import okhttp3.internal.notify
 import okhttp3.internal.okHttpName
 import okhttp3.internal.threadFactory
 
@@ -40,11 +38,23 @@ import okhttp3.internal.threadFactory
  * Most applications should share a process-wide [TaskRunner] and use queues for per-client work.
  */
 class TaskRunner(
-  val backend: Backend
-) {
+  val backend: Backend,
+  internal val logger: Logger = TaskRunner.logger,
+) : Lockable {
   private var nextQueueName = 10000
   private var coordinatorWaiting = false
   private var coordinatorWakeUpAt = 0L
+
+  /**
+   * When we need a new thread to run tasks, we call [Backend.execute]. A few microseconds later we
+   * expect a newly-started thread to call [Runnable.run]. We shouldn't request new threads until
+   * the already-requested ones are in service, otherwise we might create more threads than we need.
+   *
+   * We use [executeCallCount] and [runCallCount] to defend against starting more threads than we
+   * need. Both fields are guarded by `this`.
+   */
+  private var executeCallCount = 0
+  private var runCallCount = 0
 
   /** Queues with tasks that are currently executing their [TaskQueue.activeTask]. */
   private val busyQueues = mutableListOf<TaskQueue>()
@@ -52,31 +62,49 @@ class TaskRunner(
   /** Queues not in [busyQueues] that have non-empty [TaskQueue.futureTasks]. */
   private val readyQueues = mutableListOf<TaskQueue>()
 
-  private val runnable: Runnable = object : Runnable {
-    override fun run() {
-      while (true) {
-        val task = synchronized(this@TaskRunner) {
-          awaitTaskToRun()
-        } ?: return
+  private val runnable: Runnable =
+    object : Runnable {
+      override fun run() {
+        var task: Task =
+          withLock {
+            runCallCount++
+            awaitTaskToRun()
+          } ?: return
 
-        logElapsed(task, task.queue!!) {
-          var completedNormally = false
-          try {
-            runTask(task)
-            completedNormally = true
-          } finally {
-            // If the task is crashing start another thread to service the queues.
-            if (!completedNormally) {
-              backend.execute(this)
-            }
+        val currentThread = Thread.currentThread()
+        val oldName = currentThread.name
+        try {
+          while (true) {
+            currentThread.name = task.name
+            val delayNanos =
+              logger.logElapsed(task, task.queue!!) {
+                task.runOnce()
+              }
+
+            // A task ran successfully. Update the execution state and take the next task.
+            task = withLock {
+              afterRun(task, delayNanos, true)
+              awaitTaskToRun()
+            } ?: return
           }
+        } catch (thrown: Throwable) {
+          // A task failed. Update execution state and re-throw the exception.
+          withLock {
+            afterRun(task, -1L, false)
+          }
+          if (thrown is InterruptedException) {
+            Thread.currentThread().interrupt()
+          } else {
+            throw thrown
+          }
+        } finally {
+          currentThread.name = oldName
         }
       }
     }
-  }
 
   internal fun kickCoordinator(taskQueue: TaskQueue) {
-    this.assertThreadHoldsLock()
+    assertLockHeld()
 
     if (taskQueue.activeTask == null) {
       if (taskQueue.futureTasks.isNotEmpty()) {
@@ -89,12 +117,12 @@ class TaskRunner(
     if (coordinatorWaiting) {
       backend.coordinatorNotify(this@TaskRunner)
     } else {
-      backend.execute(runnable)
+      startAnotherThread()
     }
   }
 
   private fun beforeRun(task: Task) {
-    this.assertThreadHoldsLock()
+    assertLockHeld()
 
     task.nextExecuteNanoTime = -1L
     val queue = task.queue!!
@@ -104,26 +132,12 @@ class TaskRunner(
     busyQueues.add(queue)
   }
 
-  private fun runTask(task: Task) {
-    this.assertThreadDoesntHoldLock()
-
-    val currentThread = Thread.currentThread()
-    val oldName = currentThread.name
-    currentThread.name = task.name
-
-    var delayNanos = -1L
-    try {
-      delayNanos = task.runOnce()
-    } finally {
-      synchronized(this) {
-        afterRun(task, delayNanos)
-      }
-      currentThread.name = oldName
-    }
-  }
-
-  private fun afterRun(task: Task, delayNanos: Long) {
-    this.assertThreadHoldsLock()
+  private fun afterRun(
+    task: Task,
+    delayNanos: Long,
+    completedNormally: Boolean,
+  ) {
+    assertLockHeld()
 
     val queue = task.queue!!
     check(queue.activeTask === task)
@@ -139,6 +153,11 @@ class TaskRunner(
 
     if (queue.futureTasks.isNotEmpty()) {
       readyQueues.add(queue)
+
+      // If the task crashed, start another thread to run the next task.
+      if (!completedNormally) {
+        startAnotherThread()
+      }
     }
   }
 
@@ -146,10 +165,10 @@ class TaskRunner(
    * Returns an immediately-executable task for the calling thread to execute, sleeping as necessary
    * until one is ready. If there are no ready queues, or if other threads have everything under
    * control this will return null. If there is more than a single task ready to execute immediately
-   * this will launch another thread to handle that work.
+   * this will start another thread to handle that work.
    */
   fun awaitTaskToRun(): Task? {
-    this.assertThreadHoldsLock()
+    assertLockHeld()
 
     while (true) {
       if (readyQueues.isEmpty()) {
@@ -196,7 +215,7 @@ class TaskRunner(
 
           // Also start another thread if there's more work or scheduling to do.
           if (multipleReadyTasks || !coordinatorWaiting && readyQueues.isNotEmpty()) {
-            backend.execute(runnable)
+            startAnotherThread()
           }
 
           return readyTask
@@ -227,8 +246,17 @@ class TaskRunner(
     }
   }
 
+  /** Start another thread, unless a new thread is already scheduled to start. */
+  private fun startAnotherThread() {
+    assertLockHeld()
+    if (executeCallCount > runCallCount) return // A thread is still starting.
+
+    executeCallCount++
+    backend.execute(this@TaskRunner, runnable)
+  }
+
   fun newQueue(): TaskQueue {
-    val name = synchronized(this) { nextQueueName++ }
+    val name = this.withLock { nextQueueName++ }
     return TaskQueue(this, "Q$name")
   }
 
@@ -237,12 +265,13 @@ class TaskRunner(
    * necessarily track queues that have no tasks scheduled.
    */
   fun activeQueues(): List<TaskQueue> {
-    synchronized(this) {
+    this.withLock {
       return busyQueues + readyQueues
     }
   }
 
   fun cancelAll() {
+    assertLockHeld()
     for (i in busyQueues.size - 1 downTo 0) {
       busyQueues[i].cancelAllAndDecide()
     }
@@ -256,24 +285,38 @@ class TaskRunner(
   }
 
   interface Backend {
-    fun beforeTask(taskRunner: TaskRunner)
     fun nanoTime(): Long
-    fun coordinatorNotify(taskRunner: TaskRunner)
-    fun coordinatorWait(taskRunner: TaskRunner, nanos: Long)
-    fun execute(runnable: Runnable)
-  }
 
-  class RealBackend(threadFactory: ThreadFactory) : Backend {
-    private val executor = ThreadPoolExecutor(
-        0, // corePoolSize.
-        Int.MAX_VALUE, // maximumPoolSize.
-        60L, TimeUnit.SECONDS, // keepAliveTime.
-        SynchronousQueue(),
-        threadFactory
+    fun coordinatorNotify(taskRunner: TaskRunner)
+
+    fun coordinatorWait(
+      taskRunner: TaskRunner,
+      nanos: Long,
     )
 
-    override fun beforeTask(taskRunner: TaskRunner) {
-    }
+    fun <T> decorate(queue: BlockingQueue<T>): BlockingQueue<T>
+
+    fun execute(
+      taskRunner: TaskRunner,
+      runnable: Runnable,
+    )
+  }
+
+  class RealBackend(
+    threadFactory: ThreadFactory,
+  ) : Backend {
+    val executor =
+      ThreadPoolExecutor(
+        // corePoolSize:
+        0,
+        // maximumPoolSize:
+        Int.MAX_VALUE,
+        // keepAliveTime:
+        60L,
+        TimeUnit.SECONDS,
+        SynchronousQueue(),
+        threadFactory,
+      )
 
     override fun nanoTime() = System.nanoTime()
 
@@ -287,15 +330,22 @@ class TaskRunner(
      */
     @Throws(InterruptedException::class)
     @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
-    override fun coordinatorWait(taskRunner: TaskRunner, nanos: Long) {
-      val ms = nanos / 1_000_000L
-      val ns = nanos - (ms * 1_000_000L)
-      if (ms > 0L || nanos > 0) {
-        (taskRunner as Object).wait(ms, ns.toInt())
+    override fun coordinatorWait(
+      taskRunner: TaskRunner,
+      nanos: Long,
+    ) {
+      taskRunner.assertLockHeld()
+      if (nanos > 0) {
+        taskRunner.awaitNanos(nanos)
       }
     }
 
-    override fun execute(runnable: Runnable) {
+    override fun <T> decorate(queue: BlockingQueue<T>) = queue
+
+    override fun execute(
+      taskRunner: TaskRunner,
+      runnable: Runnable,
+    ) {
       executor.execute(runnable)
     }
 
@@ -305,9 +355,9 @@ class TaskRunner(
   }
 
   companion object {
+    val logger: Logger = Logger.getLogger(TaskRunner::class.java.name)
+
     @JvmField
     val INSTANCE = TaskRunner(RealBackend(threadFactory("$okHttpName TaskRunner", daemon = true)))
-
-    val logger: Logger = Logger.getLogger(TaskRunner::class.java.name)
   }
 }
