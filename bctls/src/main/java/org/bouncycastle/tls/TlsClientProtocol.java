@@ -25,6 +25,11 @@ public class TlsClientProtocol
     OfferedPsks.BindersConfig clientBinders = null;
     protected ClientHello clientHello = null;
     EchClient echClient = null;
+    /**
+     * Built as soon as EncryptedExtensions reveals the rejection, but only thrown once the server's
+     * certificate has been authenticated for the public_name. RFC 9849 section 6.1.6.
+     */
+    TlsEchRejectedException echRejected = null;
     protected TlsKeyExchange keyExchange = null;
     protected TlsAuthentication authentication = null;
 
@@ -1588,7 +1593,14 @@ public class TlsClientProtocol
 
         if (null != echClient && !echClient.isAccepted())
         {
-            throw createEchRejected();
+            /*
+             * RFC 9849 6.1.6. The retry_configs are read here, because this is the only message that
+             * carries them, but they must not be handed to the caller yet: nothing has been
+             * authenticated at this point, so an on-path attacker could have forced the rejection
+             * and chosen them. The handshake runs on against the ClientHelloOuter until the
+             * certificate for the public_name is verified, and the abort happens there.
+             */
+            this.echRejected = createEchRejected();
         }
 
         final SecurityParameters securityParameters = tlsClientContext.getSecurityParametersHandshake();
@@ -1720,11 +1732,38 @@ public class TlsClientProtocol
         assertEmpty(buf);
 
         TlsUtils.verify13CertificateVerifyServer(tlsClientContext, handshakeHash, certificateVerify);
+
+        if (null != echRejected)
+        {
+            /*
+             * RFC 9849 6.1.6. The chain was accepted by handleServerCertificate and the signature
+             * over the transcript has just been checked, so the connection is now authenticated;
+             * all that is left is that the certificate really names the public_name we sent as the
+             * ClientHelloOuter's SNI. Only then are the retry_configs the server's own.
+             */
+            tlsClient.checkEchPublicName(echClient.getConfig().getPublicName());
+
+            throw echRejected;
+        }
     }
 
     protected void receive13ServerFinished(ByteArrayInputStream buf)
         throws IOException
     {
+        if (null != echRejected)
+        {
+            /*
+             * Reaching Finished with the rejection still pending means no Certificate was sent, so
+             * there is nothing the public_name could be authenticated against. That is the resumed
+             * session path; no capture of it combined with a rejected Encrypted Client Hello exists,
+             * so report it in full rather than handing over retry_configs nobody vouched for.
+             */
+            throw new TlsFatalAlert(AlertDescription.ech_required,
+                "Encrypted Client Hello was rejected on a handshake that sent no server certificate, so the"
+                    + " retry_configs could not be authenticated for "
+                    + echClient.getConfig().getPublicName() + ". " + echRejected.getMessage());
+        }
+
         process13FinishedMessage(buf);
     }
 

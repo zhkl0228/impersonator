@@ -54,6 +54,21 @@ public interface TlsClient
      */
     byte[] getEchConfigList();
 
+    /**
+     * RFC 9849 6.1.6. Called when Encrypted Client Hello was offered and the server rejected it,
+     * once the server's certificate chain has been accepted and its CertificateVerify checked.
+     * <p>
+     * The implementation must verify that the certificate identifies {@code publicName} and throw
+     * if it does not. The server's {@code retry_configs} are worth nothing until it does: the
+     * rejection itself is unauthenticated, so without this check an on-path attacker could force
+     * one and choose the configs the client remembers for its next connection.
+     *
+     * @param publicName the offered ECHConfig's {@code public_name}, which was sent as the
+     *                   ClientHelloOuter's server name.
+     */
+    void checkEchPublicName(String publicName)
+        throws IOException;
+
     boolean shouldUseCompatibilityMode();
 
     void notifyServerVersion(ProtocolVersion selectedVersion)

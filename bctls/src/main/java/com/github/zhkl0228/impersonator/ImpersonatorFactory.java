@@ -13,17 +13,19 @@ import org.bouncycastle.tls.TlsUtils;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.security.KeyManagementException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.SecureRandom;
 import java.security.Security;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -41,6 +43,33 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         }
         if(Security.getProvider(BouncyCastleJsseProvider.PROVIDER_NAME) == null) {
             Security.addProvider(new BouncyCastleJsseProvider());
+        }
+    }
+
+    /**
+     * The platform's own root store, which is what {@link #newSSLContext(KeyManager[], TrustManager[])}
+     * uses when the caller names no trust manager of its own. A browser validates the chain, so the
+     * default here has to as well; a caller that really wants to accept anything, an intercepting
+     * proxy being the usual reason, passes its own trust manager.
+     */
+    public static final X509TrustManager DEFAULT_TRUST_MANAGER = loadDefaultTrustManager();
+
+    private static X509TrustManager loadDefaultTrustManager() {
+        String algorithm = TrustManagerFactory.getDefaultAlgorithm();
+        try {
+            TrustManagerFactory factory = TrustManagerFactory.getInstance(algorithm);
+            // A null KeyStore means the platform's default trust store.
+            factory.init((KeyStore) null);
+            TrustManager[] trustManagers = factory.getTrustManagers();
+            for (TrustManager trustManager : trustManagers) {
+                if (trustManager instanceof X509TrustManager) {
+                    return (X509TrustManager) trustManager;
+                }
+            }
+            throw new IllegalStateException("TrustManagerFactory." + algorithm
+                    + " produced no X509TrustManager: " + Arrays.toString(trustManagers));
+        } catch (NoSuchAlgorithmException | KeyStoreException e) {
+            throw new IllegalStateException("load the default trust store for " + algorithm, e);
         }
     }
 
@@ -69,7 +98,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         try {
             if (tm == null || tm.length == 0) {
                 tm = new TrustManager[]{
-                        new DummyX509KeyManager()
+                        DEFAULT_TRUST_MANAGER
                 };
             }
             SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);
@@ -220,15 +249,6 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         clientExtensions.put(ExtensionType.renegotiation_info, TlsUtils.encodeOpaque8(TlsUtils.EMPTY_BYTES));
     }
 
-    public static int calcClientHelloMessageLength(ClientHello clientHello) {
-        try (ByteArrayOutputStream message = new ByteArrayOutputStream(512)) {
-            clientHello.encode(null, message);
-            return message.size() + 4;
-        } catch (IOException e) {
-            throw new IllegalStateException("calcClientHelloMessageLength", e);
-        }
-    }
-
     @Override
     public final ExtensionOrder onSendClientHelloMessage(ClientHello clientHello, Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.remove(ExtensionType.status_request_v2);
@@ -337,18 +357,4 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         return false;
     }
 
-    public static class DummyX509KeyManager implements X509TrustManager {
-        @Override
-        public void checkClientTrusted(X509Certificate[] chain, String authType) {
-        }
-
-        @Override
-        public void checkServerTrusted(X509Certificate[] chain, String authType) {
-        }
-
-        @Override
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
-    }
 }

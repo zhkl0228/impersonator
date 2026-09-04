@@ -12,6 +12,7 @@ import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -38,16 +39,12 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
 
     @Override
     public OkHttpClient newHttpClient(SocketFactory socketFactory) {
-        return newHttpClientInternal(null, new TrustManager[]{
-                new ImpersonatorFactory.DummyX509KeyManager()
-        }, null, socketFactory, null);
+        return newHttpClientInternal(null, null, null, socketFactory, null);
     }
 
     @Override
     public OkHttpClient newHttpClient(String userAgent) {
-        return newHttpClientInternal(null, new TrustManager[]{
-                new ImpersonatorFactory.DummyX509KeyManager()
-        }, userAgent, null, null);
+        return newHttpClientInternal(null, null, userAgent, null, null);
     }
 
     @Override
@@ -57,15 +54,13 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
 
     @Override
     public OkHttpClient newHttpClient(Dns dns) {
-        return newHttpClientInternal(null, new TrustManager[]{
-                new ImpersonatorFactory.DummyX509KeyManager()
-        }, null, null, dns);
+        return newHttpClientInternal(null, null, null, null, dns);
     }
 
     private OkHttpClient newHttpClientInternal(KeyManager[] km, TrustManager[] tm, String userAgent, SocketFactory socketFactory, Dns dns) {
         OkHttpClient.Builder builder = okHttpClientBuilderFactory == null ? new OkHttpClient.Builder() : okHttpClientBuilderFactory.newOkHttpClientBuilder();
         applyTimeouts(builder);
-        X509TrustManager trustManager = getX509KeyManager(tm);
+        X509TrustManager trustManager = getX509TrustManager(tm);
         if (socketFactory != null) {
             builder.socketFactory(new OkHttpClientSocketFactory(socketFactory));
         }
@@ -147,13 +142,20 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
         }
     }
 
-    private static X509TrustManager getX509KeyManager(TrustManager[] tm) {
-        X509TrustManager trustManager;
-        if (tm != null && tm.length > 0) {
-            trustManager = (X509TrustManager) tm[0];
-        } else {
-            trustManager = new ImpersonatorFactory.DummyX509KeyManager();
+    /**
+     * okhttp needs the trust manager itself, not just the socket factory, because it builds the
+     * chain cleaner used for certificate pinning from it. Naming none gets the platform's root
+     * store, the same thing okhttp would use on its own.
+     */
+    private static X509TrustManager getX509TrustManager(TrustManager[] tm) {
+        if (tm == null || tm.length == 0) {
+            return ImpersonatorFactory.DEFAULT_TRUST_MANAGER;
         }
-        return trustManager;
+        for (TrustManager trustManager : tm) {
+            if (trustManager instanceof X509TrustManager) {
+                return (X509TrustManager) trustManager;
+            }
+        }
+        throw new IllegalArgumentException("no X509TrustManager among " + Arrays.toString(tm));
     }
 }

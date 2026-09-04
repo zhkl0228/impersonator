@@ -9,7 +9,11 @@ import okhttp3.ResponseBody;
 import org.bouncycastle.tls.EchConfigList;
 import org.bouncycastle.tls.TlsEchRejectedException;
 
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 
 public class EchTest extends TestCase {
 
@@ -40,15 +44,21 @@ public class EchTest extends TestCase {
      * publish retry_configs. This is the path where the transcript has to be rewound from the
      * ClientHelloInner to the ClientHelloOuter, so the handshake gets far enough to decrypt
      * EncryptedExtensions.
+     * <p>
+     * RFC 9849 6.1.6 then requires the connection to be authenticated for the public_name before
+     * the retry_configs mean anything, so the recording trust manager below must have been handed
+     * the server's chain by the time the exception arrives. Aborting at EncryptedExtensions, which
+     * is where the retry_configs are read, would leave it untouched.
      */
-    public void testEchRejectedCarriesRetryConfigs() throws Exception {
+    public void testEchRejectedIsReportedOnlyAfterThePublicNameIsAuthenticated() throws Exception {
         byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance()
                 .getEchConfigList("crypto.cloudflare.com");
         assertNotNull("crypto.cloudflare.com should publish an ECHConfigList", echConfigList);
         final byte[] corrupted = corruptPublicKey(echConfigList);
+        RecordingTrustManager trustManager = new RecordingTrustManager();
 
         try {
-            String body = trace(api -> api.setEchConfigProvider(host -> corrupted));
+            String body = trace(api -> api.setEchConfigProvider(host -> corrupted), trustManager);
             fail("expected the server to reject ECH, got:\n" + body);
         } catch (IOException e) {
             // TlsFatalAlert is an IOException, so this arrives unwrapped rather than as an SSLException.
@@ -59,6 +69,38 @@ public class EchTest extends TestCase {
             assertNotNull("the server should publish retry_configs", retryConfigs);
             // What comes back must be a usable ECHConfigList for the same client-facing server.
             assertEquals("cloudflare-ech.com", EchConfigList.select(retryConfigs).getPublicName());
+
+            X509Certificate[] chain = trustManager.chain;
+            assertNotNull("the handshake must reach the server certificate before reporting the rejection", chain);
+            // The name the retry_configs were authenticated as, which is the ClientHelloOuter's SNI.
+            assertTrue("the certificate should name cloudflare-ech.com, got " + chain[0].getSubjectX500Principal(),
+                    String.valueOf(chain[0].getSubjectAlternativeNames()).contains("cloudflare-ech.com"));
+        }
+    }
+
+    /**
+     * Notes the chain the handshake presented and then judges it exactly as an unconfigured client
+     * would. Recording it is the only way to see from outside that the rejection was reported after
+     * the certificate arrived rather than at EncryptedExtensions, where the retry_configs are read.
+     */
+    private static class RecordingTrustManager implements X509TrustManager {
+        private final X509TrustManager delegate = ImpersonatorFactory.DEFAULT_TRUST_MANAGER;
+        private X509Certificate[] chain;
+
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+            delegate.checkClientTrusted(chain, authType);
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+            this.chain = chain;
+            delegate.checkServerTrusted(chain, authType);
+        }
+
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return delegate.getAcceptedIssuers();
         }
     }
 
@@ -104,11 +146,17 @@ public class EchTest extends TestCase {
     }
 
     private static String trace(ApiCustomizer customizer) throws Exception {
+        return trace(customizer, null);
+    }
+
+    private static String trace(ApiCustomizer customizer, X509TrustManager trustManager) throws Exception {
         ImpersonatorApi api = ImpersonatorFactory.macChrome();
         if (customizer != null) {
             customizer.customize(api);
         }
-        OkHttpClient client = OkHttpClientFactory.create(api).newHttpClient();
+        OkHttpClientFactory factory = OkHttpClientFactory.create(api);
+        OkHttpClient client = trustManager == null ? factory.newHttpClient()
+                : factory.newHttpClient(null, new TrustManager[]{trustManager}, null);
         Request request = new Request.Builder().url(TRACE_URL).build();
         try (Response response = client.newCall(request).execute()) {
             ResponseBody responseBody = response.body();

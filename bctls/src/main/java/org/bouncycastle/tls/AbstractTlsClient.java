@@ -412,6 +412,20 @@ public abstract class AbstractTlsClient
         return null;
     }
 
+    /**
+     * A client that never offers an ECHConfigList never gets here, so reaching this means a
+     * subclass overrode {@link #getEchConfigList()} without saying how the public_name is to be
+     * authenticated. There is no safe default: skipping the check would let the peer dictate the
+     * retry_configs.
+     */
+    public void checkEchPublicName(String publicName)
+        throws IOException
+    {
+        throw new TlsFatalAlert(AlertDescription.internal_error,
+            "Encrypted Client Hello was rejected, but this client cannot authenticate the certificate for the"
+                + " public_name " + publicName + "; override checkEchPublicName alongside getEchConfigList.");
+    }
+
     public Vector getEarlyKeyShareGroups()
     {
         /*

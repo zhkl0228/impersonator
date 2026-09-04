@@ -4,10 +4,14 @@ package org.bouncycastle.tls;
  * Thrown when Encrypted Client Hello was offered and the server did not accept it, so the real
  * server name was never protected. RFC 9849 section 6.1.6.
  * <p>
- * The handshake still runs to EncryptedExtensions against the ClientHelloOuter, because that is
- * where the server publishes the {@code retry_configs} to use next time. Retrying is the caller's
- * decision: the {@code retry_configs} are only trustworthy once the certificate presented for
- * {@link #getPublicName()} has been verified, which happens above this layer.
+ * The handshake still runs against the ClientHelloOuter, far enough to read the
+ * {@code retry_configs} out of EncryptedExtensions and then to authenticate the connection: the
+ * certificate chain is validated, its CertificateVerify is checked, and it must name
+ * {@link #getPublicName()}. Only then is this thrown. Without that the rejection would be
+ * unauthenticated, and an on-path attacker could force one and pick the
+ * {@link #getRetryConfigs() retry configs} the caller remembers for its next connection.
+ * <p>
+ * Whether to retry is still the caller's decision; this library does not retry by itself.
  */
 public class TlsEchRejectedException
     extends TlsFatalAlert
