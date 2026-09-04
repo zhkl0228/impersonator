@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.parser.Feature;
 import com.alibaba.fastjson.serializer.SerializerFeature;
@@ -159,7 +160,32 @@ abstract class SSLProviderTest extends TestCase {
 
     protected final void doTestScrapFlyHttp2(String http2_fingerprint,
                                              String headers_fp) throws Exception {
+        doTestScrapFlyHttp2(http2_fingerprint, headers_fp, null);
+    }
+
+    /**
+     * @param orderedHeaders the header names in the order they must go on the wire, comma joined.
+     *                       headers_fp is alphabetical and so says nothing about order, but the
+     *                       order is itself a fingerprint, so pin it where a real capture is known.
+     */
+    protected final void doTestScrapFlyHttp2(String http2_fingerprint,
+                                             String headers_fp,
+                                             String orderedHeaders) throws Exception {
         JSONObject obj = doTestURL("https://tools.scrapfly.io/api/http2");
+        if (orderedHeaders != null) {
+            JSONArray frames = obj.getJSONArray("http2_frames");
+            assertNotNull(frames);
+            String actual = null;
+            for (int i = 0; i < frames.size(); i++) {
+                JSONObject frame = frames.getJSONObject(i);
+                if ("HEADERS".equals(frame.getString("name"))) {
+                    actual = String.join(",", frame.getJSONArray("ordered_headers_key").toJavaList(String.class));
+                    break;
+                }
+            }
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", orderedHeaders, actual),
+                    orderedHeaders, actual);
+        }
         String http2_digest = http2_fingerprint == null ? null : DigestUtils.md5Hex(http2_fingerprint);
         if (http2_digest != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", http2_fingerprint, obj.getString("http2_fingerprint")),

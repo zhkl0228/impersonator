@@ -9,26 +9,29 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * v145.0.1
+ * v155.0
  */
 class MacFirefox extends ImpersonatorFactory {
 
     MacFirefox() {
-        super("4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0",
+        super("4865-4867-4866-49195-49199-52393-52392-49196-49200-49171-49172-156-157-47-53",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:155.0) Gecko/20100101 Firefox/155.0",
                 true);
     }
 
     @Override
     public void fillRequestHeaders(Map<String, String> headers) {
         Locale locale = Locale.getDefault();
-        headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8");
+        // Insertion order is the order they go on the wire, so it follows Firefox's own.
+        headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
         headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
+        headers.put("Upgrade-Insecure-Requests", "1");
         headers.put("Sec-Fetch-Dest", "document");
         headers.put("Sec-Fetch-Mode", "navigate");
         headers.put("Sec-Fetch-Site", "none");
         headers.put("Sec-Fetch-User", "?1");
-        headers.put("Upgrade-Insecure-Requests", "1");
+        headers.put("Priority", "u=0, i");
+        headers.put("TE", "trailers");
     }
 
     @Override
@@ -66,7 +69,7 @@ class MacFirefox extends ImpersonatorFactory {
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1));
         addSupportedGroupsExtension(clientExtensions, NamedGroup.X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1, NamedGroup.secp384r1,
                 NamedGroup.secp521r1, NamedGroup.ffdhe2048, NamedGroup.ffdhe3072);
-        TlsExtensionsUtils.addRecordSizeLimitExtension(clientExtensions, 0x4000);
+        TlsExtensionsUtils.addRecordSizeLimitExtension(clientExtensions, 0x4001);
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         clientExtensions.remove(ExtensionType.key_share);
