@@ -42,7 +42,7 @@ public class EchTest extends TestCase {
 
     /**
      * Offering a config the server has no key for makes it fall back to the ClientHelloOuter and
-     * publish retry_configs. RFC 9849 6.1.6 has the client come back with those, which the client
+     * publish retry_configs. RFC 9849 6.1.7 has the client come back with those, which the client
      * built here does by itself, so the provider keeps handing out the broken config and the
      * request still succeeds.
      * <p>
@@ -91,11 +91,12 @@ public class EchTest extends TestCase {
     }
 
     /**
-     * Configs naming algorithms this library does not implement are refused rather than remembered.
-     * Storing them would spend the next connection to the host on a rejection we could have seen
-     * coming, and would bury the fact that the server moved on to something we do not support.
+     * RFC 9849 6.1.7: retry_configs naming algorithms the client cannot use mean the server has
+     * securely disabled ECH, so the next connection goes back without it rather than failing. The
+     * configs are logged at warning on the way, because a server moving to something we do not
+     * implement is worth knowing about even though it is not an error.
      */
-    public void testUnusableRetryConfigsAreRefused() {
+    public void testUnusableRetryConfigsDisableEchForTheHost() throws Exception {
         byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance()
                 .getEchConfigList("crypto.cloudflare.com");
         assertNotNull("crypto.cloudflare.com should publish an ECHConfigList", echConfigList);
@@ -104,13 +105,24 @@ public class EchTest extends TestCase {
         unknownKem[2 + 4 + 1] = (byte) 0xff;
         unknownKem[2 + 4 + 2] = (byte) 0xff;
 
+        ImpersonatorFactory api = (ImpersonatorFactory) ImpersonatorFactory.macChrome();
+        assertNotNull("the lookup should find a config before the rejection",
+                api.getEchConfigList("crypto.cloudflare.com"));
+
+        api.onEchRejected("crypto.cloudflare.com", unknownKem);
+
+        assertNull("nothing usable was published, so ECH is off for this host",
+                api.getEchConfigList("crypto.cloudflare.com"));
+    }
+
+    /** Structurally broken retry_configs are still an error: they are a sample worth reporting. */
+    public void testMalformedRetryConfigsAreRefused() {
+        ImpersonatorFactory api = (ImpersonatorFactory) ImpersonatorFactory.macChrome();
         try {
-            ((ImpersonatorFactory) ImpersonatorFactory.macChrome())
-                    .onEchRejected("crypto.cloudflare.com", unknownKem);
-            fail("expected the unusable retry_configs to be refused");
-        } catch (IOException e) {
-            assertTrue(String.valueOf(e.getMessage()),
-                    String.valueOf(e.getMessage()).contains("no usable ECHConfig"));
+            api.onEchRejected("crypto.cloudflare.com", new byte[]{0x00, 0x7f, (byte) 0xfe, 0x0d});
+            fail("expected the malformed retry_configs to be refused");
+        } catch (IOException expected) {
+            assertNotNull(expected.getMessage());
         }
     }
 

@@ -55,7 +55,7 @@ public interface TlsClient
     byte[] getEchConfigList();
 
     /**
-     * RFC 9849 6.1.6. Called when Encrypted Client Hello was offered and the server rejected it,
+     * RFC 9849 6.1.7. Called when Encrypted Client Hello was offered and the server rejected it,
      * once the server's certificate chain has been accepted and its CertificateVerify checked.
      * <p>
      * The implementation must verify that the certificate identifies {@code publicName} and throw

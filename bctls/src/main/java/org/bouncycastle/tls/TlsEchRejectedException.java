@@ -2,7 +2,7 @@ package org.bouncycastle.tls;
 
 /**
  * Thrown when Encrypted Client Hello was offered and the server did not accept it, so the real
- * server name was never protected. RFC 9849 section 6.1.6.
+ * server name was never protected. RFC 9849 section 6.1.7.
  * <p>
  * The handshake still runs against the ClientHelloOuter, far enough to read the
  * {@code retry_configs} out of EncryptedExtensions and then to authenticate the connection: the

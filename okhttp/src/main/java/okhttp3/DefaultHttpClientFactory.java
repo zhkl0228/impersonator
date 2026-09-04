@@ -111,7 +111,7 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
     }
 
     /**
-     * RFC 9849 section 6.1.6. A server that rejects Encrypted Client Hello publishes the config it
+     * RFC 9849 section 6.1.7. A server that rejects Encrypted Client Hello publishes the config it
      * wants instead, so remember it and go back once. A browser does the same; without this the
      * caller is handed an exception carrying configs it has no way to feed back in.
      */
@@ -139,13 +139,14 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
                         request.url().host(), e.getPublicName());
                 try {
                     api.onEchRejected(request.url().host(), e.getRetryConfigs());
-                } catch (IOException unusable) {
+                } catch (IOException malformed) {
                     /*
-                     * The server offered nothing we can use, so there is nothing to go back with.
-                     * The rejection is what the caller catches for, so that is what it gets; why the
-                     * retry never happened rides along suppressed.
+                     * Only structurally broken retry_configs get here; ones naming algorithms we do
+                     * not implement leave ECH switched off for the host and the retry below goes
+                     * ahead without it. The rejection is what the caller catches for, so that is
+                     * what it gets, with the parse failure riding along suppressed.
                      */
-                    e.addSuppressed(unusable);
+                    e.addSuppressed(malformed);
                     throw e;
                 }
                 // Deliberately not wrapped: exactly one retry, so a server that keeps rejecting is

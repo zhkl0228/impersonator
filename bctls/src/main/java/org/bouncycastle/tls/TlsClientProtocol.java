@@ -30,9 +30,15 @@ public class TlsClientProtocol
     /**
      * Read as soon as EncryptedExtensions reveals a rejection, since that is the only message
      * carrying them, but not reported until the server's certificate has been authenticated for the
-     * public_name. Null once read means the server published none. RFC 9849 section 6.1.6.
+     * public_name. Null once read means the server published none. RFC 9849 section 6.1.7.
      */
     byte[] echRetryConfigs = null;
+    /**
+     * Set once the certificate has been checked against the ECHConfig's public_name. It separates
+     * the rejection that RFC 9849 section 6.1.7 describes, where the connection is authenticated and
+     * the handshake runs to the end, from a handshake that never presented a certificate at all.
+     */
+    boolean echPublicNameAuthenticated = false;
     protected TlsKeyExchange keyExchange = null;
     protected TlsAuthentication authentication = null;
 
@@ -314,6 +320,25 @@ public class TlsClientProtocol
 
                 recordStream.enablePendingCipherWrite();
                 recordStream.enablePendingCipherRead(false);
+
+                if (null != echClient && !echClient.isAccepted())
+                {
+                    /*
+                     * RFC 9849 6.1.7. The abort waits until the Finished above has gone out rather
+                     * than firing as soon as the certificate is authenticated: the server is to see
+                     * a handshake that ran to the end and then an "ech_required" alert, which is
+                     * what a browser sends, and walking away at CertificateVerify would be
+                     * something every server that rejects ECH could tell apart.
+                     *
+                     * It stops short of completeHandshake, though, because everything left there is
+                     * local bookkeeping for a connection that is about to die: it would mark the
+                     * connection ready for application data, build session parameters for it, and
+                     * hand a HandshakeCompletedEvent to any listener - on its own thread, racing
+                     * this - for a handshake whose certificate belongs to the public_name rather
+                     * than to the host the caller asked for. The server cannot tell the difference.
+                     */
+                    throw createEchRejected();
+                }
 
                 completeHandshake();
                 break;
@@ -1619,7 +1644,7 @@ public class TlsClientProtocol
         if (null != echClient && !echClient.isAccepted())
         {
             /*
-             * RFC 9849 6.1.6. The retry_configs are read here, because this is the only message that
+             * RFC 9849 6.1.7. The retry_configs are read here, because this is the only message that
              * carries them, but they must not be handed to the caller yet: nothing has been
              * authenticated at this point, so an on-path attacker could have forced the rejection
              * and chosen them. The handshake runs on against the ClientHelloOuter until the
@@ -1636,7 +1661,7 @@ public class TlsClientProtocol
              * handleServerCertificate, so it would fail before this connection ever reached the
              * point of reporting the rejection, and the retry_configs would be buried behind a
              * certificate error with nothing left to recover from. Reporting the public_name instead
-             * is not a way around the check, it is the check RFC 9849 6.1.6 asks for.
+             * is not a way around the check, it is the check RFC 9849 6.1.7 asks for.
              */
             Vector outerServerNames = new Vector(1);
             outerServerNames.addElement(new ServerName(NameType.host_name,
@@ -1777,26 +1802,24 @@ public class TlsClientProtocol
         if (null != echClient && !echClient.isAccepted())
         {
             /*
-             * RFC 9849 6.1.6. The chain was accepted by handleServerCertificate and the signature
+             * RFC 9849 6.1.7. The chain was accepted by handleServerCertificate and the signature
              * over the transcript has just been checked, so the connection is now authenticated;
              * all that is left is that the certificate really names the public_name we sent as the
              * ClientHelloOuter's SNI. Only then are the retry_configs the server's own.
              */
             tlsClient.checkEchPublicName(echClient.getConfig().getPublicName());
 
-            // Built here rather than where the configs were read, so that the stack trace names the
-            // message the handshake was actually abandoned on.
-            throw createEchRejected();
+            this.echPublicNameAuthenticated = true;
         }
     }
 
     protected void receive13ServerFinished(ByteArrayInputStream buf)
         throws IOException
     {
-        if (null != echClient && !echClient.isAccepted())
+        if (null != echClient && !echClient.isAccepted() && !echPublicNameAuthenticated)
         {
             /*
-             * Reaching Finished with the rejection still pending means no Certificate was sent, so
+             * Reaching Finished with nothing authenticated means no Certificate was sent, so
              * there is nothing the public_name could be authenticated against. That is the resumed
              * session path; no capture of it combined with a rejected Encrypted Client Hello exists,
              * so report it in full rather than handing over retry_configs nobody vouched for.
@@ -2237,7 +2260,7 @@ public class TlsClientProtocol
     }
 
     /**
-     * RFC 9849 section 6.1.6. EncryptedExtensions is the only message that carries the server's
+     * RFC 9849 section 6.1.7. EncryptedExtensions is the only message that carries the server's
      * retry_configs, so they are read as it arrives even though they are not reported until the
      * connection has been authenticated.
      *
@@ -2252,7 +2275,7 @@ public class TlsClientProtocol
     }
 
     /**
-     * RFC 9849 section 6.1.6. The server rejected Encrypted Client Hello, so the real server name
+     * RFC 9849 section 6.1.7. The server rejected Encrypted Client Hello, so the real server name
      * went out in the clear; report that, with the retry_configs the server published.
      */
     private TlsEchRejectedException createEchRejected()

@@ -4,12 +4,16 @@ import okhttp3.Http2Connection;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
 import org.bouncycastle.tls.ClientHello;
+import org.bouncycastle.tls.EchConfig;
 import org.bouncycastle.tls.EchConfigList;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.SignatureAndHashAlgorithm;
 import org.bouncycastle.tls.TlsExtensionsUtils;
 import org.bouncycastle.tls.TlsUtils;
+import org.bouncycastle.util.encoders.Hex;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
@@ -39,6 +43,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorApi {
+
+    private static final Logger log = LoggerFactory.getLogger(ImpersonatorFactory.class);
 
     static {
         Provider bc = Security.getProvider(BouncyCastleProvider.PROVIDER_NAME);
@@ -332,7 +338,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     /**
      * Remembers what a server published when it rejected Encrypted Client Hello, so the next
      * connection to it offers that instead of the config the lookup produced. RFC 9849 section
-     * 6.1.6.
+     * 6.1.7.
      * <p>
      * Clients built by {@code OkHttpClientFactory} call this and retry once by themselves. It is
      * deliberately not on {@link ImpersonatorApi}: a caller driving the handshake some other way
@@ -345,12 +351,12 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      *
      * @param retryConfigs the {@code retry_configs} the server published, or null if it published
      *                     none, which means Encrypted Client Hello is to be dropped for this host.
-     * @throws IOException if the server offered nothing this library can use, naming every config
-     *                     it sent. A browser would drop ECH here and load the page over a plaintext
-     *                     server name; this deliberately does not. Callers are impersonating a
-     *                     browser precisely to control what the server name reveals, so quietly
-     *                     giving that up is worse for them than failing, and being loud about it is
-     *                     the only way the unsupported algorithms ever get implemented.
+     * @throws IOException if the retry_configs are malformed. Configs that merely name algorithms
+     *                     this library does not implement are not an error: RFC 9849 section 6.1.7
+     *                     has the client treat ECH as securely disabled by the server and go back
+     *                     without it. That is logged at warning with every config the server sent,
+     *                     because it is also how we would learn that a server has moved on to
+     *                     something worth implementing.
      */
     public void onEchRejected(String host, byte[] retryConfigs) throws IOException {
         if (null == host) {
@@ -360,8 +366,32 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
             echRetryConfigs.put(host, ECH_DISABLED);
             return;
         }
-        EchConfigList.select(retryConfigs);
-        echRetryConfigs.put(host, retryConfigs);
+
+        // Malformed still throws; unusable does not. Parsing skips versions we do not know, so an
+        // empty result is the "no supported version" case RFC 9849 6.1.7 names explicitly.
+        Vector<EchConfig> configs = EchConfigList.parse(retryConfigs);
+        for (int i = 0; i < configs.size(); i++) {
+            if (configs.elementAt(i).isSupported()) {
+                echRetryConfigs.put(host, retryConfigs);
+                return;
+            }
+        }
+
+        echRetryConfigs.put(host, ECH_DISABLED);
+        log.warn("Encrypted Client Hello disabled for {}: none of the retry_configs it published is usable, {}",
+                host, describeEchConfigs(configs, retryConfigs));
+    }
+
+    /** Everything needed to add whatever the server has moved to, or to see that it is nonsense. */
+    private static String describeEchConfigs(Vector<EchConfig> configs, byte[] retryConfigList) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < configs.size(); i++) {
+            sb.append('[').append(i).append("] ").append(configs.elementAt(i).describe()).append("; ");
+        }
+        if (configs.isEmpty()) {
+            sb.append("it holds no ECHConfig of a supported version; ");
+        }
+        return sb.append("retry_configs=").append(Hex.toHexString(retryConfigList)).toString();
     }
 
     @Override

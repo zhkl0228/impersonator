@@ -8,6 +8,8 @@ import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import java.io.IOException;
 import java.net.Socket;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Drives the JSSE socket directly, the way a caller that is not okhttp does. okhttp leaves
@@ -54,6 +56,80 @@ public class EchEndpointIdentificationTest extends TestCase {
             } catch (IOException e) {
                 fail("the rejection was replaced by " + e);
             }
+        }
+    }
+
+    /**
+     * RFC 9849 6.1.7 has the client finish the handshake and only then abort with "ech_required",
+     * before any application data. That matters beyond conformance: a browser sends its Finished
+     * too, so a client that walked away at CertificateVerify would be telling every server that
+     * rejects ECH that it is not the browser it claims to be.
+     * <p>
+     * Measured against this server: four records go out when the Finished is sent, three when the
+     * handshake is abandoned at CertificateVerify, the difference being one 58 byte record.
+     * <p>
+     * The listener must stay silent, though. The abort stops short of completeHandshake precisely
+     * so that nothing announces success for a connection that is about to die - the event would
+     * arrive on its own thread, racing the exception, carrying a session whose certificate belongs
+     * to the public_name rather than to the host the caller asked for.
+     */
+    public void testTheFinishedIsSentButNoCompletionIsAnnounced() throws Exception {
+        byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance().getEchConfigList(HOST);
+        assertNotNull(HOST + " should publish an ECHConfigList", echConfigList);
+        final byte[] corrupted = corruptPublicKey(echConfigList);
+
+        ImpersonatorApi api = ImpersonatorFactory.macChrome();
+        api.setEchConfigProvider(host -> corrupted);
+        SSLContext context = api.newSSLContext(null, null);
+
+        final CountDownLatch completed = new CountDownLatch(1);
+        CountingSocket plain = new CountingSocket(HOST, 443);
+        try (Socket owned = plain;
+             SSLSocket socket = (SSLSocket) context.getSocketFactory().createSocket(plain, HOST, 443, true)) {
+            socket.addHandshakeCompletedListener(event -> completed.countDown());
+
+            try {
+                socket.startHandshake();
+                fail("expected the server to reject ECH");
+            } catch (TlsEchRejectedException expected) {
+                assertTrue("the Finished must go out before the rejection; three records means it did not, got "
+                        + plain.records, plain.records > 3);
+                assertFalse("a connection that is being abandoned must not be announced as complete",
+                        completed.await(2, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    /** Counts the records written to the wire, which is how the Finished above is seen from here. */
+    private static class CountingSocket extends Socket {
+        int records;
+        int bytes;
+
+        CountingSocket(String host, int port) throws IOException {
+            super(host, port);
+        }
+
+        @Override
+        public java.io.OutputStream getOutputStream() throws IOException {
+            final java.io.OutputStream out = super.getOutputStream();
+            return new java.io.OutputStream() {
+                @Override
+                public void write(int b) throws IOException {
+                    out.write(b);
+                }
+
+                @Override
+                public void write(byte[] b, int off, int len) throws IOException {
+                    records++;
+                    bytes += len;
+                    out.write(b, off, len);
+                }
+
+                @Override
+                public void flush() throws IOException {
+                    out.flush();
+                }
+            };
         }
     }
 
