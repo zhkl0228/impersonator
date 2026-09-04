@@ -35,7 +35,11 @@ abstract class SSLSessionUtil
                 if (null != methods)
                 {
                     String className;
-                    if (ReflectionUtil.hasMethod(methods, "getRequestedServerNames"))
+                    if (ReflectionUtil.hasMethod(methods, "getStatusResponses"))
+                    {
+                        className = "org.bouncycastle.jsse.provider.ExportSSLSession_9";
+                    }
+                    else if (ReflectionUtil.hasMethod(methods, "getRequestedServerNames"))
                     {
                         className = "org.bouncycastle.jsse.provider.ExportSSLSession_8";
                     }

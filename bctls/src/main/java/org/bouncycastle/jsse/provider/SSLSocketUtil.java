@@ -18,7 +18,7 @@ import org.bouncycastle.jsse.BCSSLSocket;
 
 abstract class SSLSocketUtil
 {
-    private static AtomicInteger threadNumber = new AtomicInteger();
+    private static final AtomicInteger threadNumber = new AtomicInteger();
 
     private static final Method getHandshakeSession;
     private static final Method getSSLParameters;

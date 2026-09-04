@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.github.zhkl0228</groupId>
         <artifactId>impersonator</artifactId>
-        <version>1.4.0</version>
+        <version>1.4.1</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <name>okhttp</name>
@@ -117,7 +117,7 @@
         <dependency>
             <groupId>com.github.zhkl0228</groupId>
             <artifactId>impersonator-bctls</artifactId>
-            <version>1.4.0</version>
+            <version>1.4.1</version>
         </dependency>
         <dependency>
             <groupId>com.squareup.okio</groupId>
