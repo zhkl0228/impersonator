@@ -61,6 +61,20 @@ class ImpersonateTlsClientProtocol extends TlsClientProtocol {
         for(int supportedGroup : supportedGroups) {
             if(!clientAgreements.containsKey(supportedGroup)) {
                 collectKeyShare(clientContext, supportedGroup, clientAgreements, newClientShares);
+                if (!clientAgreements.containsKey(supportedGroup)) {
+                    /*
+                     * The crypto silently produces nothing for a group it cannot do, and the profile
+                     * writes the supported_groups extension itself, so the ClientHello would go out
+                     * advertising a group with no key share behind it. That is not what the browser
+                     * sends, and a server preferring the group asks for it in a HelloRetryRequest,
+                     * which is a long way from the cause. The usual reason is another security
+                     * provider answering for the algorithm ahead of BouncyCastle.
+                     */
+                    throw new TlsFatalAlert(AlertDescription.internal_error,
+                            "no key share could be produced for "
+                                    + org.bouncycastle.tls.NamedGroup.getText(supportedGroup)
+                                    + ", which the impersonated browser offers one for");
+                }
             }
         }
 

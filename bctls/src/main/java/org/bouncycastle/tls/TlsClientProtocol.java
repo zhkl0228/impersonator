@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Vector;
@@ -993,7 +994,17 @@ public class TlsClientProtocol
         if (!TlsUtils.isValidKeyShareSelection(server_version, securityParameters.getClientSupportedGroups(),
             clientAgreements, selectedGroup))
         {
-            throw new TlsFatalAlert(AlertDescription.illegal_parameter, "invalid key_share selected");
+            /*
+             * Which of the four conditions failed matters: "already offered" means the server did not
+             * accept a key share we thought we sent, which points at the share rather than at the
+             * server, and "not offered" points at supported_groups. Saying only that it was invalid
+             * leaves no way to tell those apart.
+             */
+            throw new TlsFatalAlert(AlertDescription.illegal_parameter,
+                "invalid key_share selected: " + NamedGroup.getText(selectedGroup)
+                    + "; supported_groups=" + describeNamedGroups(securityParameters.getClientSupportedGroups())
+                    + " key_share=" + describeKeyShareGroups(clientAgreements)
+                    + " negotiatedVersion=" + server_version);
         }
 
         final byte[] cookie = TlsExtensionsUtils.getCookieExtension(extensions);
@@ -2172,6 +2183,38 @@ public class TlsClientProtocol
 
         byte[] outer = echClient.getOuterHandshakeMessage();
         writeHandshakeMessage(outer, 0, outer.length);
+    }
+
+    private static String describeNamedGroups(int[] namedGroups)
+    {
+        if (null == namedGroups)
+        {
+            return "<none>";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < namedGroups.length; ++i)
+        {
+            if (i > 0)
+            {
+                sb.append(", ");
+            }
+            sb.append(NamedGroup.getText(namedGroups[i]));
+        }
+        return sb.append(']').toString();
+    }
+
+    private static String describeKeyShareGroups(Hashtable clientAgreements)
+    {
+        StringBuilder sb = new StringBuilder("[");
+        for (Enumeration e = clientAgreements.keys(); e.hasMoreElements();)
+        {
+            if (sb.length() > 1)
+            {
+                sb.append(", ");
+            }
+            sb.append(NamedGroup.getText(((Integer)e.nextElement()).intValue()));
+        }
+        return sb.append(']').toString();
     }
 
     /**

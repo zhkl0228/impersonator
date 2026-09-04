@@ -25,6 +25,7 @@ import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.util.ArrayList;
@@ -40,11 +41,24 @@ import java.util.concurrent.ThreadLocalRandom;
 public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorApi {
 
     static {
-        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-            Security.addProvider(new BouncyCastleProvider());
+        Provider bc = Security.getProvider(BouncyCastleProvider.PROVIDER_NAME);
+        if (bc == null) {
+            bc = new BouncyCastleProvider();
+            Security.addProvider(bc);
         }
         if(Security.getProvider(BouncyCastleJsseProvider.PROVIDER_NAME) == null) {
-            Security.addProvider(new BouncyCastleJsseProvider());
+            /*
+             * Pinned to BouncyCastle rather than left to search the provider list. Providers are
+             * appended, so the JDK's own come first, and from Java 24 one of them answers for
+             * ML-KEM. BouncyCastle then hands its own MLKEMParameterSpec to a foreign
+             * KeyPairGenerator, which rejects it, and concludes it cannot do X25519MLKEM768 - while
+             * the profile writes the supported_groups extension itself and keeps advertising the
+             * group. The ClientHello then offers a group it has no key share for, which is not what
+             * the browser sends and makes any server that prefers it ask for one in a
+             * HelloRetryRequest. Pinning keeps the handshake the same on every JDK, which is the
+             * whole point of impersonating one browser.
+             */
+            Security.addProvider(new BouncyCastleJsseProvider(bc));
         }
     }
 
