@@ -322,8 +322,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      * @param retryConfigs the {@code retry_configs} the server published, or null if it published
      *                     none, which means Encrypted Client Hello is to be dropped for this host.
      * @throws IOException if the server offered nothing this library can use, naming every config
-     *                     it sent. Retrying would be pointless, and the configs are worth reporting
-     *                     rather than silently discarding.
+     *                     it sent. A browser would drop ECH here and load the page over a plaintext
+     *                     server name; this deliberately does not. Callers are impersonating a
+     *                     browser precisely to control what the server name reveals, so quietly
+     *                     giving that up is worse for them than failing, and being loud about it is
+     *                     the only way the unsupported algorithms ever get implemented.
      */
     @Override
     public void onEchRejected(String host, byte[] retryConfigs) throws IOException {

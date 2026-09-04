@@ -6,6 +6,7 @@ import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.tls.crypto.TlsStreamSigner;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.Integers;
+import org.bouncycastle.util.Strings;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -1602,6 +1603,22 @@ public class TlsClientProtocol
              * certificate for the public_name is verified, and the abort happens there.
              */
             this.echRetryConfigs = readEchRetryConfigs();
+
+            /*
+             * From here this is the ClientHelloOuter's connection, and the name it asked for was the
+             * ECHConfig's public_name; the caller's own name went out encrypted and the server never
+             * saw it. Anything checking the peer against the requested name has to be told that, or
+             * it holds a certificate that was never meant to carry the caller's name against exactly
+             * that name. JSSE endpoint identification is the one that matters: it runs inside
+             * handleServerCertificate, so it would fail before this connection ever reached the
+             * point of reporting the rejection, and the retry_configs would be buried behind a
+             * certificate error with nothing left to recover from. Reporting the public_name instead
+             * is not a way around the check, it is the check RFC 9849 6.1.6 asks for.
+             */
+            Vector outerServerNames = new Vector(1);
+            outerServerNames.addElement(new ServerName(NameType.host_name,
+                Strings.toByteArray(echClient.getConfig().getPublicName())));
+            tlsClientContext.getSecurityParametersHandshake().clientServerNames = outerServerNames;
         }
 
         final SecurityParameters securityParameters = tlsClientContext.getSecurityParametersHandshake();
