@@ -18,7 +18,7 @@ TLS/JA3/JA4 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-bctls</artifactId>
-    <version>1.3.1</version>
+    <version>1.3.2</version>
 </dependency>
 ```
 
@@ -27,7 +27,7 @@ TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-okhttp</artifactId>
-    <version>1.3.1</version>
+    <version>1.3.2</version>
 </dependency>
 ```
 - [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/okhttp/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
