@@ -81,7 +81,8 @@ public class EchTest extends TestCase {
     public void testNoRetryConfigsDisablesEchForTheHost() throws Exception {
         String body = trace(api -> {
             try {
-                api.onEchRejected("crypto.cloudflare.com", null);
+                // onEchRejected is on the class, not on ImpersonatorApi.
+                ((ImpersonatorFactory) api).onEchRejected("crypto.cloudflare.com", null);
             } catch (IOException e) {
                 throw new IllegalStateException(e);
             }
@@ -104,7 +105,8 @@ public class EchTest extends TestCase {
         unknownKem[2 + 4 + 2] = (byte) 0xff;
 
         try {
-            ImpersonatorFactory.macChrome().onEchRejected("crypto.cloudflare.com", unknownKem);
+            ((ImpersonatorFactory) ImpersonatorFactory.macChrome())
+                    .onEchRejected("crypto.cloudflare.com", unknownKem);
             fail("expected the unusable retry_configs to be refused");
         } catch (IOException e) {
             assertTrue(String.valueOf(e.getMessage()),
@@ -144,10 +146,13 @@ public class EchTest extends TestCase {
 
     /**
      * Safari does not do ECH, so its profile sends no ECH extension at all. Installing a config
-     * lookup must be refused rather than adding an extension the real browser never sends.
+     * lookup must be refused rather than adding an extension the real browser never sends, and the
+     * profile has to say so beforehand, so that generic setup code does not have to carry a list of
+     * which browsers do ECH.
      */
     public void testEchOnANonEchProfileIsRefused() {
         ImpersonatorApi api = ImpersonatorFactory.macSafari();
+        assertFalse(api.isEchSupported());
         try {
             api.setEchConfigProvider(host -> new byte[0]);
             fail("expected the provider to be refused");
@@ -155,6 +160,14 @@ public class EchTest extends TestCase {
             assertTrue(String.valueOf(e.getMessage()),
                     String.valueOf(e.getMessage()).contains("does not support Encrypted Client Hello"));
         }
+    }
+
+    /** The profiles that do ECH say so, which is what makes the guard above usable. */
+    public void testTheEchProfilesReportThatTheySupportIt() {
+        assertTrue(ImpersonatorFactory.macChrome().isEchSupported());
+        assertTrue(ImpersonatorFactory.android().isEchSupported());
+        assertTrue(ImpersonatorFactory.macFirefox().isEchSupported());
+        assertFalse(ImpersonatorFactory.ios().isEchSupported());
     }
 
     /**

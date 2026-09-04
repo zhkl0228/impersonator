@@ -40,7 +40,7 @@ public class EchConfigList
                 + " bytes but " + input.available() + " remain: " + Hex.toHexString(echConfigList));
         }
 
-        Vector<EchConfig> result = new Vector<EchConfig>();
+        Vector<EchConfig> result = new Vector<>();
         while (input.available() > 0)
         {
             int version = TlsUtils.readUint16(input);
@@ -79,7 +79,7 @@ public class EchConfigList
             }
         }
 
-        StringBuffer sb = new StringBuffer("ECHConfigList offers no usable ECHConfig; this implementation supports"
+        StringBuilder sb = new StringBuilder("ECHConfigList offers no usable ECHConfig; this implementation supports"
             + " version 0x" + EchConfig.hex4(EchConfig.VERSION_DRAFT_13) + " with kem_id=0x"
             + EchConfig.hex4(EchConfig.KEM_DHKEM_X25519_HKDF_SHA256) + " kdf_id=0x"
             + EchConfig.hex4(EchConfig.KDF_HKDF_SHA256) + " aead_id=0x"

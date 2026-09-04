@@ -862,12 +862,24 @@ public class TlsClientProtocol
     {
         if (null != echClient)
         {
+            /*
+             * No capture of this exists to build against, and it is close to unreachable: a real
+             * ECHConfigList only comes from a host that publishes one, and a HelloRetryRequest only
+             * comes from a server that accepts none of the offered key shares, which for these
+             * profiles means rejecting x25519. So this reports everything needed to implement it if
+             * a server ever does both, rather than guessing at RFC 9849 section 6.1 unverified.
+             * Offering no ECHConfigList for the host is the way past it in the meantime; the GREASE
+             * ECH takes no part in this, since it creates no EchClient.
+             */
             throw new TlsFatalAlert(AlertDescription.internal_error,
                 "HelloRetryRequest with Encrypted Client Hello is not implemented; the second ClientHello must reuse"
                     + " the HPKE context with an empty enc, and the HelloRetryRequest carries its own accept"
-                    + " confirmation. HelloRetryRequest was: "
+                    + " confirmation, computed with its own label. Offer no ECHConfigList for this host to get past"
+                    + " it. HelloRetryRequest random="
                     + org.bouncycastle.util.encoders.Hex.toHexString(helloRetryRequest.getRandom())
-                    + " extensions=" + helloRetryRequest.getExtensions());
+                    + " cipherSuite=" + helloRetryRequest.getCipherSuite()
+                    + " extensions=" + describeExtensions(helloRetryRequest.getExtensions())
+                    + "; the ClientHelloOuter offered " + echClient.getConfig().describe());
         }
 
         final ProtocolVersion legacy_record_version = ProtocolVersion.TLSv12;
@@ -2160,6 +2172,25 @@ public class TlsClientProtocol
 
         byte[] outer = echClient.getOuterHandshakeMessage();
         writeHandshakeMessage(outer, 0, outer.length);
+    }
+
+    /**
+     * A Map of byte arrays renders as {@code {51=[B@6d06d69c}}, which is worth nothing in an
+     * exception whose whole job is to hand back a sample of what was received.
+     */
+    private static String describeExtensions(Map<Integer, byte[]> extensions)
+    {
+        StringBuilder sb = new StringBuilder("{");
+        for (Map.Entry<Integer, byte[]> entry : extensions.entrySet())
+        {
+            if (sb.length() > 1)
+            {
+                sb.append(", ");
+            }
+            sb.append(ExtensionType.getText(entry.getKey().intValue())).append('=')
+                .append(org.bouncycastle.util.encoders.Hex.toHexString(entry.getValue()));
+        }
+        return sb.append('}').toString();
     }
 
     /**

@@ -271,6 +271,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
 
     private EchConfigProvider echConfigProvider;
 
+    @Override
+    public boolean isEchSupported() {
+        return supportEch;
+    }
+
     /**
      * Replaces the DNS-over-HTTPS lookup installed for browsers that support ECH. Passing null
      * leaves only the GREASE ECH, which is what a browser sends when it has no ECHConfig.
@@ -315,6 +320,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      * connection to it offers that instead of the config the lookup produced. RFC 9849 section
      * 6.1.6.
      * <p>
+     * Clients built by {@code OkHttpClientFactory} call this and retry once by themselves. It is
+     * deliberately not on {@link ImpersonatorApi}: a caller driving the handshake some other way
+     * reaches it by casting the profile to {@code ImpersonatorFactory}, which is what
+     * {@code OkHttpClientFactory} demands of it anyway.
+     * <p>
      * Only pass configs from a {@link org.bouncycastle.tls.TlsEchRejectedException}: those were
      * read from a connection authenticated for the ECHConfig's public_name, which is what makes
      * them the server's own rather than an on-path attacker's choice.
@@ -328,7 +338,6 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      *                     giving that up is worse for them than failing, and being loud about it is
      *                     the only way the unsupported algorithms ever get implemented.
      */
-    @Override
     public void onEchRejected(String host, byte[] retryConfigs) throws IOException {
         if (null == host) {
             throw new NullPointerException("'host' cannot be null");

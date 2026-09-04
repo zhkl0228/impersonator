@@ -3,6 +3,7 @@ package org.bouncycastle.tls;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 import org.bouncycastle.util.encoders.Hex;
 
@@ -156,7 +157,7 @@ public class EchConfig
      */
     public String describe()
     {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         sb.append("config_id=0x").append(hex2(configId));
         sb.append(" kem_id=0x").append(hex4(kemId));
         sb.append(" public_key=").append(publicKey.length).append("B");
@@ -230,7 +231,7 @@ public class EchConfig
         checkExtensions(extensionsData, encoded);
 
         return new EchConfig(encoded, configId, kemId, publicKey, cipherSuites, maximumNameLength,
-            new String(publicNameData, "US-ASCII"));
+            new String(publicNameData, StandardCharsets.US_ASCII));
     }
 
     /**
