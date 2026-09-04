@@ -2,14 +2,19 @@ package org.bouncycastle.jsse.provider;
 
 import com.github.zhkl0228.impersonator.Impersonator;
 import org.bouncycastle.tls.AlertDescription;
+import org.bouncycastle.tls.AlertLevel;
 import org.bouncycastle.tls.Certificate;
 import org.bouncycastle.tls.TlsFatalAlert;
 
 import java.io.IOException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 class ImpersonateTlsClient extends ProvTlsClient {
+
+    private static final Logger LOG = Logger.getLogger(ImpersonateTlsClient.class.getName());
 
     private final int[] cipherSuites;
     private final Impersonator impersonator;
@@ -33,6 +38,27 @@ class ImpersonateTlsClient extends ProvTlsClient {
     @Override
     public byte[] getEchConfigList() {
         return impersonator.getEchConfigList(JsseUtils.stripTrailingDot(manager.getPeerHostSNI()));
+    }
+
+    /**
+     * A rejected Encrypted Client Hello is not a failure report; it is how the server hands over the
+     * retry_configs it wants next time, and a client built by {@code OkHttpClientFactory} acts on
+     * them and goes back by itself. {@link ProvTlsClient} logs every fatal alert at INFO with the
+     * cause's stack trace, which makes that recovery read like a crash, so this one alert drops to
+     * FINE. Every other alert keeps the level ProvTlsClient chose, and the exception still carries
+     * the whole story to whoever asked for the connection.
+     */
+    @Override
+    public void notifyAlertRaised(short alertLevel, short alertDescription, String message, Throwable cause) {
+        if (AlertLevel.fatal == alertLevel && AlertDescription.ech_required == alertDescription) {
+            if (LOG.isLoggable(Level.FINE)) {
+                String msg = JsseUtils.getAlertRaisedLogMessage(clientID, alertLevel, alertDescription);
+                LOG.log(Level.FINE, null == message ? msg : msg + ": " + message, cause);
+            }
+            return;
+        }
+
+        super.notifyAlertRaised(alertLevel, alertDescription, message, cause);
     }
 
     /**

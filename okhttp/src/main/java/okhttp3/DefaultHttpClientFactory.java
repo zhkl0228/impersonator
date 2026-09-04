@@ -2,6 +2,7 @@ package okhttp3;
 
 import com.github.zhkl0228.impersonator.ImpersonatorApi;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
+import org.bouncycastle.tls.TlsEchRejectedException;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +69,8 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
             builder.dns(dns);
         }
         builder.sslSocketFactory(api.newSSLContext(km, new TrustManager[]{trustManager}).getSocketFactory(), trustManager);
+        // Outermost, so that a retried request goes through the interceptors below it again.
+        builder.addInterceptor(new EchRetryInterceptor());
         builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? api.getUserAgent() : userAgent));
         // Only acts when a profile sent its own Accept-Encoding; otherwise okhttp already handled it.
         builder.addInterceptor(DecompressionInterceptor.DEFAULT);
@@ -104,6 +107,40 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
         @Override
         public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) {
             throw new UnsupportedOperationException();
+        }
+    }
+
+    /**
+     * RFC 9849 section 6.1.6. A server that rejects Encrypted Client Hello publishes the config it
+     * wants instead, so remember it and go back once. A browser does the same; without this the
+     * caller is handed an exception carrying configs it has no way to feed back in.
+     */
+    private class EchRetryInterceptor implements Interceptor {
+        /**
+         * Caught directly rather than off a cause chain: nothing between the handshake and here
+         * wraps it. ProvSSLSocketWrap.startHandshake has no catch at all, ConnectPlan only catches
+         * SSLException, and the route finders and RetryAndFollowUpInterceptor attach the failures
+         * they collect with addSuppressed and rethrow the original.
+         */
+        @NotNull
+        @Override
+        public Response intercept(@NotNull Chain chain) throws IOException {
+            Request request = chain.request();
+            try {
+                return chain.proceed(request);
+            } catch (TlsEchRejectedException e) {
+                RequestBody body = request.body();
+                if (body != null && body.isOneShot()) {
+                    // The handshake fails before the body is written, but there is nothing to gain
+                    // from finding out the hard way that it cannot be written twice.
+                    throw e;
+                }
+                log.debug("ech rejected by {}, retrying with its retry_configs", request.url().host());
+                api.onEchRejected(request.url().host(), e.getRetryConfigs());
+                // Deliberately not wrapped: exactly one retry, so a server that keeps rejecting is
+                // reported rather than looped on.
+                return chain.proceed(request);
+            }
         }
     }
 

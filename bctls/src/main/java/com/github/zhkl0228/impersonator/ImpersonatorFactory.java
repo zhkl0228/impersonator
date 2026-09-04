@@ -4,6 +4,7 @@ import okhttp3.Http2Connection;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
 import org.bouncycastle.tls.ClientHello;
+import org.bouncycastle.tls.EchConfigList;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.SignatureAndHashAlgorithm;
@@ -33,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Vector;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorApi {
@@ -282,10 +284,58 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         this.echConfigProvider = echConfigProvider;
     }
 
+    /**
+     * What the servers themselves told us to come back with, which outranks whatever the provider
+     * looks up: DNS is only how a client finds an ECHConfigList to begin with, and a server that
+     * rejected one has just said which one it wants instead.
+     */
+    private final Map<String, byte[]> echRetryConfigs = new ConcurrentHashMap<>();
+
+    /**
+     * Marks a host as one to stop offering ECH to. A real ECHConfigList is never empty, so this
+     * cannot collide with one, and the map itself cannot hold a null.
+     */
+    private static final byte[] ECH_DISABLED = new byte[0];
+
     @Override
     public byte[] getEchConfigList(String host) {
+        if (null == host) {
+            return null;
+        }
+        byte[] retryConfigs = echRetryConfigs.get(host);
+        if (null != retryConfigs) {
+            return ECH_DISABLED == retryConfigs ? null : retryConfigs;
+        }
         EchConfigProvider echConfigProvider = this.echConfigProvider;
-        return null == echConfigProvider || null == host ? null : echConfigProvider.getEchConfigList(host);
+        return null == echConfigProvider ? null : echConfigProvider.getEchConfigList(host);
+    }
+
+    /**
+     * Remembers what a server published when it rejected Encrypted Client Hello, so the next
+     * connection to it offers that instead of the config the lookup produced. RFC 9849 section
+     * 6.1.6.
+     * <p>
+     * Only pass configs from a {@link org.bouncycastle.tls.TlsEchRejectedException}: those were
+     * read from a connection authenticated for the ECHConfig's public_name, which is what makes
+     * them the server's own rather than an on-path attacker's choice.
+     *
+     * @param retryConfigs the {@code retry_configs} the server published, or null if it published
+     *                     none, which means Encrypted Client Hello is to be dropped for this host.
+     * @throws IOException if the server offered nothing this library can use, naming every config
+     *                     it sent. Retrying would be pointless, and the configs are worth reporting
+     *                     rather than silently discarding.
+     */
+    @Override
+    public void onEchRejected(String host, byte[] retryConfigs) throws IOException {
+        if (null == host) {
+            throw new NullPointerException("'host' cannot be null");
+        }
+        if (null == retryConfigs) {
+            echRetryConfigs.put(host, ECH_DISABLED);
+            return;
+        }
+        EchConfigList.select(retryConfigs);
+        echRetryConfigs.put(host, retryConfigs);
     }
 
     @Override

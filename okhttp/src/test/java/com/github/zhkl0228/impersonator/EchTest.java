@@ -6,14 +6,15 @@ import okhttp3.OkHttpClientFactory;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-import org.bouncycastle.tls.EchConfigList;
-import org.bouncycastle.tls.TlsEchRejectedException;
 
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class EchTest extends TestCase {
 
@@ -41,51 +42,88 @@ public class EchTest extends TestCase {
 
     /**
      * Offering a config the server has no key for makes it fall back to the ClientHelloOuter and
-     * publish retry_configs. This is the path where the transcript has to be rewound from the
-     * ClientHelloInner to the ClientHelloOuter, so the handshake gets far enough to decrypt
-     * EncryptedExtensions.
+     * publish retry_configs. RFC 9849 6.1.6 has the client come back with those, which the client
+     * built here does by itself, so the provider keeps handing out the broken config and the
+     * request still succeeds.
      * <p>
-     * RFC 9849 6.1.6 then requires the connection to be authenticated for the public_name before
-     * the retry_configs mean anything, so the recording trust manager below must have been handed
-     * the server's chain by the time the exception arrives. Aborting at EncryptedExtensions, which
-     * is where the retry_configs are read, would leave it untouched.
+     * That the retry reports {@code sni=encrypted} is what proves it used what the server
+     * published: the only other config in play is the broken one.
+     * <p>
+     * The chains are the other half. The rejected handshake went to the ECHConfig's public_name, so
+     * its certificate is Cloudflare's client-facing one; seeing it at all means the rejection was
+     * reported after the certificate arrived rather than at EncryptedExtensions, where the
+     * retry_configs are read but nothing has been authenticated yet.
      */
-    public void testEchRejectedIsReportedOnlyAfterThePublicNameIsAuthenticated() throws Exception {
+    public void testARejectedEchIsRetriedWithWhatTheServerPublished() throws Exception {
         byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance()
                 .getEchConfigList("crypto.cloudflare.com");
         assertNotNull("crypto.cloudflare.com should publish an ECHConfigList", echConfigList);
         final byte[] corrupted = corruptPublicKey(echConfigList);
         RecordingTrustManager trustManager = new RecordingTrustManager();
 
-        try {
-            String body = trace(api -> api.setEchConfigProvider(host -> corrupted), trustManager);
-            fail("expected the server to reject ECH, got:\n" + body);
-        } catch (IOException e) {
-            // TlsFatalAlert is an IOException, so this arrives unwrapped rather than as an SSLException.
-            TlsEchRejectedException rejected = findEchRejected(e);
-            assertNotNull("expected a TlsEchRejectedException, got " + e, rejected);
-            assertEquals("cloudflare-ech.com", rejected.getPublicName());
-            byte[] retryConfigs = rejected.getRetryConfigs();
-            assertNotNull("the server should publish retry_configs", retryConfigs);
-            // What comes back must be a usable ECHConfigList for the same client-facing server.
-            assertEquals("cloudflare-ech.com", EchConfigList.select(retryConfigs).getPublicName());
+        String body = trace(api -> api.setEchConfigProvider(host -> corrupted), trustManager);
+        assertTrue("expected the retry to encrypt the sni, got:\n" + body, body.contains("sni=encrypted"));
 
-            X509Certificate[] chain = trustManager.chain;
-            assertNotNull("the handshake must reach the server certificate before reporting the rejection", chain);
-            // The name the retry_configs were authenticated as, which is the ClientHelloOuter's SNI.
-            assertTrue("the certificate should name cloudflare-ech.com, got " + chain[0].getSubjectX500Principal(),
-                    String.valueOf(chain[0].getSubjectAlternativeNames()).contains("cloudflare-ech.com"));
-        }
+        List<X509Certificate[]> chains = trustManager.chains;
+        assertTrue("expected a rejected handshake and then a retry, got " + chains.size() + " handshakes",
+                chains.size() >= 2);
+        assertTrue("the rejected handshake must have reached the certificate for cloudflare-ech.com",
+                namesOf(chains.get(0)).contains("cloudflare-ech.com"));
+        // The retry had its ECH accepted, so the certificate is the one for the encrypted inner name.
+        assertTrue("the retry should be served the certificate for the real host",
+                namesOf(chains.get(chains.size() - 1)).contains("crypto.cloudflare.com"));
     }
 
     /**
-     * Notes the chain the handshake presented and then judges it exactly as an unconfigured client
-     * would. Recording it is the only way to see from outside that the rejection was reported after
-     * the certificate arrived rather than at EncryptedExtensions, where the retry_configs are read.
+     * A server that publishes no retry_configs is saying to stop offering ECH to it, so the next
+     * connection carries a plaintext server name again.
+     */
+    public void testNoRetryConfigsDisablesEchForTheHost() throws Exception {
+        String body = trace(api -> {
+            try {
+                api.onEchRejected("crypto.cloudflare.com", null);
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+        assertTrue("expected a plaintext sni, got:\n" + body, body.contains("sni=plaintext"));
+    }
+
+    /**
+     * Configs naming algorithms this library does not implement are refused rather than remembered.
+     * Storing them would spend the next connection to the host on a rejection we could have seen
+     * coming, and would bury the fact that the server moved on to something we do not support.
+     */
+    public void testUnusableRetryConfigsAreRefused() {
+        byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance()
+                .getEchConfigList("crypto.cloudflare.com");
+        assertNotNull("crypto.cloudflare.com should publish an ECHConfigList", echConfigList);
+        byte[] unknownKem = echConfigList.clone();
+        // list(2) version(2) length(2) config_id(1) then the kem_id.
+        unknownKem[2 + 4 + 1] = (byte) 0xff;
+        unknownKem[2 + 4 + 2] = (byte) 0xff;
+
+        try {
+            ImpersonatorFactory.macChrome().onEchRejected("crypto.cloudflare.com", unknownKem);
+            fail("expected the unusable retry_configs to be refused");
+        } catch (IOException e) {
+            assertTrue(String.valueOf(e.getMessage()),
+                    String.valueOf(e.getMessage()).contains("no usable ECHConfig"));
+        }
+    }
+
+    private static String namesOf(X509Certificate[] chain) throws CertificateParsingException {
+        return String.valueOf(chain[0].getSubjectAlternativeNames());
+    }
+
+    /**
+     * Notes every chain the handshakes presented and then judges each exactly as an unconfigured
+     * client would. Recording them is the only way to see from outside how far a handshake got
+     * before it was abandoned.
      */
     private static class RecordingTrustManager implements X509TrustManager {
         private final X509TrustManager delegate = ImpersonatorFactory.DEFAULT_TRUST_MANAGER;
-        private X509Certificate[] chain;
+        private final List<X509Certificate[]> chains = new CopyOnWriteArrayList<>();
 
         @Override
         public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
@@ -94,7 +132,7 @@ public class EchTest extends TestCase {
 
         @Override
         public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-            this.chain = chain;
+            chains.add(chain);
             delegate.checkServerTrusted(chain, authType);
         }
 
@@ -130,15 +168,6 @@ public class EchTest extends TestCase {
         byte[] corrupted = echConfigList.clone();
         corrupted[2 + 4 + 1 + 2 + 2] ^= 0x01;
         return corrupted;
-    }
-
-    private static TlsEchRejectedException findEchRejected(Throwable t) {
-        for (; t != null; t = t.getCause()) {
-            if (t instanceof TlsEchRejectedException) {
-                return (TlsEchRejectedException) t;
-            }
-        }
-        return null;
     }
 
     private interface ApiCustomizer {

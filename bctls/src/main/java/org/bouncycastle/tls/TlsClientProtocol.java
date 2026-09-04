@@ -26,10 +26,11 @@ public class TlsClientProtocol
     protected ClientHello clientHello = null;
     EchClient echClient = null;
     /**
-     * Built as soon as EncryptedExtensions reveals the rejection, but only thrown once the server's
-     * certificate has been authenticated for the public_name. RFC 9849 section 6.1.6.
+     * Read as soon as EncryptedExtensions reveals a rejection, since that is the only message
+     * carrying them, but not reported until the server's certificate has been authenticated for the
+     * public_name. Null once read means the server published none. RFC 9849 section 6.1.6.
      */
-    TlsEchRejectedException echRejected = null;
+    byte[] echRetryConfigs = null;
     protected TlsKeyExchange keyExchange = null;
     protected TlsAuthentication authentication = null;
 
@@ -1600,7 +1601,7 @@ public class TlsClientProtocol
              * and chosen them. The handshake runs on against the ClientHelloOuter until the
              * certificate for the public_name is verified, and the abort happens there.
              */
-            this.echRejected = createEchRejected();
+            this.echRetryConfigs = readEchRetryConfigs();
         }
 
         final SecurityParameters securityParameters = tlsClientContext.getSecurityParametersHandshake();
@@ -1733,7 +1734,7 @@ public class TlsClientProtocol
 
         TlsUtils.verify13CertificateVerifyServer(tlsClientContext, handshakeHash, certificateVerify);
 
-        if (null != echRejected)
+        if (null != echClient && !echClient.isAccepted())
         {
             /*
              * RFC 9849 6.1.6. The chain was accepted by handleServerCertificate and the signature
@@ -1743,14 +1744,16 @@ public class TlsClientProtocol
              */
             tlsClient.checkEchPublicName(echClient.getConfig().getPublicName());
 
-            throw echRejected;
+            // Built here rather than where the configs were read, so that the stack trace names the
+            // message the handshake was actually abandoned on.
+            throw createEchRejected();
         }
     }
 
     protected void receive13ServerFinished(ByteArrayInputStream buf)
         throws IOException
     {
-        if (null != echRejected)
+        if (null != echClient && !echClient.isAccepted())
         {
             /*
              * Reaching Finished with the rejection still pending means no Certificate was sent, so
@@ -1761,7 +1764,9 @@ public class TlsClientProtocol
             throw new TlsFatalAlert(AlertDescription.ech_required,
                 "Encrypted Client Hello was rejected on a handshake that sent no server certificate, so the"
                     + " retry_configs could not be authenticated for "
-                    + echClient.getConfig().getPublicName() + ". " + echRejected.getMessage());
+                    + echClient.getConfig().getPublicName() + ". retry_configs="
+                    + (null == echRetryConfigs ? "<none>"
+                        : org.bouncycastle.util.encoders.Hex.toHexString(echRetryConfigs)));
         }
 
         process13FinishedMessage(buf);
@@ -2141,28 +2146,40 @@ public class TlsClientProtocol
     }
 
     /**
+     * RFC 9849 section 6.1.6. EncryptedExtensions is the only message that carries the server's
+     * retry_configs, so they are read as it arrives even though they are not reported until the
+     * connection has been authenticated.
+     *
+     * @return the raw ECHConfigList, or null if the server published none.
+     */
+    private byte[] readEchRetryConfigs() throws IOException
+    {
+        byte[] extensionData = TlsUtils.getExtensionData(serverExtensions,
+            TlsExtensionsUtils.EXT_encrypted_client_hello);
+
+        return null == extensionData ? null : EchClientHello.parseRetryConfigs(extensionData);
+    }
+
+    /**
      * RFC 9849 section 6.1.6. The server rejected Encrypted Client Hello, so the real server name
      * went out in the clear; report that, with the retry_configs the server published.
      */
-    private TlsEchRejectedException createEchRejected() throws IOException
+    private TlsEchRejectedException createEchRejected()
     {
         String publicName = echClient.getConfig().getPublicName();
 
-        byte[] extensionData = TlsUtils.getExtensionData(serverExtensions,
-            TlsExtensionsUtils.EXT_encrypted_client_hello);
-        if (null == extensionData)
+        if (null == echRetryConfigs)
         {
             return new TlsEchRejectedException(publicName, null,
                 "Encrypted Client Hello was rejected by the server and no retry_configs were sent, so it should be"
                     + " disabled for this server. The ClientHelloOuter offered " + echClient.getConfig().describe());
         }
 
-        byte[] retryConfigs = EchClientHello.parseRetryConfigs(extensionData);
-
-        return new TlsEchRejectedException(publicName, retryConfigs,
-            "Encrypted Client Hello was rejected by the server; retry with the published retry_configs once the"
-                + " certificate for " + publicName + " has been verified. retry_configs="
-                + org.bouncycastle.util.encoders.Hex.toHexString(retryConfigs));
+        return new TlsEchRejectedException(publicName, echRetryConfigs,
+            "Encrypted Client Hello was rejected by the server. The certificate presented for " + publicName
+                + " was accepted, so these retry_configs are the server's own and can be offered on the next"
+                + " connection. retry_configs="
+                + org.bouncycastle.util.encoders.Hex.toHexString(echRetryConfigs));
     }
 
     /**
