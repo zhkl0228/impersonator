@@ -5,7 +5,6 @@ import org.bouncycastle.tls.CertificateCompressionAlgorithm;
 import org.bouncycastle.tls.ExtensionType;
 import org.bouncycastle.tls.KeyShareEntry;
 import org.bouncycastle.tls.NamedGroup;
-import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.PskKeyExchangeMode;
 import org.bouncycastle.tls.SignatureAndHashAlgorithm;
 import org.bouncycastle.tls.SignatureScheme;

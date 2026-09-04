@@ -5,7 +5,7 @@ public class IOSTest extends SSLProviderTest {
     public void testBrowserLeaks() throws Exception {
         doTestBrowserLeaks("771,4866-4867-4865-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-5-10-11-13-16-18-23-27-43-45-51-65281,4588-29-23-24-25,0",
                 "771,4866-4867-4865-49196-49195-52393-49200-49199-52392-49162-49161-49172-49171-157-156-53-47-49160-49170-10,0-23-65281-10-11-16-5-13-18-51-45-43-27,4588-29-23-24-25,0",
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Mobile/15E148 Safari/604.1",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1",
                 "2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p");
     }
 
@@ -16,7 +16,10 @@ public class IOSTest extends SSLProviderTest {
     public void testScrapFlyHttp2() throws Exception {
         doTestScrapFlyHttp2(
                 "2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p",
-                "Accept,Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,User-Agent");
+                "Accept,Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,User-Agent",
+                // iOS Safari 26.6's own order, identical to macOS Safari's.
+                ":method,:scheme,:authority,:path,sec-fetch-dest,user-agent,accept,sec-fetch-site,"
+                        + "sec-fetch-mode,accept-language,priority,accept-encoding");
     }
 
     public void testBrowserScan() throws Exception {
