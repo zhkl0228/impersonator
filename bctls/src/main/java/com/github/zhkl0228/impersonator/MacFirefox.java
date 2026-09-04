@@ -25,6 +25,7 @@ class MacFirefox extends ImpersonatorFactory {
         // Insertion order is the order they go on the wire, so it follows Firefox's own.
         headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
         headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
+        headers.put("Accept-Encoding", "gzip, deflate, br, zstd");
         headers.put("Upgrade-Insecure-Requests", "1");
         headers.put("Sec-Fetch-Dest", "document");
         headers.put("Sec-Fetch-Mode", "navigate");

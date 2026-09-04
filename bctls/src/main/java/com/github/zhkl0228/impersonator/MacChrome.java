@@ -27,16 +27,28 @@ class MacChrome extends ImpersonatorFactory {
     @Override
     public void fillRequestHeaders(Map<String, String> headers) {
         Locale locale = Locale.getDefault();
-        headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
-        headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
+        /*
+         * Insertion order is the order they go on the wire. Chrome puts the client hints first and
+         * the user agent only after Upgrade-Insecure-Requests, so it has to be taken out and put
+         * back rather than left where the interceptor placed it.
+         */
+        String userAgent = headers.remove("User-Agent");
         headers.put("Sec-Ch-Ua", "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"");
         headers.put("Sec-Ch-Ua-Mobile", "?0");
         headers.put("Sec-Ch-Ua-Platform", "\"macOS\"");
-        headers.put("Sec-Fetch-Dest", "document");
-        headers.put("Sec-Fetch-Mode", "navigate");
-        headers.put("Sec-Fetch-Site", "none");
-        headers.put("Sec-Fetch-User", "?1");
         headers.put("Upgrade-Insecure-Requests", "1");
+        if (userAgent != null) {
+            headers.put("User-Agent", userAgent);
+        }
+        headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
+        // services/network/sec_header_helpers.cc sets these as Site, Mode, User, Dest.
+        headers.put("Sec-Fetch-Site", "none");
+        headers.put("Sec-Fetch-Mode", "navigate");
+        headers.put("Sec-Fetch-User", "?1");
+        headers.put("Sec-Fetch-Dest", "document");
+        headers.put("Accept-Encoding", "gzip, deflate, br, zstd");
+        headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
+        headers.put("Priority", "u=0, i");
     }
 
     static void configChromeHttp2Settings(Http2Connection http2Connection) {

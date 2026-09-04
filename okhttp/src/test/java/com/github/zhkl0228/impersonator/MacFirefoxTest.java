@@ -50,11 +50,10 @@ public class MacFirefoxTest extends SSLProviderTest {
     public void testScrapFlyHttp2() throws Exception {
         doTestScrapFlyHttp2(AKAMAI,
                 "Accept,Accept-Encoding,Accept-Language,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-Fetch-User,Upgrade-Insecure-Requests,User-Agent",
-                // Firefox 155's own order, except that okhttp appends accept-encoding last where
-                // Firefox sends it right after accept-language.
+                // Firefox 155's own order, exactly.
                 ":method,:path,:authority,:scheme,user-agent,accept,accept-language,"
-                        + "upgrade-insecure-requests,sec-fetch-dest,sec-fetch-mode,sec-fetch-site,"
-                        + "sec-fetch-user,priority,te,accept-encoding");
+                        + "accept-encoding,upgrade-insecure-requests,sec-fetch-dest,sec-fetch-mode,"
+                        + "sec-fetch-site,sec-fetch-user,priority,te");
     }
 
     public void testBrowserScan() throws Exception {

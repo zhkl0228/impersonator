@@ -74,6 +74,8 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
         }
         builder.sslSocketFactory(api.newSSLContext(km, new TrustManager[]{trustManager}).getSocketFactory(), trustManager);
         builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? api.getUserAgent() : userAgent));
+        // Only acts when a profile sent its own Accept-Encoding; otherwise okhttp already handled it.
+        builder.addInterceptor(DecompressionInterceptor.DEFAULT);
         builder.eventListener(new EventListener() {
             @Override
             public void onHttp2ConnectionInit(@NotNull Http2Connection http2Connection) {

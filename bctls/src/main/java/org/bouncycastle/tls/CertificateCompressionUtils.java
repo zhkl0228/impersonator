@@ -85,30 +85,6 @@ class CertificateCompressionUtils
 
     private static InputStream createZstdInputStream(byte[] compressed) throws IOException
     {
-        // zstd-jni is an optional dependency (it bundles native binaries), so load it reflectively.
-        try
-        {
-            Class<?> clazz = Class.forName("com.github.luben.zstd.ZstdInputStream");
-            return (InputStream)clazz.getConstructor(InputStream.class)
-                .newInstance(new ByteArrayInputStream(compressed));
-        }
-        catch (ClassNotFoundException e)
-        {
-            throw new TlsFatalAlert(AlertDescription.internal_error,
-                "Zstd certificate decompression requires the com.github.luben:zstd-jni dependency");
-        }
-        catch (java.lang.reflect.InvocationTargetException e)
-        {
-            Throwable cause = e.getCause();
-            if (cause instanceof IOException)
-            {
-                throw (IOException)cause;
-            }
-            throw new TlsFatalAlert(AlertDescription.internal_error, cause != null ? cause : e);
-        }
-        catch (ReflectiveOperationException e)
-        {
-            throw new TlsFatalAlert(AlertDescription.internal_error, e);
-        }
+        return new io.airlift.compress.zstd.ZstdInputStream(new ByteArrayInputStream(compressed));
     }
 }

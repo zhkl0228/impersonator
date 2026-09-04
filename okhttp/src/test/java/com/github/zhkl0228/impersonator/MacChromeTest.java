@@ -49,7 +49,11 @@ public class MacChromeTest extends SSLProviderTest {
 
     public void testScrapFlyHttp2() throws Exception {
         doTestScrapFlyHttp2(null,
-                "Accept,Accept-Encoding,Accept-Language,Sec-Ch-Ua,Sec-Ch-Ua-Mobile,Sec-Ch-Ua-Platform,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-Fetch-User,Upgrade-Insecure-Requests,User-Agent");
+                "Accept,Accept-Encoding,Accept-Language,Sec-Ch-Ua,Sec-Ch-Ua-Mobile,Sec-Ch-Ua-Platform,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Sec-Fetch-User,Upgrade-Insecure-Requests,User-Agent",
+                // Chrome 152's own order, from an address bar navigation.
+                ":method,:authority,:scheme,:path,sec-ch-ua,sec-ch-ua-mobile,sec-ch-ua-platform,"
+                        + "upgrade-insecure-requests,user-agent,accept,sec-fetch-site,sec-fetch-mode,"
+                        + "sec-fetch-user,sec-fetch-dest,accept-encoding,accept-language,priority");
     }
 
     private ExtensionListener extensionListener;

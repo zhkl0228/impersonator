@@ -31,10 +31,10 @@
             <version>0.1.2</version>
         </dependency>
         <dependency>
-            <groupId>com.github.luben</groupId>
-            <artifactId>zstd-jni</artifactId>
-            <version>1.5.7-13</version>
-            <optional>true</optional>
+            <!-- Pure Java zstd, for RFC 8879 certificate decompression and Content-Encoding: zstd. -->
+            <groupId>io.airlift</groupId>
+            <artifactId>aircompressor</artifactId>
+            <version>2.0.3</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
