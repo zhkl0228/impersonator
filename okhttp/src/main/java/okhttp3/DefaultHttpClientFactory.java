@@ -135,8 +135,19 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
                     // from finding out the hard way that it cannot be written twice.
                     throw e;
                 }
-                log.debug("ech rejected by {}, retrying with its retry_configs", request.url().host());
-                api.onEchRejected(request.url().host(), e.getRetryConfigs());
+                log.debug("ech rejected by {} as {}, retrying with its retry_configs",
+                        request.url().host(), e.getPublicName());
+                try {
+                    api.onEchRejected(request.url().host(), e.getRetryConfigs());
+                } catch (IOException unusable) {
+                    /*
+                     * The server offered nothing we can use, so there is nothing to go back with.
+                     * The rejection is what the caller catches for, so that is what it gets; why the
+                     * retry never happened rides along suppressed.
+                     */
+                    e.addSuppressed(unusable);
+                    throw e;
+                }
                 // Deliberately not wrapped: exactly one retry, so a server that keeps rejecting is
                 // reported rather than looped on.
                 return chain.proceed(request);
