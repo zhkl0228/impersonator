@@ -3,6 +3,7 @@ package com.github.zhkl0228.impersonator;
 import okhttp3.Http2Connection;
 import okhttp3.Settings;
 import org.bouncycastle.tls.*;
+import org.bouncycastle.util.encoders.Hex;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutput;
@@ -13,13 +14,13 @@ import java.util.Map;
 import java.util.Vector;
 
 /**
- * v146.0.7680.80
+ * v152.0.7977.83
  */
 class MacChrome extends ImpersonatorFactory {
 
     MacChrome() {
         super("GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
                 true);
     }
 
@@ -28,8 +29,7 @@ class MacChrome extends ImpersonatorFactory {
         Locale locale = Locale.getDefault();
         headers.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7");
         headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
-        headers.put("Cache-Control", "max-age=0");
-        headers.put("Sec-Ch-Ua", "\"Not)A;Brand\";v=\"99\", \"Google Chrome\";v=\"127\", \"Chromium\";v=\"127\"");
+        headers.put("Sec-Ch-Ua", "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"");
         headers.put("Sec-Ch-Ua-Mobile", "?0");
         headers.put("Sec-Ch-Ua-Platform", "\"macOS\"");
         headers.put("Sec-Fetch-Dest", "document");
@@ -54,6 +54,25 @@ class MacChrome extends ImpersonatorFactory {
         configChromeHttp2Settings(http2Connection);
     }
 
+    /**
+     * "trust_anchors", draft-ietf-tls-trust-anchor-ids. Not in {@link ExtensionType} because
+     * BouncyCastle does not implement the draft.
+     */
+    private static final int EXT_trust_anchors = 51764;
+
+    /**
+     * The trust anchor ids Chrome advertises, captured from Chrome 152.0.7977.83. It is a list of
+     * relative OIDs naming the CAs in Chrome's own root store, so it is fixed for a given Chrome
+     * build rather than generated per connection - two captures from the same browser were byte
+     * identical - and it has to be refreshed when the root store does.
+     */
+    private static final byte[] TRUST_ANCHORS = Hex.decodeStrict(
+            "00b804d679090a08839a648c9b2d011208839a648c9b2d010808839a648c9b2d011304d679090d04d679090b"
+                    + "0582df13020e04d679090508839a648c9b2d01090582df13020d0582df13020104d679090608839a648c9b"
+                    + "2d010c08839a648c9b2d010704d679090c08839a648c9b2d010a04d679090104d679090408839a648c9b2d"
+                    + "010d08839a648c9b2d010b0582df1302060582df1302130582df13021204d679090804d679090f0582df13"
+                    + "020f0582df13021404d6790907");
+
     private static void addApplicationSettingsExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream(16)) {
             DataOutput dataOutput = new DataOutputStream(baos);
@@ -77,11 +96,17 @@ class MacChrome extends ImpersonatorFactory {
     protected ExtensionOrder onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
-        randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
+        randomSupportedVersionsExtension(clientExtensions);
         final int supportedGroupGrease = randomGrease();
         addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.X25519MLKEM768, NamedGroup.x25519,
                 NamedGroup.secp256r1, NamedGroup.secp384r1);
-        addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
+        addSignatureAlgorithmsExtension(clientExtensions,
+                SignatureAndHashAlgorithm.create(randomGrease()),
+                // Chrome 152 offers the ML-DSA schemes of draft-ietf-tls-mldsa ahead of the classical ones.
+                SignatureAndHashAlgorithm.create(SignatureScheme.mldsa44),
+                SignatureAndHashAlgorithm.create(SignatureScheme.mldsa65),
+                SignatureAndHashAlgorithm.create(SignatureScheme.mldsa87),
+                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
                 SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
@@ -92,6 +117,7 @@ class MacChrome extends ImpersonatorFactory {
         TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
         TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
         addApplicationSettingsExtension(clientExtensions);
+        clientExtensions.put(EXT_trust_anchors, TRUST_ANCHORS);
         {
             Vector<KeyShareEntry> keyShareEntries = new Vector<>(1);
             keyShareEntries.add(new KeyShareEntry(ImpersonatorFactory.randomGrease(), new byte[1]));

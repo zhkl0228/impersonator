@@ -60,7 +60,7 @@ class Android extends ImpersonatorFactory {
     protected ExtensionOrder onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
         clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
         clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
-        randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
+        randomSupportedVersionsExtension(clientExtensions);
         addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
                 SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
                 SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),

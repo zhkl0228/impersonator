@@ -97,11 +97,11 @@ class MacSafari extends ImpersonatorFactory {
         if (type == Type.MacSafari) {
             addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1,
                     NamedGroup.secp384r1, NamedGroup.secp521r1);
-            randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
+            randomSupportedVersionsExtension(clientExtensions);
         } else if (type == Type.iOS) {
             addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1,
                     NamedGroup.secp384r1, NamedGroup.secp521r1);
-            randomSupportedVersionsExtension(clientExtensions, ProtocolVersion.TLSv13, ProtocolVersion.TLSv12);
+            randomSupportedVersionsExtension(clientExtensions);
         } else {
             throw new UnsupportedOperationException("Unsupported type: " + type);
         }

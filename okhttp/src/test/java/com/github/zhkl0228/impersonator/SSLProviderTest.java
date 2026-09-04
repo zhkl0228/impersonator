@@ -106,9 +106,55 @@ abstract class SSLProviderTest extends TestCase {
 
     protected final void doTestScrapFlyJa3(String scrapfly_fp) throws Exception {
         JSONObject obj = doTestURL("https://tools.scrapfly.io/api/fp/ja3");
-        String scrapfly_fp_digest = DigestUtils.md5Hex(scrapfly_fp);
-        assertEquals(String.format("\nExpected :%s\nActual   :%s", scrapfly_fp, obj.getString("scrapfly_fp")),
-                scrapfly_fp_digest, obj.getString("scrapfly_fp_digest"));
+        String actual = normalizeGreaseSignatureAlgs(obj.getString("scrapfly_fp"));
+        assertEquals(String.format("\nExpected :%s\nActual   :%s", scrapfly_fp, actual), scrapfly_fp, actual);
+    }
+
+    /**
+     * These services write GREASE as the literal "GREASE" in the cipher, group and version lists,
+     * but leave it as a number in signature_algs. A browser draws a fresh GREASE value per
+     * connection, so that number varies from run to run and has to be normalized before comparing.
+     */
+    private static String normalizeGreaseSignatureAlgs(String scrapfly_fp) {
+        int start = scrapfly_fp.indexOf("|signature_algs:");
+        if (start < 0) {
+            return scrapfly_fp;
+        }
+        start += "|signature_algs:".length();
+        int end = scrapfly_fp.indexOf('|', start);
+        if (end < 0) {
+            end = scrapfly_fp.length();
+        }
+        return scrapfly_fp.substring(0, start) + normalizeGrease(scrapfly_fp.substring(start, end))
+                + scrapfly_fp.substring(end);
+    }
+
+    /** browserscan's fingerprint keeps the signature algorithms in its third '|' separated field. */
+    private static String normalizeBrowserScanSignatureAlgs(String fp) {
+        String[] fields = fp.split("\\|", -1);
+        int signatureAlgs = 2;
+        if (signatureAlgs >= fields.length) {
+            return fp;
+        }
+        fields[signatureAlgs] = normalizeGrease(fields[signatureAlgs]);
+        return String.join("|", fields);
+    }
+
+    private static String normalizeGrease(String dashSeparated) {
+        StringBuilder normalized = new StringBuilder();
+        for (String token : dashSeparated.split("-")) {
+            if (normalized.length() > 0) {
+                normalized.append('-');
+            }
+            boolean grease;
+            try {
+                grease = ImpersonatorFactory.isGrease(Integer.parseInt(token));
+            } catch (NumberFormatException e) {
+                grease = false; // already normalized to "GREASE", or not a number
+            }
+            normalized.append(grease ? "GREASE" : token);
+        }
+        return normalized.toString();
     }
 
     protected final void doTestScrapFlyHttp2(String http2_fingerprint,
@@ -130,10 +176,9 @@ abstract class SSLProviderTest extends TestCase {
         JSONObject obj = doTestURL("https://tls.browserscan.net/api/tls");
         JSONObject tls = obj.getJSONObject("tls");
         assertNotNull(tls);
-        String fp_hash = fp == null ? null : DigestUtils.md5Hex(fp);
-        if(fp_hash != null) {
-            assertEquals(String.format("\nExpected :%s\nActual   :%s", fp, tls.getString("fp")),
-                    fp_hash, tls.getString("fp_hash"));
+        if (fp != null) {
+            String actual = normalizeBrowserScanSignatureAlgs(tls.getString("fp"));
+            assertEquals(String.format("\nExpected :%s\nActual   :%s", fp, actual), fp, actual);
         }
         if (ja4 != null) {
             assertEquals(String.format("\nExpected :%s\nActual   :%s", ja4, tls.getString("ja4")),

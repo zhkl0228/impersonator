@@ -158,12 +158,18 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         TlsExtensionsUtils.addSupportedGroupsExtension(clientExtensions, supportedGroups);
     }
 
-    protected final void randomSupportedVersionsExtension(Map<Integer, byte[]> clientExtensions, ProtocolVersion... protocolVersions) throws IOException {
-        List<ProtocolVersion> list = new ArrayList<>(protocolVersions.length + 1);
+    /**
+     * The supported_versions every browser here offers: TLS 1.3 then TLS 1.2, behind a GREASE value
+     * drawn per connection. A profile needing a different list should call
+     * {@link TlsExtensionsUtils#addSupportedVersionsExtensionClient} itself.
+     */
+    protected final void randomSupportedVersionsExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
         int grease = randomGrease();
-        list.add(ProtocolVersion.get(grease >> 8, grease & 0xff));
-        Collections.addAll(list, protocolVersions);
-        TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, list.toArray(new ProtocolVersion[0]));
+        TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions, new ProtocolVersion[]{
+                ProtocolVersion.get(grease >> 8, grease & 0xff),
+                ProtocolVersion.TLSv13,
+                ProtocolVersion.TLSv12
+        });
     }
 
     protected static void randomExtension(Map<Integer, byte[]> clientExtensions, String order, byte[] firstGreaseData, byte[] lastGreaseData) {
