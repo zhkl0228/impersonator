@@ -1,84 +1,30 @@
 package com.github.zhkl0228.impersonator;
 
-import okhttp3.Http2Connection;
-import org.bouncycastle.tls.CertificateCompressionAlgorithm;
-import org.bouncycastle.tls.ExtensionType;
-import org.bouncycastle.tls.KeyShareEntry;
-import org.bouncycastle.tls.NamedGroup;
-import org.bouncycastle.tls.PskKeyExchangeMode;
-import org.bouncycastle.tls.SignatureAndHashAlgorithm;
-import org.bouncycastle.tls.SignatureScheme;
-import org.bouncycastle.tls.TlsExtensionsUtils;
-import org.bouncycastle.tls.TlsUtils;
-
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutput;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Vector;
+import org.bouncycastle.util.encoders.Hex;
 
 /**
- * v127.0.6533.120
+ * Chrome v152 on Android.
  */
-class Android extends ImpersonatorFactory {
+class Android extends Chrome {
+
+    /**
+     * Captured from Chrome 152 on Android. Longer than the macOS list and in a different order,
+     * because the root store is the platform's; see {@link Chrome#getTrustAnchors()}.
+     */
+    private static final byte[] TRUST_ANCHORS = Hex.decodeStrict(
+            "00cc04d679090a04d679090104d679090608839a648c9b2d010804d67909090582df13021408839a648c9b2d"
+                    + "01090582df13020108839a648c9b2d010a04d679090804d679090b04d679090508839a648c9b2d010b0582"
+                    + "df13021304d679090d08839a648c9b2d011204d67909040582df13020604d67909030582df13021204d679"
+                    + "090f04d679090c08839a648c9b2d01130582df13020f0582df13020e08839a648c9b2d010c08839a648c9b"
+                    + "2d010708839a648c9b2d010d04d679090e0582df13020d04d679090204d6790907");
 
     Android() {
-        super("GREASE-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
-                true);
+        super("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+                "Android", true);
     }
 
     @Override
-    public void onHttp2ConnectionInit(Http2Connection http2Connection) {
-        MacChrome.configChromeHttp2Settings(http2Connection);
-    }
-
-    @Override
-    public void fillRequestHeaders(Map<String, String> headers) {
-        Locale locale = Locale.getDefault();
-        headers.put("Accept-Language", String.format("%s,%s;q=0.5", locale.toString().replace('_', '-'), locale.getLanguage()));
-        headers.put("Sec-Fetch-Dest", "empty");
-        headers.put("Sec-Fetch-Mode", "navigate");
-        headers.put("Sec-Fetch-Site", "none");
-    }
-
-    private static void addApplicationSettingsExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream(16)) {
-            DataOutput dataOutput = new DataOutputStream(baos);
-            dataOutput.writeShort(3);
-            byte[] bytes = "h2".getBytes();
-            dataOutput.writeByte(bytes.length);
-            dataOutput.write(bytes);
-            clientExtensions.put(0x4469, baos.toByteArray());
-        }
-    }
-
-    @Override
-    protected ExtensionOrder onSendClientHelloMessageInternal(Map<Integer, byte[]> clientExtensions) throws IOException {
-        clientExtensions.put(ExtensionType.signed_certificate_timestamp, TlsUtils.EMPTY_BYTES);
-        clientExtensions.put(ExtensionType.session_ticket, TlsUtils.EMPTY_BYTES);
-        randomSupportedVersionsExtension(clientExtensions);
-        addSignatureAlgorithmsExtension(clientExtensions, SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
-                SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
-                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
-                SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
-                SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
-                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
-                SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
-                SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512));
-        int supportedGroupGrease = randomGrease();
-        addSupportedGroupsExtension(clientExtensions, supportedGroupGrease, NamedGroup.x25519,
-                NamedGroup.secp256r1, NamedGroup.secp384r1);
-        TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions, new short[]{PskKeyExchangeMode.psk_dhe_ke});
-        TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[]{CertificateCompressionAlgorithm.brotli});
-        addApplicationSettingsExtension(clientExtensions);
-        Vector<KeyShareEntry> keyShareEntries = TlsExtensionsUtils.getKeyShareClientHello(clientExtensions);
-        if (keyShareEntries != null) {
-            keyShareEntries.add(0, new KeyShareEntry(supportedGroupGrease, new byte[1]));
-            TlsExtensionsUtils.addKeyShareClientHello(clientExtensions, keyShareEntries);
-        }
-        return new ExtensionOrder(null, true);
+    protected byte[] getTrustAnchors() {
+        return TRUST_ANCHORS;
     }
 }
