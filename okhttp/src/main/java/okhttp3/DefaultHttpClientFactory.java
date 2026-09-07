@@ -58,6 +58,11 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
         return newHttpClientInternal(null, null, null, null, dns);
     }
 
+    @Override
+    public OkHttpClient newTrustAnyCertificateHttpClient() {
+        return newHttpClientInternal(null, new TrustManager[]{ImpersonatorFactory.TRUST_ANY_CERTIFICATE}, null, null, null);
+    }
+
     private OkHttpClient newHttpClientInternal(KeyManager[] km, TrustManager[] tm, String userAgent, SocketFactory socketFactory, Dns dns) {
         OkHttpClient.Builder builder = okHttpClientBuilderFactory == null ? new OkHttpClient.Builder() : okHttpClientBuilderFactory.newOkHttpClientBuilder();
         applyTimeouts(builder);
@@ -69,6 +74,11 @@ class DefaultHttpClientFactory extends OkHttpClientFactory {
             builder.dns(dns);
         }
         builder.sslSocketFactory(api.newSSLContext(km, new TrustManager[]{trustManager}).getSocketFactory(), trustManager);
+        if (trustManager == ImpersonatorFactory.TRUST_ANY_CERTIFICATE) {
+            // Accepting any certificate but still demanding the name on it match would leave the
+            // self-signed and wrong-host cases failing, which are the cases this is asked for.
+            builder.hostnameVerifier((hostname, session) -> true);
+        }
         // Outermost, so that a retried request goes through the interceptors below it again.
         builder.addInterceptor(new EchRetryInterceptor());
         builder.addInterceptor(new ImpersonatorInterceptor(userAgent == null ? api.getUserAgent() : userAgent));

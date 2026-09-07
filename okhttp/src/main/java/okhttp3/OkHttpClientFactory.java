@@ -78,4 +78,11 @@ public abstract class OkHttpClientFactory {
 
     public abstract OkHttpClient newHttpClient(Dns dns);
 
+    /**
+     * A client that accepts every server certificate and skips hostname verification. Meant for
+     * talking through an intercepting proxy whose CA is not installed, and for tests; a browser
+     * validates both, so {@link #newHttpClient()} stays the right choice everywhere else.
+     */
+    public abstract OkHttpClient newTrustAnyCertificateHttpClient();
+
 }

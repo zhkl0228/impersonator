@@ -32,6 +32,7 @@ import java.security.NoSuchProviderException;
 import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.Security;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -72,9 +73,28 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      * The platform's own root store, which is what {@link #newSSLContext(KeyManager[], TrustManager[])}
      * uses when the caller names no trust manager of its own. A browser validates the chain, so the
      * default here has to as well; a caller that really wants to accept anything, an intercepting
-     * proxy being the usual reason, passes its own trust manager.
+     * proxy being the usual reason, asks for {@link #TRUST_ANY_CERTIFICATE} or passes its own trust
+     * manager.
      */
     public static final X509TrustManager DEFAULT_TRUST_MANAGER = loadDefaultTrustManager();
+
+    /**
+     * Checks nothing, so every certificate is accepted. Backs
+     * {@link #newTrustAnyCertificateSSLContext()}, and is public so a caller assembling its own
+     * {@link TrustManager} array can reuse it.
+     */
+    public static final X509TrustManager TRUST_ANY_CERTIFICATE = new X509TrustManager() {
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType) {
+        }
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType) {
+        }
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return new X509Certificate[0];
+        }
+    };
 
     private static X509TrustManager loadDefaultTrustManager() {
         String algorithm = TrustManagerFactory.getDefaultAlgorithm();
@@ -129,6 +149,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         } catch (NoSuchAlgorithmException | NoSuchProviderException | KeyManagementException e) {
             throw new IllegalStateException("newContext", e);
         }
+    }
+
+    @Override
+    public SSLContext newTrustAnyCertificateSSLContext() {
+        return newSSLContext(null, new TrustManager[]{TRUST_ANY_CERTIFICATE});
     }
 
     /**

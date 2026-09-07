@@ -8,6 +8,15 @@ public interface ImpersonatorApi {
 
     SSLContext newSSLContext(KeyManager[] km, TrustManager[] tm);
 
+    /**
+     * An {@link SSLContext} that accepts every server certificate, chain and expiry unchecked. Meant
+     * for talking through an intercepting proxy whose CA is not installed, and for tests; a browser
+     * validates the chain, so {@link #newSSLContext(KeyManager[], TrustManager[])} with no trust
+     * manager of its own stays the right choice everywhere else. Client certificates go through
+     * that method too; this one is only about not checking the server's.
+     */
+    SSLContext newTrustAnyCertificateSSLContext();
+
     void setExtensionListener(ExtensionListener extensionListener);
 
     /**
