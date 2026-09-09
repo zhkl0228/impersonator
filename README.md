@@ -149,10 +149,6 @@ PING frames where kwik sends one CRYPTO frame - and three transport parameters C
 kwik cannot (`version_information`, a GREASE one, and `0x3128` carrying the bytes "ORIG", which
 nothing here explains).
 
-Real Encrypted Client Hello and a dictated ClientHello cannot yet be combined: a profile's QUIC
-ClientHello carries a GREASE ECH, and replacing it with a real one needs the ECH path to go through
-the same spec. The engine refuses the combination rather than silently sending one of the two.
-
 ### Timeouts
 
 ```java

@@ -78,6 +78,9 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
 
     private static final Charset ISO_8859_1 = Charset.forName("ISO-8859-1");
 
+    /** RFC 8879 section 3, "compress_certificate(27)". */
+    private static final int EXT_compress_certificate = 27;
+
     // The maximum number of (most recent) NewSessionTickets that are retained; older tickets are evicted.
     public static final int MAX_RETAINED_NEW_SESSION_TICKETS = 2;
 
@@ -207,12 +210,6 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         }
 
         byte[] echConfigList = echConfigProvider != null? echConfigProvider.getEchConfigList(serverName): null;
-        if (echConfigList != null && clientHelloSpec != null) {
-            // EchClient still builds its two ClientHellos the way agent15 does, so honouring the spec here
-            // would mean silently sending one the spec did not describe. Refuse instead of picking one.
-            throw new IllegalStateException("Encrypted Client Hello combined with a ClientHelloSpec is not"
-                    + " implemented; the two ClientHellos ECH builds do not go through the spec yet");
-        }
         if (echConfigList != null) {
             // Both are refused rather than approximated: with a PSK the two ClientHellos need their own binders over
             // their own transcripts, which is the easiest part of RFC 9849 to get subtly wrong, and the compatibility
@@ -227,8 +224,26 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                         + " is not implemented; offer no ECHConfigList for " + serverName
                         + " or turn the compatibility mode off");
             }
-            echClient = EchClient.create(serverName, echConfigList, publicKey, supportedCiphers, supportedSignatures,
-                    ecCurve, extensions);
+            if (clientHelloSpec != null) {
+                /*
+                 * The spec describes one ClientHello and ECH needs two, so it is used twice: same cipher
+                 * suites, same extensions in the same order, same key shares. What differs is the name,
+                 * the "encrypted_client_hello", and the random, which is exactly what RFC 9849 section 6.1
+                 * says may differ. The profile's GREASE ECH is replaced by the real one in its own slot.
+                 */
+                Extension keyShare = buildSpecKeyShare();
+                echClient = EchClient.create(serverName, echConfigList,
+                        (name, echExtension, payloadCalculator) -> {
+                            byte[] clientRandom = new byte[32];
+                            secureRandom.nextBytes(clientRandom);
+                            return new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
+                                    buildSpecExtensions(name, extensions, keyShare, echExtension), payloadCalculator);
+                        });
+            }
+            else {
+                echClient = EchClient.create(serverName, echConfigList, publicKey, supportedCiphers, supportedSignatures,
+                        ecCurve, extensions);
+            }
             // The ClientHelloOuter is what goes on the wire; the transcript is decided when the ServerHello arrives.
             clientHello = echClient.getOuterClientHello();
         }
@@ -243,7 +258,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             byte[] clientRandom = new byte[32];
             secureRandom.nextBytes(clientRandom);
             clientHello = new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
-                    buildSpecExtensions(extensions), null);
+                    buildSpecExtensions(serverName, extensions, buildSpecKeyShare(), null), null);
         }
         else {
             clientHello = new ClientHello(serverName, publicKey, compatibilityMode, supportedCiphers, supportedSignatures,
@@ -510,6 +525,9 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         }
         if (certificateMessage.getEndEntityCertificate() == null) {
             throw new IllegalParameterAlert("missing certificate");
+        }
+        if (certificateMessage.getCompressionAlgorithm() != null) {
+            checkCertificateCompressionWasOffered(certificateMessage.getCompressionAlgorithm());
         }
 
         serverCertificate = certificateMessage.getEndEntityCertificate();
@@ -934,7 +952,14 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
      * private key of its own on this path: the spec generated the ephemerals and is the only thing
      * that can turn the server's value back into a shared secret.
      */
-    private List<Extension> buildSpecExtensions(List<Extension> engineExtensions) {
+    /**
+     * Generates one ephemeral per group the spec offers and builds the key_share from them.
+     * <p>
+     * Called once per connection even when ECH builds two ClientHellos, because both carry the same
+     * key_share: generating a second set would leave the engine holding the private half of only one
+     * of them, and which one the server used is not known until its ServerHello arrives.
+     */
+    private Extension buildSpecKeyShare() {
         int[] groups = clientHelloSpec.getKeyShareGroups();
         if (groups.length == 0) {
             throw new IllegalStateException("a ClientHelloSpec must offer at least one key share group;"
@@ -956,6 +981,18 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         entries.rewind();
         entries.get(extensionData, 2, extensionData.length - 2);
 
+        return new RawExtension(TlsConstants.ExtensionType.key_share.value & 0xffff, extensionData);
+    }
+
+    /**
+     * @param serverName   what goes in server_name: the real host, or an ECHConfig's public name when
+     *                     this is a ClientHelloOuter.
+     * @param echExtension the "encrypted_client_hello" to send in place of the one the spec produces,
+     *                     or null to keep the spec's. A profile that does ECH puts a GREASE one there;
+     *                     a real one takes its slot, which is where a browser puts it too.
+     */
+    private List<Extension> buildSpecExtensions(String serverName, List<Extension> engineExtensions,
+                                                Extension keyShare, Extension echExtension) {
         /*
          * server_name is the engine's to supply, not the spec's: the spec describes the shape of a
          * ClientHello and knows nothing about which host this connection is for. Listing it here also
@@ -967,7 +1004,6 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         engineSupplied.add(new ServerNameExtension(serverName));
         engineSupplied.addAll(engineExtensions);
 
-        Extension keyShare = new RawExtension(TlsConstants.ExtensionType.key_share.value & 0xffff, extensionData);
         List<Extension> extensions = clientHelloSpec.getExtensions(serverName, keyShare, engineSupplied);
         for (Extension engineExtension : engineSupplied) {
             if (!extensions.contains(engineExtension)) {
@@ -975,7 +1011,32 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                         + ", which the caller of this engine added and the handshake needs");
             }
         }
-        return extensions;
+        if (echExtension == null) {
+            return extensions;
+        }
+
+        List<Extension> withEch = new ArrayList<>(extensions.size());
+        boolean replaced = false;
+        for (Extension extension : extensions) {
+            if ((extension.getType() & 0xffff) == EncryptedClientHelloExtension.TYPE) {
+                withEch.add(echExtension);
+                replaced = true;
+            }
+            else {
+                withEch.add(extension);
+            }
+        }
+        if (!replaced) {
+            /*
+             * An ECHConfigList was resolved for this host but the ClientHello has no slot for it. Adding
+             * one would put an extension in the message that the browser being impersonated never sends,
+             * which is a worse outcome than not offering ECH; the same reasoning as on the TCP path.
+             */
+            throw new IllegalStateException("an ECHConfigList was supplied for " + serverName
+                    + " but this ClientHelloSpec carries no encrypted_client_hello extension, so the client it"
+                    + " describes does not support Encrypted Client Hello");
+        }
+        return withEch;
     }
 
     /**
@@ -1044,5 +1105,37 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             sb.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
         }
         return sb.toString();
+    }
+
+    /**
+     * RFC 8879 section 4: "If the specified algorithm was not advertised by the receiving peer, the
+     * peer MUST abort the connection with an "illegal_parameter" alert."
+     * <p>
+     * The compress_certificate extension is one this implementation does not model - it reaches the
+     * ClientHello as bytes from a {@link ClientHelloSpec} - so what was offered is read back out of
+     * what was sent. A client that offered nothing and is sent a compressed certificate anyway is the
+     * same violation and is caught here too.
+     */
+    private void checkCertificateCompressionWasOffered(int algorithm) throws IllegalParameterAlert {
+        for (Extension extension : sentExtensions) {
+            if ((extension.getType() & 0xffff) != EXT_compress_certificate || !(extension instanceof RawExtension)) {
+                continue;
+            }
+            byte[] data = ((RawExtension) extension).getExtensionData();
+            // "uint8 length; CertificateCompressionAlgorithm algorithms<2..2^8-2>;"
+            if (data.length < 1 || (data[0] & 0xff) != data.length - 1 || ((data.length - 1) & 1) != 0) {
+                throw new IllegalParameterAlert("malformed compress_certificate extension was sent: "
+                        + hex(data));
+            }
+            for (int i = 1; i < data.length; i += 2) {
+                if (((data[i] & 0xff) << 8 | (data[i + 1] & 0xff)) == algorithm) {
+                    return;
+                }
+            }
+            throw new IllegalParameterAlert("server compressed its certificate with algorithm " + algorithm
+                    + ", which was not offered: " + hex(data));
+        }
+        throw new IllegalParameterAlert("server sent a CompressedCertificate but no compress_certificate"
+                + " extension was offered");
     }
 }

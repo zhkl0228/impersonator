@@ -7,10 +7,14 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * Decompression support for the TLS Certificate Compression extension (RFC 8879).
+ * <p>
+ * Public because impersonator-agent15 needs the same three decompressors for the QUIC path: a profile
+ * that advertises "compress_certificate" - which every browser here does - will be sent a
+ * CompressedCertificate by most servers, and there is no reason for a second copy of this.
  */
-class CertificateCompressionUtils
+public class CertificateCompressionUtils
 {
-    static byte[] decompress(int algorithm, byte[] compressed, int uncompressedLength) throws IOException
+    public static byte[] decompress(int algorithm, byte[] compressed, int uncompressedLength) throws IOException
     {
         InputStream in;
         switch (algorithm)
@@ -83,8 +87,7 @@ class CertificateCompressionUtils
         }
     }
 
-    private static InputStream createZstdInputStream(byte[] compressed) throws IOException
-    {
+    private static InputStream createZstdInputStream(byte[] compressed) {
         return new io.airlift.compress.zstd.ZstdInputStream(new ByteArrayInputStream(compressed));
     }
 }

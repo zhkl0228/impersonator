@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.agent15.handshake;
 
@@ -43,6 +46,7 @@ public class CertificateMessage extends HandshakeMessage {
     private X509Certificate endEntityCertificate;
     private List<X509Certificate> certificateChain = new ArrayList<>();
     private byte[] raw;
+    private Integer compressionAlgorithm;
 
     public CertificateMessage(X509Certificate certificate) {
         this.requestContext = new byte[0];
@@ -87,6 +91,47 @@ public class CertificateMessage extends HandshakeMessage {
     @Override
     public TlsConstants.HandshakeType getType() {
         return TlsConstants.HandshakeType.certificate;
+    }
+
+    /**
+     * Parse a Certificate that arrived compressed, RFC 8879.
+     *
+     * @param body      the decompressed message body: everything a Certificate carries after the four
+     *                  byte handshake header.
+     * @param compressed the CompressedCertificate exactly as it arrived, header included. This and not
+     *                  the decompressed form is what goes into the handshake transcript - RFC 8879
+     *                  section 5 hashes the message that was sent.
+     * @param algorithm the compression algorithm the server chose, for the caller to check it was one
+     *                  that was offered.
+     */
+    public CertificateMessage parseCompressed(byte[] body, byte[] compressed, int algorithm)
+            throws DecodeErrorException, BadCertificateAlert {
+        ByteBuffer buffer = ByteBuffer.wrap(body);
+        try {
+            int certificateRequestContextSize = buffer.get() & 0xff;
+            if (certificateRequestContextSize > 0) {
+                requestContext = new byte[certificateRequestContextSize];
+                buffer.get(requestContext);
+            }
+            else {
+                requestContext = new byte[0];
+            }
+            parseCertificateEntries(buffer);
+        }
+        catch (BufferUnderflowException notEnoughBytes) {
+            throw new DecodeErrorException("message underflow");
+        }
+        raw = compressed;
+        compressionAlgorithm = algorithm;
+        return this;
+    }
+
+    /**
+     * The RFC 8879 algorithm this message arrived compressed with, or null if it arrived as an
+     * ordinary Certificate.
+     */
+    public Integer getCompressionAlgorithm() {
+        return compressionAlgorithm;
     }
 
     public CertificateMessage parse(ByteBuffer buffer) throws DecodeErrorException, BadCertificateAlert {

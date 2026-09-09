@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.DnsOverHttpsEchConfigProvider;
+import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 
 import junit.framework.TestCase;
 import tech.kwik.agent15.ech.EchException;
@@ -138,4 +139,50 @@ public class EchOverHttp3Test extends TestCase {
         return corrupted;
     }
 
+
+    /**
+     * The two together: a ClientHello dictated by a profile, and a real Encrypted Client Hello inside
+     * it. ECH needs two ClientHellos and the profile describes one, so it is used twice - same cipher
+     * suites, same extensions in the same order, same key shares - differing only in the name, the
+     * random, and the "encrypted_client_hello", which is what RFC 9849 section 6.1 says may differ.
+     * <p>
+     * The real ECH takes the slot the profile's GREASE ECH was in, which is where a browser puts it.
+     * {@code kex=X25519MLKEM768} in the same answer shows the two key shares survived the round trip:
+     * the inner and the outer carry the same ones, so whichever ClientHello the server used, the
+     * shared secret is the one this end holds the private half of.
+     */
+    public void testAProfilesClientHelloCarriesARealEch() throws Exception {
+        String body = Http3Get.body(Http3ClientFactory.create(ImpersonatorFactory.macChrome()), TRACE_URL);
+
+        assertTrue("expected an encrypted sni, got:\n" + body, body.contains("sni=encrypted"));
+        assertTrue("expected the hybrid key share to have been used, got:\n" + body,
+                body.contains("kex=X25519MLKEM768"));
+    }
+
+    /**
+     * A ClientHello with no slot for it. Adding one would put an extension in the message that the
+     * client being impersonated never sends, so this refuses rather than quietly changing the
+     * fingerprint - the same reasoning as on the TCP path.
+     */
+    public void testAClientHelloWithNoEchSlotRefusesAnEchConfigList() throws Exception {
+        byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance().getEchConfigList(HOST);
+        assertNotNull(HOST + " should publish an ECHConfigList", echConfigList);
+
+        try {
+            Http3Get.body(Http3ClientFactory.create(new Curl8QuicClientHello())
+                    .setEchConfigProvider(host -> echConfigList), TRACE_URL);
+            fail("a ClientHello with no encrypted_client_hello must not silently gain one");
+        }
+        catch (Exception e) {
+            IllegalStateException refusal = null;
+            for (Throwable t = e; t != null; t = t.getCause()) {
+                if (t instanceof IllegalStateException) {
+                    refusal = (IllegalStateException) t;
+                }
+            }
+            assertNotNull("expected an IllegalStateException, got " + e, refusal);
+            assertTrue(refusal.getMessage(),
+                    refusal.getMessage().contains("carries no encrypted_client_hello extension"));
+        }
+    }
 }

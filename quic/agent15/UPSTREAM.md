@@ -37,10 +37,17 @@ Files changed relative to `977b893`:
 | `TlsConstants.java` | added `ExtensionType.encrypted_client_hello` (0xfe0d) and `AlertDescription.ech_required` (121) |
 | `handshake/ClientHello.java` | one more constructor taking an `EchPayloadCalculator`, which seals the ClientHelloInner into the message after it has been serialized - the same "serialize, then patch" the PSK binder next to it already does |
 | `handshake/HandshakeMessage.java` | `parseExtensions` recognizes "encrypted_client_hello" in a ClientHello and in EncryptedExtensions |
+| `handshake/CertificateMessage.java` | can be built from a decompressed body while keeping the compressed message for the transcript |
+| `engine/TlsMessageParser.java` | understands the CompressedCertificate of RFC 8879 |
 | `extension/KeyShareExtension.java` | a server key_share entry keeps its key exchange value raw, so a `ClientHelloSpec` can own a group agent15 has no key exchange for |
 | `engine/TlsClientEngine.java` | added `setEchConfigProvider` and `setClientHelloSpec` |
-| `engine/impl/TlsClientEngineImpl.java` | ECH: build both ClientHellos, pick the transcript on the accept confirmation, verify the certificate against the public name, send an empty client Certificate, throw `EchRejectedException` on rejection. Fingerprint: build the ClientHello from a `ClientHelloSpec` and let it own the key shares |
+| `engine/impl/TlsClientEngineImpl.java` | ECH: build both ClientHellos, pick the transcript on the accept confirmation, verify the certificate against the public name, send an empty client Certificate, throw `EchRejectedException` on rejection. Fingerprint: build the ClientHello from a `ClientHelloSpec` and let it own the key shares. RFC 8879: check the server compressed with an algorithm that was offered |
 | `engine/impl/TlsState.java` | added `hkdfExtract` and widened `hkdfExpandLabel(byte[], String, byte[], short)` to public for the ECH accept confirmation; added `setSharedSecret` for a key exchange agent15 does not implement |
+
+RFC 8879 is implemented because every browser profile here advertises "compress_certificate", and
+most servers take it up - Cloudflare does. Without it a profile that says it accepts a compressed
+certificate gets one and cannot read it. The three decompressors are not reimplemented: they are
+`impersonator-bctls`'s, the ones the TCP path has used all along.
 
 New with no upstream counterpart: everything under `tech/kwik/agent15/ech/`, plus
 `extension/RawExtension.java` (an extension carried as the bytes it was given, so that a ClientHello

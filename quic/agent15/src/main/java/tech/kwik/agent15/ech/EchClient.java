@@ -126,6 +126,43 @@ public class EchClient {
         return new EchClient(serverName, config, innerClientHello, outerClientHello);
     }
 
+    /**
+     * Build the two ClientHellos from a {@link ClientHelloSpec}, through a factory that knows how.
+     * <p>
+     * The same as {@link #create} above, except that what the two messages look like is dictated
+     * rather than assembled here: this decides only what makes them an inner and an outer - which
+     * name each carries, which "encrypted_client_hello" each carries, and that the outer's payload is
+     * the sealed inner.
+     */
+    public static EchClient create(String serverName, byte[] echConfigList, EchClientHelloFactory factory) {
+        EchConfig config = selectConfig(echConfigList);
+        int cipherSuite = selectCipherSuite(config);
+        int kdfId = cipherSuite >>> 16, aeadId = cipherSuite & 0xffff;
+
+        ClientHello innerClientHello = factory.create(serverName, EncryptedClientHelloExtension.createInner(), null);
+        byte[] encodedInner = encodeClientHelloInner(innerClientHello, serverName, config);
+
+        HPKE hpke = new HPKE(HPKE.mode_base, (short) EchConfig.KEM_DHKEM_X25519_HKDF_SHA256, (short) kdfId,
+                (short) aeadId);
+        HPKEContextWithEncapsulation hpkeContext;
+        try {
+            AsymmetricKeyParameter publicKeyR = hpke.deserializePublicKey(config.getPublicKey());
+            hpkeContext = hpke.setupBaseS(publicKeyR, createInfo(config));
+        }
+        catch (RuntimeException e) {
+            throw new EchException("HPKE setup failed for " + config.describe(), e);
+        }
+
+        EncryptedClientHelloExtension outerEch = EncryptedClientHelloExtension.createOuter(kdfId, aeadId,
+                config.getConfigId(), hpkeContext.getEncapsulation(),
+                encodedInner.length + EncryptedClientHelloExtension.AEAD_TAG_LENGTH);
+
+        ClientHello outerClientHello = factory.create(config.getPublicName(), outerEch,
+                aad -> seal(hpkeContext, aad, encodedInner, outerEch.getPayloadLength(), config));
+
+        return new EchClient(serverName, config, innerClientHello, outerClientHello);
+    }
+
     private static EchConfig selectConfig(byte[] echConfigList) {
         try {
             return EchConfigList.select(echConfigList);
