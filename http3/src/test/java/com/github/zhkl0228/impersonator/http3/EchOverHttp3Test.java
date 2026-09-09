@@ -165,6 +165,30 @@ public class EchOverHttp3Test extends TestCase {
     }
 
     /**
+     * A GREASE ECH offered to a host that does publish an ECHConfig - which is what happens whenever
+     * the DNS lookup fails on a host that has one. The server cannot decrypt it, so it answers with
+     * retry_configs, and RFC 9849 section 6.2.1 says what to do about that: "It otherwise ignores the
+     * extension. It MUST NOT save the retry_configs value in EncryptedExtensions."
+     * <p>
+     * This failed every time until two things were fixed. The engine matched the server's answer
+     * against the extensions it sent by Java class, and a profile supplies its GREASE ECH as raw
+     * bytes, so a perfectly legal answer looked like "extension response to missing request"; it
+     * matches on the extension type now, which is what RFC 8446 talks about. And the engine then
+     * treated the answer as an error rather than ignoring it.
+     * <p>
+     * The connection surviving is the whole point: on this path the alternative is that a failed DNS
+     * lookup turns a working connection into a dead one, where the TCP path merely degrades to a
+     * visible server name.
+     */
+    public void testAGreaseEchIsIgnoredByAHostThatPublishesOne() throws Exception {
+        String body = Http3Get.body(Http3ClientFactory.create(ImpersonatorFactory.macChrome())
+                .setEchConfigProvider(null), TRACE_URL);
+
+        assertTrue("expected the connection to survive with a visible server name, got:\n" + body,
+                body.contains("sni=plaintext"));
+    }
+
+    /**
      * A ClientHello with no slot for it. Adding one would put an extension in the message that the
      * client being impersonated never sends, so this refuses rather than quietly changing the
      * fingerprint - the same reasoning as on the TCP path.

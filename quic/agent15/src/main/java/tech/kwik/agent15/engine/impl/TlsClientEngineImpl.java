@@ -467,11 +467,19 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             throw new UnexpectedMessageAlert("unexpected encrypted extensions message");
         }
 
-        List<Class> clientExtensionTypes = sentExtensions.stream()
-                .map(extension -> extension.getClass()).collect(Collectors.toList());
+        /*
+         * Matched on the extension type and not on the class it parsed into. The two agree only while
+         * every extension has exactly one representation; once a ClientHelloSpec can put an extension
+         * in as raw bytes - which is how a profile supplies its GREASE ECH - the same extension is a
+         * RawExtension going out and an EncryptedClientHelloExtension coming back, and a class
+         * comparison calls the server's perfectly legal answer a violation. The type is what RFC 8446
+         * talks about anyway.
+         */
+        List<Integer> clientExtensionTypes = sentExtensions.stream()
+                .map(extension -> extension.getType() & 0xffff).collect(Collectors.toList());
         boolean allClientResponses = encryptedExtensions.getExtensions().stream()
                 .filter(ext -> ! (ext instanceof UnknownExtension))
-                .allMatch(ext -> clientExtensionTypes.contains(ext.getClass()));
+                .allMatch(ext -> clientExtensionTypes.contains(ext.getType() & 0xffff));
         if (! allClientResponses) {
             // https://tools.ietf.org/html/rfc8446#section-4.2
             // "Implementations MUST NOT send extension responses if the remote endpoint did not send the corresponding
@@ -489,19 +497,28 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                 .map(ext -> (EncryptedClientHelloExtension) ext)
                 .findFirst();
         if (echExtension.isPresent()) {
-            // Not reachable: an extension nothing requested was rejected by the check above, and an
-            // EncryptedClientHelloExtension can only be there when this ClientHello carried one too.
             if (echClient == null) {
-                throw new UnsupportedExtensionAlert("encrypted_client_hello in EncryptedExtensions, but none was offered");
+                /*
+                 * A GREASE ECH was offered - the ClientHello carried an encrypted_client_hello the check
+                 * above matched, but no ECHConfigList was resolved for this host - and the server has
+                 * answered it with retry_configs. https://www.rfc-editor.org/rfc/rfc9849.html#section-6.2.1
+                 * "It otherwise ignores the extension. It MUST NOT save the "retry_configs" value in
+                 *  EncryptedExtensions."
+                 * The extension has already been checked syntactically by the parser, which is the other
+                 * half of that requirement.
+                 */
+                Logger.debug("Server answered a GREASE Encrypted Client Hello with retry_configs; ignoring them");
             }
             // https://www.rfc-editor.org/rfc/rfc9849.html#section-5
             // "The response is valid only when the server used the ClientHelloOuter. If the server sent this extension
             //  in response to the inner variant, then the client MUST abort with an "unsupported_extension" alert."
-            if (echClient.isAccepted()) {
+            else if (echClient.isAccepted()) {
                 throw new UnsupportedExtensionAlert("encrypted_client_hello in EncryptedExtensions, but the server"
                         + " accepted the ClientHelloInner, so it cannot be answering the ClientHelloOuter");
             }
-            echRetryConfigs = echExtension.get().getRetryConfigs();
+            else {
+                echRetryConfigs = echExtension.get().getRetryConfigs();
+            }
         }
 
         transcriptHash.record(encryptedExtensions);
