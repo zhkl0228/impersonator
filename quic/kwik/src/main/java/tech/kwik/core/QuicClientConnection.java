@@ -194,6 +194,13 @@ public interface QuicClientConnection extends QuicConnection {
         Builder chaosProtection(boolean chaosProtection);
 
         /**
+         * The size a datagram carrying an Initial packet is padded to. RFC 9000 section 14.1 requires
+         * at least 1200 and what a client picks above that is one of the things it is recognized by:
+         * Chrome sends 1250, Safari the bare 1200.
+         */
+        Builder initialDatagramSize(int size);
+
+        /**
          * Length of the unpredictable Destination Connection ID the first Initial packet carries.
          * RFC 9000 only requires at least 8, so what an implementation picks above that is one of the
          * things a QUIC client is recognized by. Defaults to 8.
@@ -217,6 +224,13 @@ public interface QuicClientConnection extends QuicConnection {
          * willing to receive.
          */
         Builder maxUdpPayloadSize(int maxUdpPayloadSize);
+
+        /**
+         * The active_connection_id_limit transport parameter. On Builder rather than only on
+         * ExtendedBuilder, because which value a client sends - or whether it sends one at all - is a
+         * fingerprint: Chrome omits it and Safari sends 64.
+         */
+        Builder activeConnectionIdLimit(int limit);
 
         /**
          * Leaves these transport parameters out of the extension rather than sending them with some

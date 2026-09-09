@@ -188,6 +188,12 @@ public class QuicClientFactory {
             builder.connectionIdLength(quicTransport.getSourceConnectionIdLength());
         }
         builder.chaosProtection(quicTransport.isChaosProtection());
+        if (quicTransport.getActiveConnectionIdLimit() != null) {
+            builder.activeConnectionIdLimit(quicTransport.getActiveConnectionIdLimit());
+        }
+        if (quicTransport.getInitialDatagramSize() != null) {
+            builder.initialDatagramSize(quicTransport.getInitialDatagramSize());
+        }
         if (quicTransport.getInitialMaxData() != null) {
             builder.initialMaxData(quicTransport.getInitialMaxData());
         }

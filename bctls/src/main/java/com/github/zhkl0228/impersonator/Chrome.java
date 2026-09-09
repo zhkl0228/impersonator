@@ -215,6 +215,10 @@ abstract class Chrome extends ImpersonatorFactory {
                 // client sends - that 4 is the endpoint's own connection id - which is where the
                 // wrong value came from and why no test caught it.
                 .sourceConnectionIdLength(0)
+                // QUICHE's kDefaultMaxPacketSize. A capture shows every Chrome Initial datagram at
+                // 1250 bytes where Safari sends the bare 1200 RFC 9000 section 14.1 requires; the
+                // fingerprint endpoint reports 1250 for both and so could not have told us.
+                .initialDatagramSize(1250)
                 .chaosProtection()
                 .initialMaxData(15728640L)
                 .initialMaxStreamDataBidirectional(6291456L)

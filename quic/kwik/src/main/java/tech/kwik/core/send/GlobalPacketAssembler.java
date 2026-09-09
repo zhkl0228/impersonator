@@ -60,6 +60,22 @@ public class GlobalPacketAssembler {
     private final Random random = new SecureRandom();
     private volatile boolean chaosProtection;
 
+    /**
+     * The size a datagram carrying an Initial packet is padded to. RFC 9000 section 14.1 requires at
+     * least 1200 and every client picks its own number above that, which is one of the things a QUIC
+     * client is recognized by: Chrome sends 1250, QUICHE's kDefaultMaxPacketSize, and Safari sends
+     * the bare 1200.
+     */
+    private volatile int initialDatagramSize = 1200;
+
+    public void setInitialDatagramSize(int initialDatagramSize) {
+        if (initialDatagramSize < 1200) {
+            throw new IllegalArgumentException("RFC 9000 section 14.1 requires at least 1200 bytes, got "
+                    + initialDatagramSize);
+        }
+        this.initialDatagramSize = initialDatagramSize;
+    }
+
 
     public GlobalPacketAssembler(VersionHolder quicVersion, SendRequestQueue[] sendRequestQueues, GlobalAckGenerator globalAckGenerator,
                                  ConnectionIdProvider connectionIdProvider) {
@@ -146,7 +162,7 @@ public class GlobalPacketAssembler {
 
         int minDatagramSize = 0;
 
-        if (hasInitial && size < 1200) {
+        if (hasInitial && size < initialDatagramSize) {
             // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
             // "A client MUST expand the payload of all UDP datagrams carrying Initial packets to at least the smallest
             //  allowed maximum datagram size of 1200 bytes by adding PADDING frames to the Initial packet or by coalescing
@@ -154,10 +170,10 @@ public class GlobalPacketAssembler {
             // "Similarly, a server MUST expand the payload of all UDP datagrams carrying ack-eliciting Initial packets
             //  to at least the smallest allowed maximum datagram size of 1200 bytes."
             if (paddingMode == PaddingMode.INSIDE) {
-                size += addPadding(packets, size, 1200);
+                size += addPadding(packets, size, initialDatagramSize);
             }
             else {
-                minDatagramSize = 1200;
+                minDatagramSize = initialDatagramSize;
             }
         }
 

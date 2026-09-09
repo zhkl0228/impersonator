@@ -57,6 +57,8 @@ public class QuicTransport {
     private final Integer destinationConnectionIdLength;
     private final Integer sourceConnectionIdLength;
     private final boolean chaosProtection;
+    private final Integer activeConnectionIdLimit;
+    private final Integer initialDatagramSize;
     private final Long initialMaxData;
     private final Long initialMaxStreamDataBidirectional;
     private final Long initialMaxStreamDataUnidirectional;
@@ -73,6 +75,8 @@ public class QuicTransport {
         this.destinationConnectionIdLength = builder.destinationConnectionIdLength;
         this.sourceConnectionIdLength = builder.sourceConnectionIdLength;
         this.chaosProtection = builder.chaosProtection;
+        this.activeConnectionIdLimit = builder.activeConnectionIdLimit;
+        this.initialDatagramSize = builder.initialDatagramSize;
         this.initialMaxData = builder.initialMaxData;
         this.initialMaxStreamDataBidirectional = builder.initialMaxStreamDataBidirectional;
         this.initialMaxStreamDataUnidirectional = builder.initialMaxStreamDataUnidirectional;
@@ -107,6 +111,16 @@ public class QuicTransport {
     /** See {@link Builder#chaosProtection()}. */
     public boolean isChaosProtection() {
         return chaosProtection;
+    }
+
+    /** See {@link Builder#activeConnectionIdLimit(int)}. */
+    public Integer getActiveConnectionIdLimit() {
+        return activeConnectionIdLimit;
+    }
+
+    /** See {@link Builder#initialDatagramSize(int)}. */
+    public Integer getInitialDatagramSize() {
+        return initialDatagramSize;
     }
 
     public Long getInitialMaxData() {
@@ -171,6 +185,8 @@ public class QuicTransport {
         private Integer destinationConnectionIdLength;
         private Integer sourceConnectionIdLength;
         private boolean chaosProtection;
+        private Integer activeConnectionIdLimit;
+        private Integer initialDatagramSize;
         private Long initialMaxData;
         private Long initialMaxStreamDataBidirectional;
         private Long initialMaxStreamDataUnidirectional;
@@ -200,6 +216,25 @@ public class QuicTransport {
          */
         public Builder chaosProtection() {
             this.chaosProtection = true;
+            return this;
+        }
+
+        /**
+         * RFC 9000 "active_connection_id_limit". Chrome omits it and Safari sends 64, so it is a
+         * value rather than a constant.
+         */
+        public Builder activeConnectionIdLimit(int limit) {
+            this.activeConnectionIdLimit = limit;
+            return this;
+        }
+
+        /**
+         * The size a datagram carrying an Initial packet is padded to. RFC 9000 section 14.1 requires
+         * at least 1200; Chrome sends 1250 and Safari the bare 1200, which a capture shows and the
+         * fingerprint endpoint does not - it reports 1250 for both.
+         */
+        public Builder initialDatagramSize(int size) {
+            this.initialDatagramSize = size;
             return this;
         }
 

@@ -1493,6 +1493,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private int destinationConnectionIdLength = ConnectionIdManager.MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH;
         private Set<Integer> omittedTransportParameters = Set.of();
         private boolean chaosProtection;
+        private Integer initialDatagramSize;
         private Map<Integer, byte[]> addedTransportParameters = Map.of();
         private int[] otherVersionIds;
 
@@ -1523,6 +1524,9 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                             omittedTransportParameters, addedTransportParameters, otherVersionIds);
 
             quicConnection.sender.setChaosProtection(chaosProtection);
+            if (initialDatagramSize != null) {
+                quicConnection.sender.setInitialDatagramSize(initialDatagramSize);
+            }
 
             if (omitCertificateCheck) {
                 quicConnection.trustAnyServerCertificate();
@@ -1785,6 +1789,21 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
 
         @Override
+        public Builder initialDatagramSize(int size) {
+            this.initialDatagramSize = size;
+            return this;
+        }
+
+        @Override
+        public Builder activeConnectionIdLimit(int limit) {
+            if (limit < MIN_ACTIVE_CONNECTION_ID_LIMIT) {
+                throw new IllegalArgumentException("Active connection id limit must be at least " + MIN_ACTIVE_CONNECTION_ID_LIMIT + ".");
+            }
+            connectionProperties.setActiveConnectionIdLimit(limit);
+            return this;
+        }
+
+        @Override
         public Builder omitTransportParameters(Set<Integer> omittedParameters) {
             this.omittedTransportParameters = Set.copyOf(omittedParameters);
             return this;
@@ -1932,11 +1951,9 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      */
     public static class ExtendedBuilder extends BuilderImpl implements Builder {
 
+        @Override
         public ExtendedBuilder activeConnectionIdLimit(int limit) {
-            if (limit < MIN_ACTIVE_CONNECTION_ID_LIMIT) {
-                throw new IllegalArgumentException("Active connection id limit must be at least " + MIN_ACTIVE_CONNECTION_ID_LIMIT + ".");
-            }
-            connectionProperties.setActiveConnectionIdLimit(limit);
+            super.activeConnectionIdLimit(limit);
             return this;
         }
 

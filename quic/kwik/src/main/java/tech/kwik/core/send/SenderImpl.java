@@ -204,6 +204,11 @@ public class SenderImpl implements Sender, CongestionControlEventListener {
         wakeUpSenderLoop();
     }
 
+    /** See {@link GlobalPacketAssembler#setInitialDatagramSize(int)}. */
+    public void setInitialDatagramSize(int initialDatagramSize) {
+        packetAssembler.setInitialDatagramSize(initialDatagramSize);
+    }
+
     /**
      * Whether Initial packets are scrambled the way Chrome scrambles them; see
      * {@link InitialPacketChaosProtector}.
