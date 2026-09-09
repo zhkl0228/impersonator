@@ -182,7 +182,9 @@ public class QuicClientFactory {
      */
     private void applyTransport(QuicClientConnection.Builder builder) {
         if (quicTransport.getDestinationConnectionIdLength() != null) {
-            builder.destinationConnectionIdLength(quicTransport.getDestinationConnectionIdLength());
+            // Asked here, once per builder and so once per connection, which is what a browser that
+            // draws a fresh length every time needs.
+            builder.destinationConnectionIdLength(quicTransport.getDestinationConnectionIdLength().getAsInt());
         }
         if (quicTransport.getSourceConnectionIdLength() != null) {
             builder.connectionIdLength(quicTransport.getSourceConnectionIdLength());
@@ -199,6 +201,12 @@ public class QuicClientFactory {
         }
         if (quicTransport.getInitialMaxStreamDataBidirectional() != null) {
             builder.initialMaxStreamDataBidirectional(quicTransport.getInitialMaxStreamDataBidirectional());
+        }
+        if (quicTransport.getMaxAckDelayMillis() != null) {
+            builder.maxAckDelay(quicTransport.getMaxAckDelayMillis());
+        }
+        if (quicTransport.getInitialMaxStreamDataBidirectionalRemote() != null) {
+            builder.initialMaxStreamDataBidirectionalRemote(quicTransport.getInitialMaxStreamDataBidirectionalRemote());
         }
         if (quicTransport.getInitialMaxStreamDataUnidirectional() != null) {
             builder.initialMaxStreamDataUnidirectional(quicTransport.getInitialMaxStreamDataUnidirectional());

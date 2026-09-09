@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.function.IntSupplier;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -54,13 +55,15 @@ public class QuicTransport {
     public static final int DISABLE_ACTIVE_MIGRATION = 0x0c;
     public static final int ACTIVE_CONNECTION_ID_LIMIT = 0x0e;
 
-    private final Integer destinationConnectionIdLength;
+    private final IntSupplier destinationConnectionIdLength;
     private final Integer sourceConnectionIdLength;
     private final boolean chaosProtection;
     private final Integer activeConnectionIdLimit;
     private final Integer initialDatagramSize;
     private final Long initialMaxData;
     private final Long initialMaxStreamDataBidirectional;
+    private final Long initialMaxStreamDataBidirectionalRemote;
+    private final Integer maxAckDelayMillis;
     private final Long initialMaxStreamDataUnidirectional;
     private final Integer initialMaxStreamsBidirectional;
     private final Integer initialMaxStreamsUnidirectional;
@@ -79,6 +82,8 @@ public class QuicTransport {
         this.initialDatagramSize = builder.initialDatagramSize;
         this.initialMaxData = builder.initialMaxData;
         this.initialMaxStreamDataBidirectional = builder.initialMaxStreamDataBidirectional;
+        this.initialMaxStreamDataBidirectionalRemote = builder.initialMaxStreamDataBidirectionalRemote;
+        this.maxAckDelayMillis = builder.maxAckDelayMillis;
         this.initialMaxStreamDataUnidirectional = builder.initialMaxStreamDataUnidirectional;
         this.initialMaxStreamsBidirectional = builder.initialMaxStreamsBidirectional;
         this.initialMaxStreamsUnidirectional = builder.initialMaxStreamsUnidirectional;
@@ -99,7 +104,13 @@ public class QuicTransport {
      * keep the implementation's own. RFC 9000 only requires at least 8, so what a client picks above
      * that identifies it.
      */
-    public Integer getDestinationConnectionIdLength() {
+    /**
+     * How long the Destination Connection ID of the first Initial is, asked once per connection.
+     * <p>
+     * A supplier and not a number because it is not always a constant: Chrome and Safari send eight
+     * bytes every time, and Firefox draws a fresh length for every connection.
+     */
+    public IntSupplier getDestinationConnectionIdLength() {
         return destinationConnectionIdLength;
     }
 
@@ -130,6 +141,19 @@ public class QuicTransport {
     /** One value for both initial_max_stream_data_bidi_local and _bidi_remote. */
     public Long getInitialMaxStreamDataBidirectional() {
         return initialMaxStreamDataBidirectional;
+    }
+
+    /**
+     * The initial_max_stream_data_bidi_remote, when it differs from the local one. Chrome and Safari
+     * send the same value for both; Firefox does not.
+     */
+    public Long getInitialMaxStreamDataBidirectionalRemote() {
+        return initialMaxStreamDataBidirectionalRemote;
+    }
+
+    /** See {@link Builder#maxAckDelayMillis(int)}. */
+    public Integer getMaxAckDelayMillis() {
+        return maxAckDelayMillis;
     }
 
     public Long getInitialMaxStreamDataUnidirectional() {
@@ -182,13 +206,15 @@ public class QuicTransport {
 
     public static class Builder {
 
-        private Integer destinationConnectionIdLength;
+        private IntSupplier destinationConnectionIdLength;
         private Integer sourceConnectionIdLength;
         private boolean chaosProtection;
         private Integer activeConnectionIdLimit;
         private Integer initialDatagramSize;
         private Long initialMaxData;
         private Long initialMaxStreamDataBidirectional;
+        private Long initialMaxStreamDataBidirectionalRemote;
+        private Integer maxAckDelayMillis;
         private Long initialMaxStreamDataUnidirectional;
         private Integer initialMaxStreamsBidirectional;
         private Integer initialMaxStreamsUnidirectional;
@@ -200,6 +226,14 @@ public class QuicTransport {
         private int[] availableVersions;
 
         public Builder destinationConnectionIdLength(int length) {
+            return destinationConnectionIdLength(() -> length);
+        }
+
+        /**
+         * The length drawn afresh for each connection, for a browser that does not use a fixed one.
+         * Firefox picks between 8 and 20 bytes; see MacFirefox, where the rule is neqo's own.
+         */
+        public Builder destinationConnectionIdLength(IntSupplier length) {
             this.destinationConnectionIdLength = length;
             return this;
         }
@@ -250,6 +284,25 @@ public class QuicTransport {
 
         public Builder initialMaxStreamDataBidirectional(long initialMaxStreamData) {
             this.initialMaxStreamDataBidirectional = initialMaxStreamData;
+            return this;
+        }
+
+        /**
+         * Sets initial_max_stream_data_bidi_remote on its own, for a browser whose two bidirectional
+         * limits differ. Without it both take the value given to
+         * {@link #initialMaxStreamDataBidirectional(long)}.
+         */
+        public Builder initialMaxStreamDataBidirectionalRemote(long initialMaxStreamData) {
+            this.initialMaxStreamDataBidirectionalRemote = initialMaxStreamData;
+            return this;
+        }
+
+        /**
+         * RFC 9000 "max_ack_delay". Absent means 25 ms, so a browser that sends 20 is saying
+         * something a browser that sends nothing is not.
+         */
+        public Builder maxAckDelayMillis(int maxAckDelayMillis) {
+            this.maxAckDelayMillis = maxAckDelayMillis;
             return this;
         }
 

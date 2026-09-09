@@ -217,6 +217,18 @@ public interface QuicClientConnection extends QuicConnection {
         Builder initialMaxStreamDataBidirectional(long initialMaxStreamData);
 
         /** The initial_max_stream_data_uni transport parameter, and the flow control it promises. */
+        /**
+         * The max_ack_delay transport parameter, in milliseconds. Absent means 25 to the peer, so
+         * sending one at all is as visible as its value.
+         */
+        Builder maxAckDelay(int maxAckDelayInMillis);
+
+        /**
+         * The initial_max_stream_data_bidi_remote on its own, when it differs from the local one.
+         * Firefox sends a smaller limit for streams the peer opens than for its own.
+         */
+        Builder initialMaxStreamDataBidirectionalRemote(long initialMaxStreamData);
+
         Builder initialMaxStreamDataUnidirectional(long initialMaxStreamData);
 
         /**

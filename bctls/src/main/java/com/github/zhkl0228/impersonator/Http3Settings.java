@@ -26,6 +26,9 @@ public class Http3Settings {
     /** RFC 9204 section 5: how many streams this endpoint will let block on the dynamic table. */
     public static final long QPACK_BLOCKED_STREAMS = 0x07;
 
+    /** RFC 9220 section 3: whether this endpoint accepts the extended CONNECT of RFC 8441. */
+    public static final long ENABLE_CONNECT_PROTOCOL = 0x08;
+
     /** RFC 9297 section 2.1.1: whether this endpoint accepts HTTP datagrams. */
     public static final long H3_DATAGRAM = 0x33;
 

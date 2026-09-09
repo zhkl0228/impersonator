@@ -171,6 +171,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private volatile String handshakeError;
     private volatile ClientHello originalClientHello;
     private final Set<Integer> omittedTransportParameters;
+    private volatile Long initialMaxStreamDataBidiRemote;
+    private volatile Integer maxAckDelay;
     private final Map<Integer, byte[]> addedTransportParameters;
     private final int[] otherVersionIds;
     private volatile Integer maxDatagramFrameSize;
@@ -342,9 +344,24 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             throw new IllegalArgumentException("maxBidirectionalStreamBufferSize must be set");
         }
 
+        if (maxAckDelay != null) {
+            // Absent means 25 ms to the peer, so which value a client sends - or that it sends none -
+            // is visible: Chrome and Safari send none and Firefox sends 20.
+            parameters.setMaxAckDelay(maxAckDelay);
+        }
+
         if (connectionProperties.maxBidirectionalStreamBufferSize() > 0) {
             parameters.setInitialMaxStreamDataBidiLocal(connectionProperties.maxBidirectionalStreamBufferSize());
-            parameters.setInitialMaxStreamDataBidiRemote(connectionProperties.maxBidirectionalStreamBufferSize());
+            /*
+             * Usually the same number, and for two implementations here it is. Firefox sends a
+             * smaller limit for streams the peer opens than for its own, and which numbers a client
+             * sends is as much a fingerprint as the rest, so the two can differ. Advertising less
+             * than the buffer can hold is safe: it is a ceiling on what the peer may send before
+             * asking for more.
+             */
+            parameters.setInitialMaxStreamDataBidiRemote(initialMaxStreamDataBidiRemote != null
+                    ? initialMaxStreamDataBidiRemote
+                    : connectionProperties.maxBidirectionalStreamBufferSize());
         }
         else {
             throw new IllegalArgumentException("maxBidirectionalStreamBufferSize must be set");
@@ -1494,6 +1511,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private Set<Integer> omittedTransportParameters = Set.of();
         private boolean chaosProtection;
         private Integer initialDatagramSize;
+        private Long initialMaxStreamDataBidiRemote;
+        private Integer maxAckDelay;
         private Map<Integer, byte[]> addedTransportParameters = Map.of();
         private int[] otherVersionIds;
 
@@ -1523,6 +1542,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                             echConfigProvider, clientHelloSpec, destinationConnectionIdLength,
                             omittedTransportParameters, addedTransportParameters, otherVersionIds);
 
+            quicConnection.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
+            quicConnection.maxAckDelay = maxAckDelay;
             quicConnection.sender.setChaosProtection(chaosProtection);
             if (initialDatagramSize != null) {
                 quicConnection.sender.setInitialDatagramSize(initialDatagramSize);
@@ -1761,6 +1782,18 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         @Override
         public Builder initialMaxStreamDataBidirectional(long initialMaxStreamData) {
             connectionProperties.setMaxBidirectionalStreamBufferSize(initialMaxStreamData);
+            return this;
+        }
+
+        @Override
+        public Builder maxAckDelay(int maxAckDelayInMillis) {
+            this.maxAckDelay = maxAckDelayInMillis;
+            return this;
+        }
+
+        @Override
+        public Builder initialMaxStreamDataBidirectionalRemote(long initialMaxStreamData) {
+            this.initialMaxStreamDataBidiRemote = initialMaxStreamData;
             return this;
         }
 
