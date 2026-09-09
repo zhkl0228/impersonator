@@ -36,19 +36,13 @@ public class EchOverQuicTest extends TestCase {
     private static final String HOST = "cloudflare-ech.com";
     private static final String TRACE_URL = "https://" + HOST + "/cdn-cgi/trace";
 
-    @Override
-    protected void tearDown() {
-        ImpersonatorQuic.setEchConfigProvider(null);
-    }
-
     /**
      * The ECHConfigList comes from the same DNS-over-HTTPS provider the TCP path uses, so this is
      * the whole feature in one call.
      */
     public void testEchIsAcceptedOverHttp3() throws Exception {
-        ImpersonatorQuic.setEchConfigProvider(DnsOverHttpsEchConfigProvider.getInstance());
-
-        String body = trace();
+        String body = Http3.body(QuicClientFactory.create()
+                .setEchConfigProvider(DnsOverHttpsEchConfigProvider.getInstance()), TRACE_URL);
         assertTrue("expected an encrypted sni, got:\n" + body, body.contains("sni=encrypted"));
     }
 
@@ -57,9 +51,7 @@ public class EchOverQuicTest extends TestCase {
      * in the plaintext SNI, which is what proves the test above is not measuring something else.
      */
     public void testWithoutAnEchConfigTheSniIsPlaintext() throws Exception {
-        ImpersonatorQuic.setEchConfigProvider(null);
-
-        String body = trace();
+        String body = Http3.body(QuicClientFactory.create(), TRACE_URL);
         assertTrue("expected a plaintext sni, got:\n" + body, body.contains("sni=plaintext"));
     }
 
@@ -77,14 +69,16 @@ public class EchOverQuicTest extends TestCase {
         List<byte[]> retryConfigs = new ArrayList<>();
         List<String> publicNames = new ArrayList<>();
         AtomicInteger rejections = new AtomicInteger();
-        ImpersonatorQuic.setEchConfigProvider(host -> corrupted, (serverName, publicName, configs) -> {
-            rejections.incrementAndGet();
-            publicNames.add(publicName);
-            retryConfigs.add(configs);
-        });
+        QuicClientFactory factory = QuicClientFactory.create()
+                .setEchConfigProvider(host -> corrupted)
+                .setEchRejectionHandler((serverName, publicName, configs) -> {
+                    rejections.incrementAndGet();
+                    publicNames.add(publicName);
+                    retryConfigs.add(configs);
+                });
 
         try {
-            trace();
+            Http3.body(factory, TRACE_URL);
             fail("a rejected Encrypted Client Hello must fail the connection, not report success");
         }
         catch (IOException expected) {
@@ -100,8 +94,7 @@ public class EchOverQuicTest extends TestCase {
         byte[] published = retryConfigs.get(0);
         assertNotNull("Cloudflare publishes retry_configs", published);
 
-        ImpersonatorQuic.setEchConfigProvider(host -> published);
-        String body = trace();
+        String body = Http3.body(QuicClientFactory.create().setEchConfigProvider(host -> published), TRACE_URL);
         assertTrue("expected the retry to encrypt the sni, got:\n" + body, body.contains("sni=encrypted"));
     }
 
@@ -113,10 +106,9 @@ public class EchOverQuicTest extends TestCase {
     public void testAnUnusableEchConfigListFailsTheConnectionRatherThanFallingBack() {
         // Version 0xfe0a, the draft-10 ECH nobody deploys any more, is the only entry.
         byte[] unusable = new byte[] { 0, 6, (byte) 0xfe, 0x0a, 0, 2, 0, 0 };
-        ImpersonatorQuic.setEchConfigProvider(host -> unusable);
 
         try {
-            trace();
+            Http3.body(QuicClientFactory.create().setEchConfigProvider(host -> unusable), TRACE_URL);
             fail("an unusable ECHConfigList must not be silently ignored");
         }
         catch (Exception e) {
@@ -131,15 +123,6 @@ public class EchOverQuicTest extends TestCase {
         }
     }
 
-    private static String trace() throws Exception {
-        HttpClient client = Http3Client.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-        HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create(TRACE_URL)).build(),
-                HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, response.statusCode());
-        return response.body();
-    }
 
     /**
      * Flip one bit of the HPKE public key, which leaves the ECHConfig well formed and usable but

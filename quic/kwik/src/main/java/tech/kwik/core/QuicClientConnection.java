@@ -15,10 +15,15 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.core;
 
 import tech.kwik.agent15.TlsConstants;
+import tech.kwik.agent15.ech.EchConfigProvider;
+import tech.kwik.agent15.engine.ClientHelloSpec;
 import tech.kwik.core.impl.QuicClientConnectionImpl;
 import tech.kwik.core.log.Logger;
 
@@ -132,6 +137,23 @@ public interface QuicClientConnection extends QuicConnection {
         Builder preferIPv6();
 
         Builder connectionIdLength(int length);
+
+        /**
+         * Offers a real Encrypted Client Hello (RFC 9849) on this connection, so that the server name
+         * travels inside an encrypted ClientHelloInner instead of a plaintext SNI.
+         *
+         * @param echConfigProvider  supplies the ECHConfigList for the host, and hears about a rejection.
+         */
+        Builder echConfigProvider(EchConfigProvider echConfigProvider);
+
+        /**
+         * Dictates what the ClientHello looks like on this connection, so that it can be made to
+         * resemble some other client's rather than agent15's own. A spec holds the private halves of
+         * the key shares it generates, so it belongs to one connection and cannot be shared.
+         *
+         * @param clientHelloSpec  the spec, or null to let agent15 build the ClientHello it needs.
+         */
+        Builder clientHelloSpec(ClientHelloSpec clientHelloSpec);
 
         Builder initialRtt(int initialRtt);
 

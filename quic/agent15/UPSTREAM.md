@@ -39,7 +39,6 @@ Files changed relative to `977b893`:
 | `handshake/HandshakeMessage.java` | `parseExtensions` recognizes "encrypted_client_hello" in a ClientHello and in EncryptedExtensions |
 | `extension/KeyShareExtension.java` | a server key_share entry keeps its key exchange value raw, so a `ClientHelloSpec` can own a group agent15 has no key exchange for |
 | `engine/TlsClientEngine.java` | added `setEchConfigProvider` and `setClientHelloSpec` |
-| `engine/TlsClientEngineFactory.java` | added the process wide defaults for both |
 | `engine/impl/TlsClientEngineImpl.java` | ECH: build both ClientHellos, pick the transcript on the accept confirmation, verify the certificate against the public name, send an empty client Certificate, throw `EchRejectedException` on rejection. Fingerprint: build the ClientHello from a `ClientHelloSpec` and let it own the key shares |
 | `engine/impl/TlsState.java` | added `hkdfExtract` and widened `hkdfExpandLabel(byte[], String, byte[], short)` to public for the ECH accept confirmation; added `setSharedSecret` for a key exchange agent15 does not implement |
 

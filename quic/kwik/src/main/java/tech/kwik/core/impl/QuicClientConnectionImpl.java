@@ -15,11 +15,16 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.core.impl;
 
 import tech.kwik.agent15.NewSessionTicket;
 import tech.kwik.agent15.TlsConstants;
+import tech.kwik.agent15.ech.EchConfigProvider;
+import tech.kwik.agent15.engine.ClientHelloSpec;
 import tech.kwik.agent15.TlsProtocolException;
 import tech.kwik.agent15.engine.CertificateWithPrivateKey;
 import tech.kwik.agent15.engine.ClientMessageSender;
@@ -169,7 +174,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                                      String proxyHost, Path secretsFile, Integer initialRtt, Integer cidLength,
                                      List<TlsConstants.CipherSuite> cipherSuites,
                                      X509Certificate clientCertificate, PrivateKey clientCertificateKey,
-                                     DatagramSocketFactory socketFactory) throws UnknownHostException, SocketException {
+                                     DatagramSocketFactory socketFactory, EchConfigProvider echConfigProvider,
+                                     ClientHelloSpec clientHelloSpec) throws UnknownHostException, SocketException {
         super(originalVersion, Role.Client, secretsFile, connectionProperties, "", log);
         this.applicationProtocol = applicationProtocol;
         this.connectTimeout = connectTimeout;
@@ -240,6 +246,14 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 log.sentPacketInfo(cryptoStream.toStringSent());
             }
         }, this);
+        /*
+         * Both belong to this connection and not to the process. The engine is created here rather
+         * than handed in, so before this they could only be installed as a static default on
+         * TlsClientEngineFactory - which a ClientHelloSpec cannot be anyway, since it holds the
+         * private halves of the key shares it generated.
+         */
+        tlsEngine.setEchConfigProvider(echConfigProvider);
+        tlsEngine.setClientHelloSpec(clientHelloSpec);
     }
 
     @Override
@@ -1408,6 +1422,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private boolean enableDatagramExtension;
         private boolean enableReliableStreamReset;
         private X509ExtendedKeyManager keyManager;
+        private EchConfigProvider echConfigProvider;
+        private ClientHelloSpec clientHelloSpec;
 
         private BuilderImpl() {
             connectionProperties.setMaxIdleTimeout(DEFAULT_MAX_IDLE_TIMEOUT);
@@ -1431,7 +1447,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             QuicClientConnectionImpl quicConnection =
                     new QuicClientConnectionImpl(host, port, ipVersionOption, applicationProtocol, connectTimeoutInMillis, connectionProperties, sessionTicket, Version.of(quicVersion),
                             Version.of(preferredVersion), log, proxyHost, secretsFile, initialRtt, connectionIdLength,
-                            cipherSuites, clientCertificate, clientCertificateKey, socketFactory);
+                            cipherSuites, clientCertificate, clientCertificateKey, socketFactory,
+                            echConfigProvider, clientHelloSpec);
 
             if (omitCertificateCheck) {
                 quicConnection.trustAnyServerCertificate();
@@ -1639,6 +1656,18 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 throw new IllegalArgumentException("Connection ID length must between 0 and 20.");
             }
             connectionIdLength = length;
+            return this;
+        }
+
+        @Override
+        public Builder echConfigProvider(EchConfigProvider echConfigProvider) {
+            this.echConfigProvider = echConfigProvider;
+            return this;
+        }
+
+        @Override
+        public Builder clientHelloSpec(ClientHelloSpec clientHelloSpec) {
+            this.clientHelloSpec = clientHelloSpec;
             return this;
         }
 

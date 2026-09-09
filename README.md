@@ -75,46 +75,55 @@ If a server rejects ECH, the handshake fails with `TlsEchRejectedException`, whi
 `public_name` and the `retry_configs` the server published. Retrying is left to the caller: those
 configs may only be trusted once the certificate presented for `public_name` has been verified.
 
-### Encrypted Client Hello over QUIC / HTTP-3
+### QUIC / HTTP-3
 
 ```xml
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
-    <artifactId>impersonator-quic</artifactId>
+    <artifactId>impersonator-kwik</artifactId>
     <version>1.6.0</version>
 </dependency>
 ```
 
-This module makes [kwik](https://github.com/ptrd/kwik)'s QUIC handshake send a real Encrypted
-Client Hello, using the same `EchConfigProvider` as the TCP path above. It requires Java 11, which
-is what kwik and agent15 are built for; the other two modules stay on Java 8.
-
-kwik creates its TLS engines itself and hands out no reference to them, so the provider is
-installed once for the process. That costs nothing, because an ECHConfigList belongs to a host and
-not to a connection:
+Encrypted Client Hello and a dictated TLS ClientHello on [kwik](https://github.com/ptrd/kwik)'s
+QUIC handshake, driven by the same profile as the TCP path. Two artifacts, one per vendored
+upstream project: `impersonator-agent15` (the TLS 1.3 handshake) and `impersonator-kwik` (QUIC,
+which depends on it). Both need Java 11, which is what kwik and agent15 are built for; `bctls` and
+`okhttp` stay on Java 8.
 
 ```java
-// The same DNS-over-HTTPS lookup the TCP path uses.
-ImpersonatorQuic.setEchConfigProvider(DnsOverHttpsEchConfigProvider.getInstance());
+QuicClientFactory factory = QuicClientFactory.create(ImpersonatorFactory.macChrome());
 
-HttpClient client = Http3Client.newBuilder().build();
-HttpResponse<String> response = client.send(
-        HttpRequest.newBuilder(URI.create("https://cloudflare-ech.com/cdn-cgi/trace")).build(),
-        HttpResponse.BodyHandlers.ofString());
-// the body says sni=encrypted
+QuicClientConnection connection = factory.newBuilder()
+        .uri(URI.create("https://cloudflare-ech.com/cdn-cgi/trace"))
+        .applicationProtocol("h3")
+        .build();
+connection.connect();
+// the trace says sni=encrypted
 ```
+
+The profile travels with the connection, so different connections can impersonate different
+browsers. Encrypted Client Hello is on by default for a profile whose browser does it, resolving
+the host's ECHConfigList over DNS-over-HTTPS exactly as the TCP path does.
 
 A rejected ECH fails the connection, as RFC 9849 6.1.6 requires, after the handshake has run to the
-end and the certificate for the `public_name` has been verified. kwik reports handshake failures as
-a message rather than an exception, so the `retry_configs` are handed to a callback instead:
+end and the certificate for the `public_name` has been verified. kwik reduces a handshake failure to
+a message and throws a fresh `ConnectException`, so the exception carrying the `retry_configs` never
+reaches the caller; a callback gets them instead:
 
 ```java
-ImpersonatorQuic.setEchConfigProvider(echConfigProvider,
-        (serverName, publicName, retryConfigs) -> ...);   // remember, and offer next time
+QuicClientFactory.create(api)
+        .setEchConfigProvider(echConfigProvider)
+        .setEchRejectionHandler((serverName, publicName, retryConfigs) -> ...);
 ```
 
-Not implemented yet: a QUIC/HTTP-3 fingerprint. The ClientHello is agent15's, not a browser's, and
-a host with no ECHConfig gets a plain ClientHello rather than the GREASE ECH the TCP path sends.
+**The QUIC fingerprint is only half done.** The TLS ClientHello is fully dictated by the profile -
+cipher list, extension set and order, supported groups, and multiple key shares including
+X25519MLKEM768 - and reproducing a capture of another client gives a byte-identical JA4. What is
+still kwik's and flupke's, and so still says "kwik": the connection id length, the Initial packet's
+padding, the QUIC transport parameters, and the HTTP/3 SETTINGS frame. And no profile ships a QUIC
+ClientHello yet, because that needs a capture of the browser over HTTP/3;
+`Impersonator.getQuicClientHello()` says so rather than deriving one from the TCP capture.
 
 ### Timeouts
 

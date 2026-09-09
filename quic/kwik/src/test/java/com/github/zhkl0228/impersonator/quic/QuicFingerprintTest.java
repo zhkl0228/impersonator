@@ -2,13 +2,7 @@ package com.github.zhkl0228.impersonator.quic;
 
 import com.alibaba.fastjson2.JSONObject;
 import junit.framework.TestCase;
-import tech.kwik.flupke.Http3Client;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,17 +28,12 @@ public class QuicFingerprintTest extends TestCase {
     private static final String CURL_JA4 = "q13d0312h3_55b375c5d22e_f5ac3e2d82fc";
     private static final String CURL_JA4_HASH = "16fc307196e6";
 
-    @Override
-    protected void tearDown() {
-        ImpersonatorQuic.setQuicClientHello(null);
-    }
-
     /**
      * Without a spec the ClientHello is agent15's own: one cipher suite and eight extensions, which
      * JA4 spells {@code 0108}. This is the baseline the test below has to move.
      */
     public void testWithoutASpecTheFingerprintIsAgent15s() throws Exception {
-        JSONObject fingerprint = fingerprint();
+        JSONObject fingerprint = fingerprint(QuicClientFactory.create());
 
         assertTrue("expected agent15's own ClientHello, got " + fingerprint.getString("ja4"),
                 fingerprint.getString("ja4").startsWith("q13d0108h3_"));
@@ -55,9 +44,7 @@ public class QuicFingerprintTest extends TestCase {
      * the signature algorithms. Matching all three means the message really was built to order.
      */
     public void testACapturedClientHelloIsReproducedExactly() throws Exception {
-        ImpersonatorQuic.setQuicClientHello(new Curl8QuicClientHello());
-
-        JSONObject fingerprint = fingerprint();
+        JSONObject fingerprint = fingerprint(curl());
 
         assertEquals(CURL_JA4, fingerprint.getString("ja4"));
         assertEquals(CURL_JA4_HASH, fingerprint.getString("ja4_hash"));
@@ -70,9 +57,7 @@ public class QuicFingerprintTest extends TestCase {
      * from BouncyCastle through {@link org.bouncycastle.tls.TlsKeyShare}.
      */
     public void testTheOrderAndTheKeySharesMatchToo() throws Exception {
-        ImpersonatorQuic.setQuicClientHello(new Curl8QuicClientHello());
-
-        JSONObject tls = fingerprint().getJSONObject("tls");
+        JSONObject tls = fingerprint(curl()).getJSONObject("tls");
 
         assertEquals(List.of("TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256", "TLS_AES_128_GCM_SHA256"),
                 names(tls.getJSONArray("cipher_suites")));
@@ -85,15 +70,15 @@ public class QuicFingerprintTest extends TestCase {
                 names(extension(tls, 51).getJSONArray("data")));
     }
 
-    private static JSONObject fingerprint() throws Exception {
-        HttpClient client = Http3Client.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
-        HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create(FINGERPRINT_URL)).build(),
-                HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, response.statusCode());
+    /** A factory whose profile is the captured curl ClientHello and nothing else. */
+    private static QuicClientFactory curl() {
+        return QuicClientFactory.create(new Curl8QuicClientHello());
+    }
 
-        JSONObject fingerprint = JSONObject.parseObject(response.body());
-        assertNotNull("the endpoint answers only over HTTP/3, got: " + response.body(),
-                fingerprint.getJSONObject("tls"));
+    private static JSONObject fingerprint(QuicClientFactory factory) throws Exception {
+        String body = Http3.body(factory, FINGERPRINT_URL);
+        JSONObject fingerprint = JSONObject.parseObject(body);
+        assertNotNull("the endpoint answers only over HTTP/3, got: " + body, fingerprint.getJSONObject("tls"));
         return fingerprint;
     }
 

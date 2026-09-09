@@ -25,13 +25,13 @@ import java.util.Map;
  * <p>
  * One connection, one instance: it holds the private halves of the key shares.
  */
-class QuicClientHelloSpec implements ClientHelloSpec {
+public class QuicClientHelloSpec implements ClientHelloSpec {
 
     private final QuicClientHello quicClientHello;
     private final BcTlsCrypto crypto = new BcTlsCrypto();
     private final Map<Integer, TlsKeyShare> keyShares = new LinkedHashMap<>();
 
-    QuicClientHelloSpec(QuicClientHello quicClientHello) {
+    public QuicClientHelloSpec(QuicClientHello quicClientHello) {
         this.quicClientHello = quicClientHello;
     }
 

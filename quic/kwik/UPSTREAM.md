@@ -50,9 +50,20 @@ itself has with `impersonator-agent15`.
 not, so it throws. Nothing on the connection path calls it - only its own `main` - and a version
 string invented here would be a lie about which kwik this is.
 
-Files changed relative to `edb3155f`: none yet. This commit is the copy with not one byte changed,
-so that the diff of the next one is exactly the patch and a future sync with upstream can be done
-mechanically.
+Files changed relative to `edb3155f`:
+
+| File | Change |
+|---|---|
+| `QuicClientConnection.java` | `Builder` gained `echConfigProvider` and `clientHelloSpec` |
+| `impl/QuicClientConnectionImpl.java` | carries both to the TLS engine it creates |
+
+Two methods and two fields. The engine is created in the constructor and never handed in, so this is
+the only place a per-connection profile can be attached; without it the two could only be static
+defaults on `TlsClientEngineFactory`, which a `ClientHelloSpec` cannot be at all, since it holds the
+private halves of one connection's key shares.
+
+Both parameters are agent15 types, not impersonator ones, so this patch stays as close to something
+upstream might take as it can.
 
 Every changed file keeps its upstream LGPL header, with an added "Modified by ..." line as
 section 2 of the LGPL requires.
