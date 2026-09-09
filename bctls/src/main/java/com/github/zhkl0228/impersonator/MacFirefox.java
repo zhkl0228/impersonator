@@ -5,11 +5,14 @@ import okhttp3.Settings;
 import org.bouncycastle.tls.*;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * v155.0
+ * v155.0. Its QUIC fingerprint comes from a Wireshark capture cross-checked against the endpoint's
+ * report of the same connections; see docs/captures/firefox-155-quic*.
  */
 class MacFirefox extends ImpersonatorFactory {
 
@@ -82,4 +85,147 @@ class MacFirefox extends ImpersonatorFactory {
         return new ExtensionOrder("0-23-65281-10-11-35-16-5-34-41-18-51-43-13-45-28-27-65037", false);
     }
 
+
+    /**
+     * The ClientHello Firefox sends over QUIC, which is not its TCP one with the TLS 1.2 parts
+     * removed - Safari's is, and Firefox's keeps "extended_master_secret" and "renegotiation_info"
+     * that Safari drops. Three other differences from its own TCP ClientHello are worth naming
+     * because they were all found by looking rather than assumed: the signature algorithms come in a
+     * different order, with ecdsa_sha1 fourth instead of tenth; the named groups drop the two finite
+     * field ones; and certificate compression asks for zlib and zstd where TCP asks for zlib, brotli
+     * and zstd.
+     * <p>
+     * Nothing here is GREASEd. Chrome's QUIC ClientHello greases nothing either while its TCP one
+     * does, and Safari's greases in five places - so this is a real axis of difference and not a
+     * detail. Firefox does grease elsewhere: two of its HTTP/3 settings, one of its transport
+     * parameters, and the other versions it lists in version_information.
+     */
+    @Override
+    public QuicClientHello getQuicClientHello() {
+        return new QuicClientHello() {
+
+            @Override
+            public int[] getCipherSuites() {
+                return new int[] {
+                        CipherSuite.TLS_AES_128_GCM_SHA256,
+                        CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
+                        CipherSuite.TLS_AES_256_GCM_SHA384
+                };
+            }
+
+            @Override
+            public int[] getKeyShareGroups() {
+                // Three, where Chrome and Safari offer two.
+                return new int[] { NamedGroup.X25519MLKEM768, NamedGroup.x25519, NamedGroup.secp256r1 };
+            }
+
+            @Override
+            public ExtensionOrder onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+                TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions,
+                        new ProtocolVersion[] { ProtocolVersion.TLSv13 });
+                TlsExtensionsUtils.addRecordSizeLimitExtension(clientExtensions, 0x4001);
+                clientExtensions.put(ExtensionType.extended_master_secret, TlsUtils.EMPTY_BYTES);
+                // An empty renegotiated_connection, which is what a client that has never renegotiated sends.
+                clientExtensions.put(ExtensionType.renegotiation_info, new byte[] { 0 });
+                // OCSP, an empty responder id list and no request extensions.
+                clientExtensions.put(ExtensionType.status_request, new byte[] { 1, 0, 0, 0, 0 });
+                addSignatureAlgorithmsExtension(clientExtensions,
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp521r1_sha512),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1),
+                        SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
+                        SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
+                        SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
+                addDelegatedCredentialsExtension(clientExtensions,
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp521r1_sha512),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_sha1));
+                addSupportedGroupsExtension(clientExtensions, NamedGroup.X25519MLKEM768, NamedGroup.x25519,
+                        NamedGroup.secp256r1, NamedGroup.secp384r1, NamedGroup.secp521r1);
+                TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions,
+                        new short[] { PskKeyExchangeMode.psk_dhe_ke });
+                TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions, new int[] {
+                        CertificateCompressionAlgorithm.zlib,
+                        CertificateCompressionAlgorithm.zstd
+                });
+                // A host that publishes an ECHConfig gets a real Encrypted Client Hello in this slot;
+                // the capture is of one that did, and the endpoint reported ech_success.
+                addGreaseEncryptedClientHelloExtension(clientExtensions);
+                return new ExtensionOrder("28-10-23-34-5-13-65281-16-51-27-45-43-0-57-65037", false);
+            }
+        };
+    }
+
+    /**
+     * The QUIC layer of the same captures. Fourteen parameters, the longest list of the three
+     * browsers here, and two of them are things neither of the others sends: a version_information
+     * naming two GREASE versions beside the real one, and an empty parameter 0x1d that Wireshark does
+     * not recognize and this does not pretend to - it is reproduced as the bytes it is.
+     * <p>
+     * The Destination Connection ID length is drawn per connection rather than fixed. Four captured
+     * connections gave 8, 13, 14 and 19, which is neqo's ConnectionId::generate_initial:
+     * <pre>
+     *   // Apply a wee bit of greasing here in picking a length between 8 and 20 bytes long.
+     *   let v = random::&lt;1&gt;()[0];
+     *   // Bias selection toward picking 8 (&gt;50% of the time).
+     *   let len: usize = max(8, 5 + (v &amp; (v &gt;&gt; 4))).into();
+     * </pre>
+     * A fixed 8 would be right more than half the time and wrong the rest, which is worse than being
+     * right every time: the length would never vary, and never varying is itself the tell.
+     */
+    @Override
+    public QuicTransport getQuicTransport() {
+        return QuicTransport.newBuilder()
+                .destinationConnectionIdLength(MacFirefox::initialConnectionIdLength)
+                .sourceConnectionIdLength(3)
+                .initialDatagramSize(1252)
+                .maxIdleTimeoutMillis(30000L)
+                .initialMaxData(25165824L)
+                .initialMaxStreamDataBidirectional(12582912L)
+                .initialMaxStreamDataBidirectionalRemote(1048576L)
+                .initialMaxStreamDataUnidirectional(1048576L)
+                .initialMaxStreamsBidirectional(100)
+                .initialMaxStreamsUnidirectional(100)
+                .maxAckDelayMillis(20)
+                .activeConnectionIdLimit(8)
+                .maxDatagramFrameSize(65535)
+                .availableVersions(QuicTransport.greaseVersion(), QuicTransport.greaseVersion())
+                // Empty, and unrecognized: reproduced rather than explained.
+                .parameter(0x1d, new byte[0])
+                .greaseParameter()
+                .omit(QuicTransport.MAX_UDP_PAYLOAD_SIZE, QuicTransport.ACK_DELAY_EXPONENT,
+                        QuicTransport.DISABLE_ACTIVE_MIGRATION)
+                .build();
+    }
+
+    /** neqo's ConnectionId::generate_initial; see {@link #getQuicTransport()}. */
+    private static int initialConnectionIdLength() {
+        int v = ThreadLocalRandom.current().nextInt(256);
+        return Math.max(8, 5 + (v & (v >> 4)));
+    }
+
+    /**
+     * The HTTP/3 SETTINGS of the same capture: {@code 1:65536, 7:20, 8:1, 51:1} and two GREASE ones.
+     * Firefox is the only one of the three that sends SETTINGS_ENABLE_CONNECT_PROTOCOL, and the only
+     * one that greases twice.
+     */
+    @Override
+    public Map<Long, Long> getHttp3Settings() {
+        Map<Long, Long> settings = new LinkedHashMap<>();
+        settings.put(Http3Settings.QPACK_MAX_TABLE_CAPACITY, 65536L);
+        settings.put(Http3Settings.QPACK_BLOCKED_STREAMS, 20L);
+        settings.put(Http3Settings.ENABLE_CONNECT_PROTOCOL, 1L);
+        settings.put(Http3Settings.H3_DATAGRAM, 1L);
+        long grease = Http3Settings.randomGrease();
+        settings.put(grease, 1L);
+        long second = Http3Settings.randomGrease();
+        settings.put(second == grease ? second + 0x1fL : second, 0L);
+        return settings;
+    }
 }
