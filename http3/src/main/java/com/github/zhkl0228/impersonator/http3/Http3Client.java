@@ -1,6 +1,5 @@
 package com.github.zhkl0228.impersonator.http3;
 
-import com.github.zhkl0228.impersonator.http3.Http3ClientFactory.CloseableHttpClient;
 import com.github.zhkl0228.impersonator.quic.QuicClientFactory;
 import tech.kwik.core.QuicClientConnection;
 import tech.kwik.flupke.Http3SingleConnectionClient;
@@ -32,11 +31,13 @@ import java.util.concurrent.Executor;
  * the seam this uses. Keeping to that public API is what lets flupke stay an ordinary dependency
  * rather than a third vendored tree.
  */
-class Http3Client extends CloseableHttpClient {
+class Http3Client extends HttpClient {
 
     private final QuicClientFactory quicClientFactory;
     private final Duration connectTimeout;
     private final Map<String, Connection> connections = new ConcurrentHashMap<>();
+
+    private volatile boolean closed;
 
     Http3Client(QuicClientFactory quicClientFactory, Duration connectTimeout) {
         this.quicClientFactory = quicClientFactory;
@@ -134,17 +135,44 @@ class Http3Client extends CloseableHttpClient {
     }
 
     /**
-     * Closes every connection this client opened. A later request opens a new one, so this is a
-     * reset as much as a shutdown.
+     * Closes every QUIC connection this client opened.
+     * <p>
+     * {@link #shutdown()} does the same thing, and says so rather than pretending: this client keeps
+     * no register of requests in flight, so there is nothing to let finish first. A request running
+     * on another thread while this is called will fail, which is what closing its connection means.
      */
     @Override
     public void close() {
+        closed = true;
         for (String authority : connections.keySet()) {
             Connection connection = connections.remove(authority);
             if (connection != null) {
                 connection.close();
             }
         }
+    }
+
+    /** No orderly variant exists here; see {@link #close()}. */
+    @Override
+    public void shutdown() {
+        close();
+    }
+
+    /** No orderly variant exists here; see {@link #close()}. */
+    @Override
+    public void shutdownNow() {
+        close();
+    }
+
+    @Override
+    public boolean isTerminated() {
+        return closed && connections.isEmpty();
+    }
+
+    /** Closing is synchronous, so there is never anything to await. */
+    @Override
+    public boolean awaitTermination(Duration duration) {
+        return isTerminated();
     }
 
     @Override

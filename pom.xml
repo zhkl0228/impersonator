@@ -11,7 +11,7 @@
     <modules>
         <module>bctls</module>
         <module>okhttp</module>
-        <!-- quic (agent15, kwik) and http3 are here too, in the profile below; they need a JDK 11. -->
+        <!-- quic (agent15, kwik) and http3 are here too, in the profiles below; they need a JDK 11 resp. 21. -->
     </modules>
 
     <profiles>
@@ -27,6 +27,19 @@
             </activation>
             <modules>
                 <module>quic</module>
+            </modules>
+        </profile>
+        <!--
+            http3 is Java 21, because that is where java.net.http.HttpClient became AutoCloseable and
+            the client it hands out owns QUIC connections. One step above the rest, so it gets its own
+            activation rather than failing every JDK 11 build.
+        -->
+        <profile>
+            <id>http3</id>
+            <activation>
+                <jdk>[21,)</jdk>
+            </activation>
+            <modules>
                 <module>http3</module>
             </modules>
         </profile>

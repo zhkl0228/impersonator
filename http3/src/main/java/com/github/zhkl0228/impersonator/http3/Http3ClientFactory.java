@@ -92,23 +92,12 @@ public class Http3ClientFactory {
     }
 
     /**
-     * @return a client whose connections carry this factory's profile. Close it when done, so the
-     *         QUIC connections it opened are closed too.
+     * @return a client whose connections carry this factory's profile. It owns QUIC connections, so
+     *         close it when done; {@link HttpClient} is {@link AutoCloseable}, which is the reason
+     *         this module is Java 21 while the ones below it are Java 11.
      */
-    public Http3ClientFactory.CloseableHttpClient newHttpClient() {
+    public HttpClient newHttpClient() {
         return new Http3Client(quicClientFactory, connectTimeout);
-    }
-
-    /**
-     * An {@link HttpClient} that owns QUIC connections, and so has to be closed. Java 11's
-     * {@code HttpClient} is not {@link AutoCloseable} - that arrived in Java 21 - so this says it
-     * here rather than leaving the connections to be collected whenever.
-     */
-    public abstract static class CloseableHttpClient extends HttpClient implements AutoCloseable {
-
-        /** Closes every QUIC connection this client opened. Further requests open new ones. */
-        @Override
-        public abstract void close();
     }
 
 }

@@ -2,6 +2,7 @@ package com.github.zhkl0228.impersonator.http3;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
@@ -14,7 +15,7 @@ import java.net.http.HttpResponse;
 class Http3Get {
 
     static String body(Http3ClientFactory factory, String url) throws Exception {
-        try (Http3ClientFactory.CloseableHttpClient client = factory.newHttpClient()) {
+        try (HttpClient client = factory.newHttpClient()) {
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create(url)).build(),
                     HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {

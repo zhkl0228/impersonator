@@ -12,9 +12,15 @@
     <artifactId>impersonator-http3</artifactId>
 
     <properties>
-        <!-- flupke and the modules below it are Java 11. -->
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <!--
+            Java 21, one step above the Java 11 of the modules below, for one reason:
+            java.net.http.HttpClient became AutoCloseable in 21. This module hands out a client that
+            owns QUIC connections, so it has to be closed, and on 11 that meant an abstract subclass
+            of our own for callers to import and to name in a try-with-resources. Now newHttpClient()
+            returns java.net.http.HttpClient and the language closes it.
+        -->
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
     </properties>
 
     <build>
@@ -28,8 +34,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <configuration>
-                    <!-- Overrides the parent's 8; this module is Java 11. -->
-                    <source>11</source>
+                    <!-- Overrides the parent's 8; this module is Java 21. -->
+                    <source>21</source>
                 </configuration>
             </plugin>
         </plugins>

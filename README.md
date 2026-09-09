@@ -92,7 +92,7 @@ profile dictates.
 ```java
 ImpersonatorApi api = ImpersonatorFactory.macChrome();
 
-try (var client = Http3ClientFactory.create(api).newHttpClient()) {
+try (HttpClient client = Http3ClientFactory.create(api).newHttpClient()) {
     HttpResponse<String> response = client.send(
             HttpRequest.newBuilder(URI.create("https://cloudflare-ech.com/cdn-cgi/trace")).build(),
             HttpResponse.BodyHandlers.ofString());
@@ -120,10 +120,21 @@ Http3ClientFactory.create(api)
 For QUIC without HTTP/3 - hysteria2 and the like - `impersonator-kwik` on its own gives
 `QuicClientFactory`, which hands out a `QuicClientConnection.Builder` with the profile already on it.
 
-Four artifacts, one per vendored upstream project plus the client layer: `impersonator-agent15`
-(TLS 1.3), `impersonator-kwik` (QUIC), `impersonator-http3` (flupke, an ordinary dependency, not
-vendored). All need Java 11, which is what kwik and agent15 are built for; `bctls` and `okhttp` stay
-on Java 8.
+Four artifacts, one per vendored upstream project plus the client layer:
+
+| | needs | |
+|---|---|---|
+| `impersonator-bctls` | Java 8 | TLS, and the profiles |
+| `impersonator-okhttp` | Java 8 | HTTP/1.1 and HTTP/2 |
+| `impersonator-agent15` | Java 11 | vendored agent15, the TLS 1.3 handshake |
+| `impersonator-kwik` | Java 11 | vendored kwik, QUIC |
+| `impersonator-http3` | **Java 21** | flupke (an ordinary dependency, not vendored) and the client above |
+
+agent15 and kwik are built for Java 11, so that is the floor for QUIC. `impersonator-http3` asks for
+21 because that is where `java.net.http.HttpClient` became `AutoCloseable`, and the client it hands
+out owns QUIC connections: on 11 it had to be an abstract subclass of our own for callers to import
+and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
+directly if you are on 11 and want QUIC without that.
 
 **The QUIC fingerprint is only half done.** The TLS ClientHello is fully dictated by the profile -
 cipher list, extension set and order, supported groups, and multiple key shares including
