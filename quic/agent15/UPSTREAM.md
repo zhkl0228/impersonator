@@ -15,10 +15,14 @@ Encrypted Client Hello (RFC 9849) has to build two ClientHellos and choose, afte
 arrives, which of the two goes into the handshake transcript. That is inside `TlsClientEngineImpl`
 and reachable through no public API, so the engine itself has to change.
 
-kwik is *not* forked. It uses agent15 only through its public API - `tech.kwik.agent15.extension`,
-`.engine`, `.handshake` and `TlsConstants`, never `engine.impl` - and depends on it as an ordinary
-artifact. So the `tech.kwik:kwik` dependency simply excludes `tech.kwik:agent15` and links against
-this copy instead, and kwik can still be upgraded from upstream.
+kwik uses agent15 only through its public API - `tech.kwik.agent15.extension`, `.engine`,
+`.handshake` and `TlsConstants`, never `engine.impl` - and depends on it as an ordinary artifact. So
+the `tech.kwik:kwik` dependency in the sibling `impersonator-kwik` module excludes
+`tech.kwik:agent15` and links against this copy instead.
+
+This module holds nothing but agent15: no impersonator glue, no kwik. That keeps the dependency
+pointing one way, and it is why the two vendored trees are two modules rather than one - each
+replaces exactly one upstream artifact and carries exactly one baseline.
 
 ## Deviations from the baseline
 

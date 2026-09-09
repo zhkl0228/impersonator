@@ -11,14 +11,14 @@
     <modules>
         <module>bctls</module>
         <module>okhttp</module>
-        <!-- quic is here too, in the profile below; it needs a JDK 11. -->
+        <!-- quic (agent15, kwik) is here too, in the profile below; it needs a JDK 11. -->
     </modules>
 
     <profiles>
         <!--
-            The quic module vendors agent15 and links kwik, both of which are compiled for Java 11,
-            so it cannot be built by the JDK 8 the other two modules target. Keeping it in a profile
-            means "mvn install" still works on a JDK 8, it just leaves impersonator-quic out.
+            The quic modules vendor agent15 and kwik, both of which are compiled for Java 11, so
+            they cannot be built by the JDK 8 the other two modules target. Keeping them in a profile
+            means "mvn install" still works on a JDK 8, it just leaves them out.
         -->
         <profile>
             <id>quic</id>

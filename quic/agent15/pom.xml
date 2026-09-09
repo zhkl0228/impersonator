@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>com.github.zhkl0228</groupId>
+        <artifactId>impersonator-quic</artifactId>
+        <version>1.6.0</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <name>agent15</name>
+    <artifactId>impersonator-agent15</artifactId>
+
+    <properties>
+        <!-- agent15 and kwik are compiled for Java 11; see UPSTREAM.md. -->
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <!-- Overrides the parent's 8; this module is Java 11. -->
+                    <source>11</source>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <!-- For the ECHConfigList parsing and selection and the key shares, shared with the TCP path. -->
+            <groupId>com.github.zhkl0228</groupId>
+            <artifactId>impersonator-bctls</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <!-- Used by the vendored agent15. -->
+            <groupId>at.favre.lib</groupId>
+            <artifactId>hkdf</artifactId>
+            <version>2.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>
