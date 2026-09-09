@@ -157,8 +157,14 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     }
 
     /**
-     * 4 -> 3 // SETTINGS_MAX_CONCURRENT_STREAMS renumbered.
-     * 7 -> 4 // SETTINGS_INITIAL_WINDOW_SIZE renumbered.
+     * Sets the HTTP/2 SETTINGS, the connection window increment and the pseudo header order this
+     * profile sends. Doing nothing, as here, leaves okhttp's own values in place.
+     * <p>
+     * The order the settings are set in is the order they go out in the SETTINGS frame, and that
+     * order is part of the fingerprint. Which is why this fork gives two of okhttp's
+     * {@code Settings} constants the ids RFC 7540 assigns them, {@code MAX_CONCURRENT_STREAMS} 3
+     * instead of 4 and {@code INITIAL_WINDOW_SIZE} 4 instead of 7: the constant is now written to
+     * the wire as is, so insertion order is frame order.
      */
     public void onHttp2ConnectionInit(Http2Connection http2Connection) {
     }
