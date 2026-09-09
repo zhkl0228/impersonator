@@ -111,21 +111,6 @@ public class QuicClientFactory {
     }
 
     /**
-     * Whether a connection to this host will offer Encrypted Client Hello, and so cannot also resume.
-     * <p>
-     * The two are exclusive here: RFC 9849 has the ClientHelloInner and the ClientHelloOuter carry
-     * different pre_shared_key extensions, the outer's a GREASE one, and there is no capture of what
-     * a browser puts in the outer. ECH wins, because it hides the server name from everyone on the
-     * path while resumption only saves a round trip.
-     * <p>
-     * The caller needs to know before it asks for a session ticket, because offering "early_data" and
-     * then having no pre_shared_key to derive the 0-RTT keys from is a connection that cannot be made.
-     */
-    public boolean usesEncryptedClientHello(String host) {
-        return echConfigProvider != null && echConfigProvider.getEchConfigList(host) != null;
-    }
-
-    /**
      * Where session tickets are kept between connections; see {@link SessionTicketStore}. It belongs
      * to the factory rather than to a connection because that is the scope a browser's ticket cache
      * has: one profile, every host it has visited.
