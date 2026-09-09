@@ -68,6 +68,11 @@ class Http2Reader(
       headerTableSizeSetting = 4096,
     )
 
+  /** See [Hpack.Reader.setHeaderTableSizeSetting]. */
+  fun setHeaderTableSizeSetting(headerTableSizeSetting: Int) {
+    hpackReader.setHeaderTableSizeSetting(headerTableSizeSetting)
+  }
+
   @Throws(IOException::class)
   fun readConnectionPreface(handler: Handler) {
     if (client) {

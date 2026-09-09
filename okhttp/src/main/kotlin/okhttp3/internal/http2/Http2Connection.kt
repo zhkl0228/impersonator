@@ -561,6 +561,13 @@ class Http2Connection internal constructor(
     if (sendConnectionPreface) {
       writer.connectionPreface()
       writer.settings(okHttpSettings)
+      if (okHttpSettings.isSet(Settings.HEADER_TABLE_SIZE)) {
+        // A profile may announce a header table larger than okhttp's own 4096, and announcing it is
+        // permission for the peer's encoder to use it. The decoder has to be told the same number or
+        // it rejects the first dynamic table size update that takes the offer up - which is how
+        // Google answers a Chrome profile's 65536.
+        readerRunnable.reader.setHeaderTableSizeSetting(okHttpSettings.headerTableSize)
+      }
       if (windowSizeIncrement >= 0) {
         if (windowSizeIncrement > 0) {
           writer.windowUpdate(0, windowSizeIncrement)

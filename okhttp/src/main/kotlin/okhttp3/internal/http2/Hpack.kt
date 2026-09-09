@@ -127,9 +127,20 @@ object Hpack {
     @JvmOverloads
     constructor(
       source: Source,
-      private val headerTableSizeSetting: Int,
+      private var headerTableSizeSetting: Int,
       private var maxDynamicTableByteCount: Int = headerTableSizeSetting,
     ) {
+      /**
+       * Tells the decoder what SETTINGS_HEADER_TABLE_SIZE this end advertised, which is the largest
+       * table the peer's encoder may then use (RFC 7541 section 4.2: "The initial maximum size is
+       * the value of SETTINGS_HEADER_TABLE_SIZE"). Only meaningful before any header block is read,
+       * which is where it is called from: a connection announces its settings once, at the start.
+       */
+      fun setHeaderTableSizeSetting(headerTableSizeSetting: Int) {
+        this.headerTableSizeSetting = headerTableSizeSetting
+        this.maxDynamicTableByteCount = headerTableSizeSetting
+      }
+
       private val headerList = mutableListOf<Header>()
       private var headerListByteCount = 0L
       private val source: BufferedSource = source.buffer()
