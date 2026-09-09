@@ -136,18 +136,19 @@ out owns QUIC connections: on 11 it had to be an abstract subclass of our own fo
 and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
 directly if you are on 11 and want QUIC without that.
 
-**The QUIC fingerprint is done except for the HTTP/3 SETTINGS frame.** `macChrome()` reproduces
-Chrome 152 over HTTP/3 from a capture kept in `docs/captures/chrome-152-quic.json`: the same JA4
-byte for byte, the same extension order, the same supported groups and both key shares
-(X25519MLKEM768 and X25519), and every QUIC transport parameter including the ones Chrome
-deliberately does not send.
+**Two things are left in the QUIC fingerprint.** `macChrome()` reproduces Chrome 152 over HTTP/3
+from the captures in `docs/captures/`: the same JA4, the same extensions shuffled per connection the
+way Chrome shuffles them, the same supported groups and both key shares, and every QUIC transport
+parameter - including the three that are not RFC 9000's, a reserved one, `version_information`, and
+Google's `google_connection_options` carrying the `ORIG` tag.
 
-What still says "flupke" is the HTTP/3 SETTINGS frame: Chrome sends four settings and a GREASE one,
-flupke sends two, and its settings map is protected and unordered so there is no way to change that
-from outside. Also not reproduced: the Initial packet's frame layout - Chrome interleaves CRYPTO and
-PING frames where kwik sends one CRYPTO frame - and three transport parameters Chrome sends that
-kwik cannot (`version_information`, a GREASE one, and `0x3128` carrying the bytes "ORIG", which
-nothing here explains).
+Still not Chrome's: the Initial packet's frame layout, where Chrome interleaves PADDING and PING
+frames with the CRYPTO and kwik sends one CRYPTO frame; and two of the HTTP/3 SETTINGS values,
+`QPACK_MAX_TABLE_CAPACITY` and `QPACK_BLOCKED_STREAMS`, which tell the peer it may use a QPACK
+dynamic table. The decoder underneath implements two of the encoder stream's instructions and throws
+on the rest, so claiming Chrome's values there would advertise a capability that is not present -
+a connection that dies on the first server that takes it up, in exchange for a fingerprint two
+numbers closer.
 
 ### Timeouts
 

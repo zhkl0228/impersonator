@@ -54,10 +54,10 @@ Files changed relative to `edb3155f`:
 
 | File | Change |
 |---|---|
-| `QuicClientConnection.java` | `Builder` gained `echConfigProvider`, `clientHelloSpec`, `destinationConnectionIdLength`, `initialMaxData`, `initialMaxStreamDataBidirectional`, `initialMaxStreamDataUnidirectional`, `maxUdpPayloadSize`, `maxDatagramFrameSize` and `omitTransportParameters` |
+| `QuicClientConnection.java` | `Builder` gained `echConfigProvider`, `clientHelloSpec`, `destinationConnectionIdLength`, `initialMaxData`, `initialMaxStreamDataBidirectional`, `initialMaxStreamDataUnidirectional`, `maxUdpPayloadSize`, `maxDatagramFrameSize`, `omitTransportParameters`, `addTransportParameters` and `versionInformation` |
 | `impl/QuicClientConnectionImpl.java` | carries them to the TLS engine and to the connection id manager and transport parameters |
 | `cid/ConnectionIdManager.java` | the initial Destination Connection ID length is a parameter instead of a hardcoded 8 |
-| `tls/QuicTransportParametersExtension.java` | a transport parameter can be left out instead of sent |
+| `tls/QuicTransportParametersExtension.java` | a transport parameter can be left out instead of sent, and parameters this implementation has no model of can be appended |
 
 `maxUdpPayloadSize` was already on `ExtendedBuilder` returning void; it moved onto `Builder` and
 `ExtendedBuilder`'s copy became the override, so there is one of it rather than two.
@@ -74,6 +74,12 @@ implementation bothers to send is as much a giveaway as the values - ngtcp2 omit
 equals the default, kwik always sends the full set. Only the sending is skipped; the connection still
 behaves as its own configuration says, which for an omitted parameter can only be more conservative
 than what the peer will assume.
+
+`addTransportParameters` is the other half of the omission support: a browser sends parameters that
+are nobody's standard - a reserved one for RFC 9287 greasing, and Google's own
+`google_connection_options` - and they are bytes this endpoint does not act on, so it can send them
+without pretending to understand them. Anything that promises the peer something goes through a
+typed setter instead.
 
 The flow control setters exist because those values are a promise as well as a fingerprint: they go
 through `ClientConnectionConfig`, so the wire and the connection's actual behaviour cannot drift

@@ -70,6 +70,8 @@ import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.nio.file.Path;
 import java.security.KeyStore;
@@ -168,6 +170,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private volatile String handshakeError;
     private volatile ClientHello originalClientHello;
     private final Set<Integer> omittedTransportParameters;
+    private final Map<Integer, byte[]> addedTransportParameters;
+    private final int[] otherVersionIds;
     private volatile Integer maxDatagramFrameSize;
 
     /**
@@ -188,9 +192,13 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                                      X509Certificate clientCertificate, PrivateKey clientCertificateKey,
                                      DatagramSocketFactory socketFactory, EchConfigProvider echConfigProvider,
                                      ClientHelloSpec clientHelloSpec, int destinationConnectionIdLength,
-                                     Set<Integer> omittedTransportParameters) throws UnknownHostException, SocketException {
+                                     Set<Integer> omittedTransportParameters,
+                                     Map<Integer, byte[]> addedTransportParameters,
+                                     int[] otherVersionIds) throws UnknownHostException, SocketException {
         super(originalVersion, Role.Client, secretsFile, connectionProperties, "", log);
         this.omittedTransportParameters = omittedTransportParameters;
+        this.addedTransportParameters = addedTransportParameters;
+        this.otherVersionIds = otherVersionIds;
         this.applicationProtocol = applicationProtocol;
         this.connectTimeout = connectTimeout;
         this.connectionProperties = connectionProperties;
@@ -569,7 +577,20 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
         handleClientAuthentication();
         
-        if (preferredVersion != null && !preferredVersion.equals(originalVersion)) {
+        if (otherVersionIds != null) {
+            List<Version> otherVersions = new ArrayList<>(otherVersionIds.length + 1);
+            for (int versionId : otherVersionIds) {
+                otherVersions.add(new Version(versionId));
+            }
+            // https://www.rfc-editor.org/rfc/rfc9368.html#section-3
+            // "The Available Versions field [...] MUST include the version that the sender has chosen"
+            if (!otherVersions.contains(quicVersion.getVersion())) {
+                otherVersions.add(quicVersion.getVersion());
+            }
+            transportParams.setVersionInformation(
+                    new TransportParameters.VersionInformation(quicVersion.getVersion(), otherVersions));
+        }
+        else if (preferredVersion != null && !preferredVersion.equals(originalVersion)) {
             transportParams.setVersionInformation(new TransportParameters.VersionInformation(originalVersion,
                     List.of(preferredVersion, originalVersion)));
         }
@@ -579,6 +600,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
         QuicTransportParametersExtension tpExtension = new QuicTransportParametersExtension(quicVersion.getVersion(), transportParams, Role.Client);
         tpExtension.omitTransportParameters(omittedTransportParameters);
+        tpExtension.addTransportParameters(addedTransportParameters);
         if (clientHelloEnlargement != null) {
             tpExtension.addDiscardTransportParameter(clientHelloEnlargement);
         }
@@ -1443,6 +1465,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private ClientHelloSpec clientHelloSpec;
         private int destinationConnectionIdLength = ConnectionIdManager.MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH;
         private Set<Integer> omittedTransportParameters = Set.of();
+        private Map<Integer, byte[]> addedTransportParameters = Map.of();
+        private int[] otherVersionIds;
 
         private BuilderImpl() {
             connectionProperties.setMaxIdleTimeout(DEFAULT_MAX_IDLE_TIMEOUT);
@@ -1468,7 +1492,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                             Version.of(preferredVersion), log, proxyHost, secretsFile, initialRtt, connectionIdLength,
                             cipherSuites, clientCertificate, clientCertificateKey, socketFactory,
                             echConfigProvider, clientHelloSpec, destinationConnectionIdLength,
-                            omittedTransportParameters);
+                            omittedTransportParameters, addedTransportParameters, otherVersionIds);
 
             if (omitCertificateCheck) {
                 quicConnection.trustAnyServerCertificate();
@@ -1727,6 +1751,18 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         @Override
         public Builder omitTransportParameters(Set<Integer> omittedParameters) {
             this.omittedTransportParameters = Set.copyOf(omittedParameters);
+            return this;
+        }
+
+        @Override
+        public Builder addTransportParameters(Map<Integer, byte[]> parameters) {
+            this.addedTransportParameters = new LinkedHashMap<>(parameters);
+            return this;
+        }
+
+        @Override
+        public Builder versionInformation(int... otherVersionIds) {
+            this.otherVersionIds = otherVersionIds.clone();
             return this;
         }
 

@@ -1,5 +1,6 @@
 package com.github.zhkl0228.impersonator.http3;
 
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 import junit.framework.TestCase;
@@ -93,6 +94,56 @@ public class ChromeQuicFingerprintTest extends TestCase {
         assertEquals(30000L, parameters.getLongValue("max_idle_timeout_ms"));
         assertEquals(1472L, parameters.getLongValue("max_udp_payload_size"));
         assertEquals(65536L, parameters.getLongValue("max_datagram_frame_size"));
+    }
+
+    /**
+     * The three parameters Chrome sends that RFC 9000 does not define, and that the endpoint reports
+     * alongside the rest: a reserved one (RFC 9287, which it labels id 0), "version_information"
+     * (RFC 9368), and Google's own {@code google_connection_options}.
+     * <p>
+     * The last carries the four bytes {@code ORIG}, which Chromium's {@code crypto_protocol.h} calls
+     * "Experiment for sending new ORIGIN frame". It is reproduced because it is in the capture, not
+     * because anything here acts on it; receiving an ORIGIN frame is harmless, since RFC 9114 has an
+     * endpoint ignore frame types it does not know.
+     */
+    public void testTheParametersChromeSendsBeyondRfc9000AreThereToo() throws Exception {
+        JSONArray parameters = fingerprint().getJSONObject("reproduction").getJSONObject("quic")
+                .getJSONArray("transport_params");
+
+        List<Integer> ids = new ArrayList<>();
+        String googleConnectionOptions = null;
+        for (Object value : parameters) {
+            JSONObject parameter = (JSONObject) value;
+            ids.add(parameter.getIntValue("id"));
+            if (parameter.getIntValue("id") == 0x3128) {
+                googleConnectionOptions = parameter.getString("raw");
+            }
+        }
+        Collections.sort(ids);
+
+        assertEquals("the same parameters Chrome sends, no more and no fewer",
+                List.of(0, 1, 3, 4, 5, 6, 7, 8, 9, 15, 17, 32, 0x3128), ids);
+        assertEquals("google_connection_options carrying the ORIG tag", "T1JJRw==", googleConnectionOptions);
+    }
+
+    /**
+     * The reserved QUIC version offered in "version_information" has to be drawn per connection, or it
+     * is a stable identifier rather than noise. Same for the reserved transport parameter beside it.
+     */
+    public void testTheGreasedQuicValuesChangePerConnection() throws Exception {
+        assertFalse("the same version_information twice is not GREASE",
+                versionInformation().equals(versionInformation()));
+    }
+
+    private static String versionInformation() throws Exception {
+        for (Object value : fingerprint().getJSONObject("reproduction").getJSONObject("quic")
+                .getJSONArray("transport_params")) {
+            JSONObject parameter = (JSONObject) value;
+            if (parameter.getIntValue("id") == 17) {
+                return parameter.getString("raw");
+            }
+        }
+        throw new AssertionError("no version_information was sent");
     }
 
     /**

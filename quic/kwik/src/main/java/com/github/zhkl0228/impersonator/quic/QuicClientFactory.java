@@ -191,6 +191,10 @@ public class QuicClientFactory {
         if (quicTransport.getMaxDatagramFrameSize() != null) {
             builder.maxDatagramFrameSize(quicTransport.getMaxDatagramFrameSize());
         }
+        if (quicTransport.getAvailableVersions() != null) {
+            builder.versionInformation(quicTransport.getAvailableVersions());
+        }
+        builder.addTransportParameters(quicTransport.getAddedParameters());
         builder.omitTransportParameters(quicTransport.getOmittedParameters());
     }
 }

@@ -1,8 +1,12 @@
 package com.github.zhkl0228.impersonator;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * The QUIC layer of a profile's fingerprint: the transport parameters it sends and how long the
@@ -20,6 +24,21 @@ import java.util.Set;
  * send is as much a giveaway as the values it sends.
  */
 public class QuicTransport {
+
+    /** Google's {@code google_connection_options}, from Chromium's {@code transport_parameters.cc}. */
+    public static final int GOOGLE_CONNECTION_OPTIONS = 0x3128;
+
+    /**
+     * A reserved QUIC version, RFC 9368 section 3: {@code 0x?a?a?a?a}, which no endpoint implements
+     * and every endpoint must tolerate. Drawn afresh per connection.
+     */
+    public static int greaseVersion() {
+        int version = 0;
+        for (int i = 0; i < 4; i++) {
+            version = (version << 8) | (ThreadLocalRandom.current().nextInt(16) << 4) | 0x0a;
+        }
+        return version;
+    }
 
     /** Transport parameter ids of RFC 9000 section 18.2, for {@link Builder#omit}. */
     public static final int MAX_IDLE_TIMEOUT = 0x01;
@@ -46,6 +65,8 @@ public class QuicTransport {
     private final Integer maxUdpPayloadSize;
     private final Integer maxDatagramFrameSize;
     private final Set<Integer> omitted;
+    private final Map<Integer, byte[]> added;
+    private final int[] availableVersions;
 
     private QuicTransport(Builder builder) {
         this.destinationConnectionIdLength = builder.destinationConnectionIdLength;
@@ -59,6 +80,8 @@ public class QuicTransport {
         this.maxUdpPayloadSize = builder.maxUdpPayloadSize;
         this.maxDatagramFrameSize = builder.maxDatagramFrameSize;
         this.omitted = Collections.unmodifiableSet(new LinkedHashSet<>(builder.omitted));
+        this.added = Collections.unmodifiableMap(new LinkedHashMap<>(builder.added));
+        this.availableVersions = builder.availableVersions;
     }
 
     public static Builder newBuilder() {
@@ -115,6 +138,22 @@ public class QuicTransport {
         return maxDatagramFrameSize;
     }
 
+    /**
+     * Transport parameters this library has no model of, as the bytes they carry, to append after the
+     * ones it does.
+     */
+    public Map<Integer, byte[]> getAddedParameters() {
+        return added;
+    }
+
+    /**
+     * The Available Versions of the "version_information" parameter (RFC 9368), or null not to send
+     * one. A reserved version among them is how an implementation greases version negotiation.
+     */
+    public int[] getAvailableVersions() {
+        return availableVersions == null? null: availableVersions.clone();
+    }
+
     /** The transport parameters to leave out of the extension entirely. */
     public Set<Integer> getOmittedParameters() {
         return omitted;
@@ -133,6 +172,8 @@ public class QuicTransport {
         private Integer maxUdpPayloadSize;
         private Integer maxDatagramFrameSize;
         private final Set<Integer> omitted = new LinkedHashSet<>();
+        private final Map<Integer, byte[]> added = new LinkedHashMap<>();
+        private int[] availableVersions;
 
         public Builder destinationConnectionIdLength(int length) {
             this.destinationConnectionIdLength = length;
@@ -184,6 +225,61 @@ public class QuicTransport {
         /** The max_datagram_frame_size transport parameter, i.e. RFC 9221's datagram extension. */
         public Builder maxDatagramFrameSize(int maxDatagramFrameSize) {
             this.maxDatagramFrameSize = maxDatagramFrameSize;
+            return this;
+        }
+
+        /**
+         * A transport parameter this library has no model of, as the bytes it carries.
+         * <p>
+         * Only for parameters this endpoint does not act on. One that promises the peer something has
+         * to go through a setter that also configures the connection to keep the promise.
+         */
+        public Builder parameter(int id, byte[] value) {
+            added.put(id, value.clone());
+            return this;
+        }
+
+        /**
+         * Google's {@code google_connection_options} (0x3128), a list of four byte tags that turn on
+         * QUIC experiments in Google's servers. Chrome sends {@code ORIG}, which asks for the HTTP/3
+         * ORIGIN frame - "Experiment for sending new ORIGIN frame" in Chromium's
+         * {@code crypto_protocol.h}. Receiving one is harmless: RFC 9114 has an endpoint ignore
+         * frame types it does not know.
+         */
+        public Builder googleConnectionOptions(String... tags) {
+            byte[] value = new byte[tags.length * 4];
+            for (int i = 0; i < tags.length; i++) {
+                byte[] tag = tags[i].getBytes(StandardCharsets.US_ASCII);
+                if (tag.length != 4) {
+                    throw new IllegalArgumentException("a connection option is a four byte tag, got \"" + tags[i] + "\"");
+                }
+                System.arraycopy(tag, 0, value, i * 4, 4);
+            }
+            return parameter(GOOGLE_CONNECTION_OPTIONS, value);
+        }
+
+        /**
+         * A reserved transport parameter, RFC 9287: an id of the form {@code 31 * N + 27}, which a
+         * peer must ignore. Drawn afresh per connection, or it would be a stable identifier instead of
+         * noise.
+         */
+        public Builder greaseParameter() {
+            int id = 31 * ThreadLocalRandom.current().nextInt(1 << 20) + 27;
+            byte[] value = new byte[ThreadLocalRandom.current().nextInt(4)];
+            ThreadLocalRandom.current().nextBytes(value);
+            return parameter(id, value);
+        }
+
+        /**
+         * Sends "version_information" (RFC 9368) offering these versions besides the one in use.
+         * Section 3 has the Available Versions field include the chosen version, so the QUIC
+         * implementation appends it; what belongs here is the rest, which for a browser is a reserved
+         * version drawn per connection.
+         *
+         * @see #greaseVersion()
+         */
+        public Builder availableVersions(int... versionIds) {
+            this.availableVersions = versionIds.clone();
             return this;
         }
 

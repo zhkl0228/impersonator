@@ -25,6 +25,7 @@ import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.ech.EchConfigProvider;
 import tech.kwik.agent15.engine.ClientHelloSpec;
 
+import java.util.Map;
 import java.util.Set;
 import tech.kwik.core.impl.QuicClientConnectionImpl;
 import tech.kwik.core.log.Logger;
@@ -174,6 +175,29 @@ public interface QuicClientConnection extends QuicConnection {
          * @param omittedParameters {@link tech.kwik.core.QuicConstants.TransportParameterId} values.
          */
         Builder omitTransportParameters(Set<Integer> omittedParameters);
+
+        /**
+         * Appends transport parameters this implementation has no model of, as the bytes they should
+         * carry, after the ones it does.
+         * <p>
+         * Only for parameters this endpoint does not act on - a GREASE parameter, or one belonging to
+         * another implementation. A parameter that promises the peer something has to go through a
+         * setter that also configures the connection to keep the promise, or the two drift apart.
+         *
+         * @param parameters parameter id to value, in the order they should be sent.
+         */
+        Builder addTransportParameters(Map<Integer, byte[]> parameters);
+
+        /**
+         * Sends the "version_information" of RFC 9368 listing these as the versions this endpoint
+         * offers, alongside the one it chose. A reserved version among them is how an implementation
+         * greases version negotiation.
+         *
+         * @param otherVersionIds the versions to offer besides the one in use. RFC 9368 section 3 has
+         *                        the Available Versions field include the chosen version, so it is
+         *                        appended if it is not already among these.
+         */
+        Builder versionInformation(int... otherVersionIds);
 
         /**
          * Offers a real Encrypted Client Hello (RFC 9849) on this connection, so that the server name

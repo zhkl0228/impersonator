@@ -198,9 +198,12 @@ abstract class Chrome extends ImpersonatorFactory {
      * 32, 3, GREASE, 8, 0x3128, 17, 4 - so what identifies it is which parameters it sends, not their
      * order. It omits everything that equals the RFC default, hence {@link QuicTransport.Builder#omit}.
      * <p>
-     * Not reproduced yet, because nothing here can send them: the "version_information" and GREASE
-     * parameters Chrome also sends, and the parameter 0x3128 carrying the four bytes "ORIG", which
-     * nothing here explains.
+     * The last three are the ones Chrome sends that are not RFC 9000's. "version_information"
+     * (RFC 9368) offers a reserved version alongside the one in use, which greases version
+     * negotiation. The reserved transport parameter greases the parameters themselves, RFC 9287.
+     * And 0x3128 is Google's own {@code google_connection_options}, a list of four byte tags that
+     * turn on experiments in Google's servers; Chrome sends {@code ORIG}, which Chromium's
+     * {@code crypto_protocol.h} documents as "Experiment for sending new ORIGIN frame".
      */
     @Override
     public QuicTransport getQuicTransport() {
@@ -217,6 +220,9 @@ abstract class Chrome extends ImpersonatorFactory {
                 .maxDatagramFrameSize(65536)
                 .omit(QuicTransport.ACK_DELAY_EXPONENT, QuicTransport.MAX_ACK_DELAY,
                         QuicTransport.ACTIVE_CONNECTION_ID_LIMIT)
+                .availableVersions(QuicTransport.greaseVersion())
+                .googleConnectionOptions("ORIG")
+                .greaseParameter()
                 .build();
     }
 

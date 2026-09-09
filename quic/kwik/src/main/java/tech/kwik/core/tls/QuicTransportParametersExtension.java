@@ -37,6 +37,8 @@ import tech.kwik.core.util.Bytes;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -108,6 +110,7 @@ public class QuicTransportParametersExtension extends Extension {
     }
 
     private Set<Integer> omittedParameters = Set.of();
+    private Map<Integer, byte[]> addedParameters = Map.of();
 
     @Override
     public byte[] getBytes() {
@@ -132,6 +135,16 @@ public class QuicTransportParametersExtension extends Extension {
      */
     public void omitTransportParameters(Set<Integer> omittedParameters) {
         this.omittedParameters = Set.copyOf(omittedParameters);
+        this.data = null;
+    }
+
+    /**
+     * Appends parameters this implementation has no model of, as the bytes they should carry, after
+     * the ones it does. Which parameters an endpoint sends is as much a fingerprint as their values,
+     * and some of what a browser sends belongs to its own implementation.
+     */
+    public void addTransportParameters(Map<Integer, byte[]> parameters) {
+        this.addedParameters = new LinkedHashMap<>(parameters);
         this.data = null;
     }
 
@@ -256,6 +269,10 @@ public class QuicTransportParametersExtension extends Extension {
         if (params.isResetStreamAtSupported()) {
             addTransportParameter(buffer, RESET_STREAM_AT_PARAMETER_ID);
             addTransportParameter(buffer, RESET_STREAM_AT_PARAMETER_ID_DRAFT_07);
+        }
+
+        for (Map.Entry<Integer, byte[]> parameter : addedParameters.entrySet()) {
+            addTransportParameter(buffer, parameter.getKey(), parameter.getValue());
         }
 
         int length = buffer.position();
