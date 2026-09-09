@@ -122,7 +122,7 @@ public class QuicFingerprintTest extends TestCase {
         JSONObject parameters = quic.getJSONObject("transport_parameters");
 
         assertEquals(20, quic.getIntValue("dcid_length"));
-        assertEquals(4, quic.getIntValue("scid_length"));
+        // scid_length is the endpoint's own, not this client's; see ChromeQuicFingerprintTest.
 
         assertEquals(1048576000L, parameters.getLongValue("initial_max_data"));
         assertEquals(32768L, parameters.getLongValue("initial_max_stream_data_bidi_local"));

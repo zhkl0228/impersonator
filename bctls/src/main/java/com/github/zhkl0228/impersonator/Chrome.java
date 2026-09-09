@@ -209,7 +209,12 @@ abstract class Chrome extends ImpersonatorFactory {
     public QuicTransport getQuicTransport() {
         return QuicTransport.newBuilder()
                 .destinationConnectionIdLength(8)
-                .sourceConnectionIdLength(4)
+                // Zero, from a Wireshark capture of this browser: every Initial it sends carries a
+                // source connection id length of 0, and the server's replies come back addressed to
+                // a zero length connection id. The fingerprint endpoint reports 4 here whatever the
+                // client sends - that 4 is the endpoint's own connection id - which is where the
+                // wrong value came from and why no test caught it.
+                .sourceConnectionIdLength(0)
                 .initialMaxData(15728640L)
                 .initialMaxStreamDataBidirectional(6291456L)
                 .initialMaxStreamDataUnidirectional(6291456L)

@@ -84,7 +84,14 @@ public class ChromeQuicFingerprintTest extends TestCase {
         JSONObject parameters = quic.getJSONObject("transport_parameters");
 
         assertEquals(8, quic.getIntValue("dcid_length"));
-        assertEquals(4, quic.getIntValue("scid_length"));
+        /*
+         * scid_length is not asserted, because this endpoint does not report it. It answers 4
+         * whatever the client sends - that being the length of its own connection id - which was
+         * checked by sending 0 and watching it still say 4. The assertion that used to be here
+         * passed for the same reason it would have passed for any client, and the value it enshrined
+         * (4) was read off this same field. Chrome sends none at all; see Chrome.getQuicTransport,
+         * where the capture that settles it is named.
+         */
 
         assertEquals(15728640L, parameters.getLongValue("initial_max_data"));
         assertEquals(6291456L, parameters.getLongValue("initial_max_stream_data_bidi_local"));
