@@ -80,42 +80,50 @@ configs may only be trusted once the certificate presented for `public_name` has
 ```xml
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
-    <artifactId>impersonator-kwik</artifactId>
+    <artifactId>impersonator-http3</artifactId>
     <version>1.6.0</version>
 </dependency>
 ```
 
-Encrypted Client Hello and a dictated TLS ClientHello on [kwik](https://github.com/ptrd/kwik)'s
-QUIC handshake, driven by the same profile as the TCP path. Two artifacts, one per vendored
-upstream project: `impersonator-agent15` (the TLS 1.3 handshake) and `impersonator-kwik` (QUIC,
-which depends on it). Both need Java 11, which is what kwik and agent15 are built for; `bctls` and
-`okhttp` stay on Java 8.
+HTTP/3 over [kwik](https://github.com/ptrd/kwik) and [flupke](https://github.com/ptrd/flupke),
+driven by the same profile as the TCP path, with Encrypted Client Hello and a TLS ClientHello the
+profile dictates.
 
 ```java
-QuicClientFactory factory = QuicClientFactory.create(ImpersonatorFactory.macChrome());
+ImpersonatorApi api = ImpersonatorFactory.macChrome();
 
-QuicClientConnection connection = factory.newBuilder()
-        .uri(URI.create("https://cloudflare-ech.com/cdn-cgi/trace"))
-        .applicationProtocol("h3")
-        .build();
-connection.connect();
-// the trace says sni=encrypted
+try (var client = Http3ClientFactory.create(api).newHttpClient()) {
+    HttpResponse<String> response = client.send(
+            HttpRequest.newBuilder(URI.create("https://cloudflare-ech.com/cdn-cgi/trace")).build(),
+            HttpResponse.BodyHandlers.ofString());
+    // the trace says sni=encrypted
+}
 ```
 
-The profile travels with the connection, so different connections can impersonate different
-browsers. Encrypted Client Hello is on by default for a profile whose browser does it, resolving
-the host's ECHConfigList over DNS-over-HTTPS exactly as the TCP path does.
+Nothing is process wide: the profile travels with the connection, so two clients can impersonate two
+browsers side by side. The client holds one QUIC connection per host and port, opened on first use,
+and closing it closes them.
 
-A rejected ECH fails the connection, as RFC 9849 6.1.6 requires, after the handshake has run to the
-end and the certificate for the `public_name` has been verified. kwik reduces a handshake failure to
-a message and throws a fresh `ConnectException`, so the exception carrying the `retry_configs` never
-reaches the caller; a callback gets them instead:
+Encrypted Client Hello is on by default for a profile whose browser does it, resolving the host's
+ECHConfigList over DNS-over-HTTPS exactly as the TCP path does. A rejected ECH fails the connection,
+as RFC 9849 6.1.6 requires, after the handshake has run to the end and the certificate for the
+`public_name` has been verified. kwik reduces a handshake failure to a message and throws a fresh
+`ConnectException`, so the exception carrying the `retry_configs` never reaches the caller; a
+callback gets them instead:
 
 ```java
-QuicClientFactory.create(api)
+Http3ClientFactory.create(api)
         .setEchConfigProvider(echConfigProvider)
         .setEchRejectionHandler((serverName, publicName, retryConfigs) -> ...);
 ```
+
+For QUIC without HTTP/3 - hysteria2 and the like - `impersonator-kwik` on its own gives
+`QuicClientFactory`, which hands out a `QuicClientConnection.Builder` with the profile already on it.
+
+Four artifacts, one per vendored upstream project plus the client layer: `impersonator-agent15`
+(TLS 1.3), `impersonator-kwik` (QUIC), `impersonator-http3` (flupke, an ordinary dependency, not
+vendored). All need Java 11, which is what kwik and agent15 are built for; `bctls` and `okhttp` stay
+on Java 8.
 
 **The QUIC fingerprint is only half done.** The TLS ClientHello is fully dictated by the profile -
 cipher list, extension set and order, supported groups, and multiple key shares including

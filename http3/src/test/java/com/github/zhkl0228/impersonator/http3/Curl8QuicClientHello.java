@@ -1,4 +1,4 @@
-package com.github.zhkl0228.impersonator.quic;
+package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.ExtensionOrder;
 import com.github.zhkl0228.impersonator.QuicClientHello;

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>com.github.zhkl0228</groupId>
+        <artifactId>impersonator</artifactId>
+        <version>1.6.0</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <name>http3</name>
+    <artifactId>impersonator-http3</artifactId>
+
+    <properties>
+        <!-- flupke and the modules below it are Java 11. -->
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <!-- Overrides the parent's 8; this module is Java 11. -->
+                    <source>11</source>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.github.zhkl0228</groupId>
+            <artifactId>impersonator-kwik</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <!--
+                flupke is not vendored. It reaches kwik through 13 classes, none of them in a package
+                impersonator-kwik differs from upstream in, and this module needs nothing from it that
+                is not public: Http3SingleConnectionClient takes a QuicConnection that is already made,
+                which is the whole seam. See ../quic/kwik/UPSTREAM.md.
+            -->
+            <groupId>tech.kwik</groupId>
+            <artifactId>flupke</artifactId>
+            <version>0.9.4</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>tech.kwik</groupId>
+                    <artifactId>kwik</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <!-- flupke needs it and no longer gets it through kwik. -->
+            <groupId>tech.kwik</groupId>
+            <artifactId>qpack</artifactId>
+            <version>2.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

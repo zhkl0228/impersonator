@@ -1,6 +1,7 @@
-package com.github.zhkl0228.impersonator.quic;
+package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.DnsOverHttpsEchConfigProvider;
+
 import junit.framework.TestCase;
 import tech.kwik.agent15.ech.EchException;
 import tech.kwik.flupke.Http3Client;
@@ -24,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * answers with {@code sni=encrypted} or {@code sni=plaintext}, which is the only direct evidence
  * that the real server name never appeared in the clear.
  */
-public class EchOverQuicTest extends TestCase {
+public class EchOverHttp3Test extends TestCase {
 
     /**
      * Cloudflare's ECH test host. Its DNS HTTPS record carries {@code alpn=h3} and {@code ech=} in
@@ -41,7 +42,7 @@ public class EchOverQuicTest extends TestCase {
      * the whole feature in one call.
      */
     public void testEchIsAcceptedOverHttp3() throws Exception {
-        String body = Http3.body(QuicClientFactory.create()
+        String body = Http3Get.body(Http3ClientFactory.create()
                 .setEchConfigProvider(DnsOverHttpsEchConfigProvider.getInstance()), TRACE_URL);
         assertTrue("expected an encrypted sni, got:\n" + body, body.contains("sni=encrypted"));
     }
@@ -51,7 +52,7 @@ public class EchOverQuicTest extends TestCase {
      * in the plaintext SNI, which is what proves the test above is not measuring something else.
      */
     public void testWithoutAnEchConfigTheSniIsPlaintext() throws Exception {
-        String body = Http3.body(QuicClientFactory.create(), TRACE_URL);
+        String body = Http3Get.body(Http3ClientFactory.create(), TRACE_URL);
         assertTrue("expected a plaintext sni, got:\n" + body, body.contains("sni=plaintext"));
     }
 
@@ -69,7 +70,7 @@ public class EchOverQuicTest extends TestCase {
         List<byte[]> retryConfigs = new ArrayList<>();
         List<String> publicNames = new ArrayList<>();
         AtomicInteger rejections = new AtomicInteger();
-        QuicClientFactory factory = QuicClientFactory.create()
+        Http3ClientFactory factory = Http3ClientFactory.create()
                 .setEchConfigProvider(host -> corrupted)
                 .setEchRejectionHandler((serverName, publicName, configs) -> {
                     rejections.incrementAndGet();
@@ -78,7 +79,7 @@ public class EchOverQuicTest extends TestCase {
                 });
 
         try {
-            Http3.body(factory, TRACE_URL);
+            Http3Get.body(factory, TRACE_URL);
             fail("a rejected Encrypted Client Hello must fail the connection, not report success");
         }
         catch (IOException expected) {
@@ -94,7 +95,7 @@ public class EchOverQuicTest extends TestCase {
         byte[] published = retryConfigs.get(0);
         assertNotNull("Cloudflare publishes retry_configs", published);
 
-        String body = Http3.body(QuicClientFactory.create().setEchConfigProvider(host -> published), TRACE_URL);
+        String body = Http3Get.body(Http3ClientFactory.create().setEchConfigProvider(host -> published), TRACE_URL);
         assertTrue("expected the retry to encrypt the sni, got:\n" + body, body.contains("sni=encrypted"));
     }
 
@@ -108,7 +109,7 @@ public class EchOverQuicTest extends TestCase {
         byte[] unusable = new byte[] { 0, 6, (byte) 0xfe, 0x0a, 0, 2, 0, 0 };
 
         try {
-            Http3.body(QuicClientFactory.create().setEchConfigProvider(host -> unusable), TRACE_URL);
+            Http3Get.body(Http3ClientFactory.create().setEchConfigProvider(host -> unusable), TRACE_URL);
             fail("an unusable ECHConfigList must not be silently ignored");
         }
         catch (Exception e) {
@@ -136,4 +137,5 @@ public class EchOverQuicTest extends TestCase {
         corrupted[publicKeyOffset] ^= 0x01;
         return corrupted;
     }
+
 }

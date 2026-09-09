@@ -11,7 +11,7 @@
     <modules>
         <module>bctls</module>
         <module>okhttp</module>
-        <!-- quic (agent15, kwik) is here too, in the profile below; it needs a JDK 11. -->
+        <!-- quic (agent15, kwik) and http3 are here too, in the profile below; they need a JDK 11. -->
     </modules>
 
     <profiles>
@@ -27,6 +27,7 @@
             </activation>
             <modules>
                 <module>quic</module>
+                <module>http3</module>
             </modules>
         </profile>
     </profiles>

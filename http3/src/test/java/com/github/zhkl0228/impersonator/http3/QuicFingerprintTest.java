@@ -1,4 +1,4 @@
-package com.github.zhkl0228.impersonator.quic;
+package com.github.zhkl0228.impersonator.http3;
 
 import com.alibaba.fastjson2.JSONObject;
 import junit.framework.TestCase;
@@ -33,7 +33,7 @@ public class QuicFingerprintTest extends TestCase {
      * JA4 spells {@code 0108}. This is the baseline the test below has to move.
      */
     public void testWithoutASpecTheFingerprintIsAgent15s() throws Exception {
-        JSONObject fingerprint = fingerprint(QuicClientFactory.create());
+        JSONObject fingerprint = fingerprint(Http3ClientFactory.create());
 
         assertTrue("expected agent15's own ClientHello, got " + fingerprint.getString("ja4"),
                 fingerprint.getString("ja4").startsWith("q13d0108h3_"));
@@ -71,12 +71,12 @@ public class QuicFingerprintTest extends TestCase {
     }
 
     /** A factory whose profile is the captured curl ClientHello and nothing else. */
-    private static QuicClientFactory curl() {
-        return QuicClientFactory.create(new Curl8QuicClientHello());
+    private static Http3ClientFactory curl() {
+        return Http3ClientFactory.create(new Curl8QuicClientHello());
     }
 
-    private static JSONObject fingerprint(QuicClientFactory factory) throws Exception {
-        String body = Http3.body(factory, FINGERPRINT_URL);
+    private static JSONObject fingerprint(Http3ClientFactory factory) throws Exception {
+        String body = Http3Get.body(factory, FINGERPRINT_URL);
         JSONObject fingerprint = JSONObject.parseObject(body);
         assertNotNull("the endpoint answers only over HTTP/3, got: " + body, fingerprint.getJSONObject("tls"));
         return fingerprint;
