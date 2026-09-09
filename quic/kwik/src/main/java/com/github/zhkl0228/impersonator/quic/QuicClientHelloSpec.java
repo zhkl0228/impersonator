@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator.quic;
 
 import com.github.zhkl0228.impersonator.ExtensionOrder;
+import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 import com.github.zhkl0228.impersonator.QuicClientHello;
 import org.bouncycastle.tls.TlsKeyShare;
 import org.bouncycastle.tls.crypto.impl.bc.BcTlsCrypto;
@@ -47,6 +48,14 @@ public class QuicClientHelloSpec implements ClientHelloSpec {
 
     @Override
     public byte[] generateEphemeral(int namedGroup) {
+        if (ImpersonatorFactory.isGrease(namedGroup)) {
+            /*
+             * A GREASE group has no key exchange to generate one from; the entry exists to be ignored.
+             * One byte is what Safari sends, and a server that picked this group would be answering
+             * with a group that was never really offered, which the engine rejects anyway.
+             */
+            return new byte[1];
+        }
         try {
             TlsKeyShare keyShare = TlsKeyShare.create(crypto, namedGroup);
             keyShares.put(namedGroup, keyShare);

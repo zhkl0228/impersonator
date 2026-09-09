@@ -8,6 +8,21 @@ import java.util.Map;
 public interface Impersonator {
 
     /**
+     * Whether a capture of this browser <em>resuming</em> a QUIC session exists, and so whether its
+     * ClientHello description has a place for the "pre_shared_key" and "early_data" that a resumed
+     * handshake adds.
+     * <p>
+     * False by default, and it means "not known" rather than "the browser cannot": a resumed
+     * ClientHello is a different message with a different JA4, and putting the two extra extensions
+     * somewhere plausible would produce a fingerprint the browser has never sent - worse than not
+     * resuming, which at least sends one it does. Chrome says true because both of its ClientHellos
+     * are in docs/captures; Safari will when a capture of it refreshing a page exists.
+     */
+    default boolean isQuicSessionResumptionSupported() {
+        return false;
+    }
+
+    /**
      * The User-Agent of the impersonated browser, or null when there is none.
      */
     default String getUserAgent() {

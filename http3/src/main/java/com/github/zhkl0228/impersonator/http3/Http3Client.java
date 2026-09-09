@@ -193,8 +193,16 @@ class Http3Client extends HttpClient {
          * with a different JA4, which is what a browser's second visit to a host looks like. Without
          * this every connection is a full handshake for ever, which no browser's history contains.
          */
+        /*
+         * Only for a profile that can describe a resumed ClientHello; see
+         * Impersonator.isQuicSessionResumptionSupported. Without a profile at all there is no
+         * dictated ClientHello to accommodate, and the engine builds its own.
+         */
+        boolean mayResume = impersonator == null || impersonator.isQuicSessionResumptionSupported();
         SessionTicketStore sessionTicketStore = quicClientFactory.getSessionTicketStore();
-        QuicSessionTicket ticket = sessionTicketStore == null ? null : sessionTicketStore.take(uri.getHost());
+        QuicSessionTicket ticket = sessionTicketStore == null || !mayResume
+                ? null
+                : sessionTicketStore.take(uri.getHost());
 
         QuicClientConnection quicConnection = quicClientFactory.newBuilder()
                 .uri(uri)

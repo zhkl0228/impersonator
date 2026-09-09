@@ -42,11 +42,18 @@ public class Http3ClientFactory {
 
     private final Impersonator impersonator;
 
+    /**
+     * Whether the impersonated browser does Encrypted Client Hello. True when there is no profile
+     * behind this factory, a bare ClientHello spec having no opinion about it.
+     */
+    private final boolean echSupported;
+
     private Http3ClientFactory(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings,
-                               Impersonator impersonator) {
+                               Impersonator impersonator, boolean echSupported) {
         this.quicClientFactory = quicClientFactory;
         this.http3Settings = http3Settings;
         this.impersonator = impersonator;
+        this.echSupported = echSupported;
     }
 
     /**
@@ -59,7 +66,7 @@ public class Http3ClientFactory {
         Impersonator impersonator = api instanceof Impersonator? (Impersonator) api: null;
         return new Http3ClientFactory(QuicClientFactory.create(api),
                 impersonator == null? null: impersonator.getHttp3Settings(),
-                impersonator);
+                impersonator, api.isEchSupported());
     }
 
     /**
@@ -72,7 +79,7 @@ public class Http3ClientFactory {
 
     /** A ClientHello and the QUIC layer that goes with it, with no profile behind them. */
     public static Http3ClientFactory create(QuicClientHello quicClientHello, QuicTransport quicTransport) {
-        return new Http3ClientFactory(QuicClientFactory.create(quicClientHello, quicTransport), null, null);
+        return new Http3ClientFactory(QuicClientFactory.create(quicClientHello, quicTransport), null, null, true);
     }
 
     /**
@@ -80,7 +87,7 @@ public class Http3ClientFactory {
      * Useful as the control in a fingerprint comparison, and for plain HTTP/3.
      */
     public static Http3ClientFactory create() {
-        return new Http3ClientFactory(QuicClientFactory.create(), null, null);
+        return new Http3ClientFactory(QuicClientFactory.create(), null, null, true);
     }
 
     /** How long {@link HttpClient#send} waits for the QUIC handshake. Defaults to 10 seconds. */
@@ -94,6 +101,16 @@ public class Http3ClientFactory {
      * browser does. Null turns Encrypted Client Hello off.
      */
     public Http3ClientFactory setEchConfigProvider(EchConfigProvider echConfigProvider) {
+        if (!echSupported && echConfigProvider != null) {
+            /*
+             * The same refusal the TCP path makes, for the same reason: offering a real Encrypted
+             * Client Hello would put an extension in the ClientHello that this browser never sends -
+             * Safari sends none - so the connection would be less like the browser, not more. Ask
+             * ImpersonatorApi.isEchSupported() rather than keeping a list of which profiles do.
+             */
+            throw new UnsupportedOperationException("this profile impersonates a browser that does not"
+                    + " support Encrypted Client Hello");
+        }
         quicClientFactory.setEchConfigProvider(echConfigProvider);
         return this;
     }
