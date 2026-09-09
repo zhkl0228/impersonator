@@ -51,6 +51,42 @@ public interface QuicClientConnection extends QuicConnection {
 
     List<QuicStream> connect(List<StreamEarlyData> earlyData) throws IOException;
 
+    /**
+     * Connects while sending 0-RTT data the caller writes itself, which is what an application needs
+     * when its first flight is not a list of bidirectional streams.
+     * <p>
+     * HTTP/3 is such an application: the first thing it sends is its control stream, which is
+     * unidirectional, and its SETTINGS frame on it. {@link #connect(List)} can express neither.
+     *
+     * @param earlyDataWriter called after the ClientHello has gone out and before the handshake
+     *                        completes, with a sender that opens 0-RTT streams. It must write
+     *                        something: this connection has already told the server it is sending
+     *                        early data, and a client that offers "early_data" and sends none is
+     *                        making a claim about itself that is not true.
+     * @return the streams the writer opened, in the order it opened them
+     */
+    List<QuicStream> connect(EarlyDataWriter earlyDataWriter) throws IOException;
+
+    /** See {@link #connect(EarlyDataWriter)}. */
+    interface EarlyDataWriter {
+        void write(EarlyDataSender sender) throws IOException;
+    }
+
+    /** See {@link #connect(EarlyDataWriter)}. */
+    interface EarlyDataSender {
+        /**
+         * Opens a stream and writes one flight of 0-RTT data on it. If the server rejects the early
+         * data, the same bytes are sent again on the same stream once the handshake completes, so
+         * the caller does not have to hold on to them.
+         *
+         * @param bidirectional false for a unidirectional stream, which is what HTTP/3's control and
+         *                      QPACK streams are
+         * @param closeOutput   whether the stream is finished by this flight
+         * @return the stream, or null when the peer's remembered limits leave no credit for one
+         */
+        QuicStream send(boolean bidirectional, byte[] data, boolean closeOutput) throws IOException;
+    }
+
     void keepAlive(int seconds);
 
     List<QuicSessionTicket> getNewSessionTickets();

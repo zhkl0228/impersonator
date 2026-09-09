@@ -395,7 +395,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      */
     @Override
     public void connect() throws IOException {
-        connect(null);
+        connect((EarlyDataWriter) null);
     }
 
     /**
@@ -414,18 +414,27 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      */
     @Override
     public synchronized List<QuicStream> connect(List<StreamEarlyData> earlyData) throws IOException {
+        if (earlyData == null || earlyData.isEmpty()) {
+            return connect((EarlyDataWriter) null);
+        }
+        return connect(sender -> {
+            for (StreamEarlyData streamEarlyData : earlyData) {
+                sender.send(true, streamEarlyData.getData(), streamEarlyData.isCloseOutput());
+            }
+        });
+    }
+
+    @Override
+    public synchronized List<QuicStream> connect(EarlyDataWriter earlyDataWriter) throws IOException {
         if (connectionState != Status.Created) {
             throw new IllegalStateException("Cannot connect a connection that is in state " + connectionState);
         }
-        if (earlyData != null && !earlyData.isEmpty() && sessionTicket == null) {
+        if (earlyDataWriter != null && sessionTicket == null) {
             throw new IllegalStateException("Cannot send early data without session ticket");
         }
         streamManager.initialize(connectionProperties);
         transportParams = initTransportParameters();
         transportParams.setInitialSourceConnectionId(connectionIdManager.getInitialConnectionId());
-        if (earlyData == null) {
-            earlyData = Collections.emptyList();
-        }
 
         log.info(String.format("Original destination connection id: %s (scid: %s)", bytesToHex(connectionIdManager.getOriginalDestinationConnectionId()), bytesToHex(connectionIdManager.getInitialConnectionId())));
         generateInitialKeys(connectionIdManager.getOriginalDestinationConnectionId());
@@ -434,9 +443,9 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         sender.start(connectionSecrets);
         startReceiverLoop();
 
-        startHandshake(applicationProtocol, !earlyData.isEmpty());
+        startHandshake(applicationProtocol, earlyDataWriter != null);
 
-        List<QuicStream> earlyDataStreams = sendEarlyData(earlyData);
+        List<QuicStream> earlyDataStreams = sendEarlyData(earlyDataWriter);
 
         try {
             boolean handshakeFinished = handshakeFinishedCondition.await(connectTimeout, TimeUnit.MILLISECONDS);
@@ -456,7 +465,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
         emit(new ConnectionEstablishedEvent(this));
 
-        if (!earlyData.isEmpty()) {
+        if (!earlyDataStreams.isEmpty()) {
             if (earlyDataStatus != Accepted) {
                 log.info("Server did not accept early data; retransmitting all data.");
             }
@@ -469,34 +478,39 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         return earlyDataStreams;
     }
 
-    private List<QuicStream> sendEarlyData(List<StreamEarlyData> streamEarlyDataList) throws IOException {
-        if (!streamEarlyDataList.isEmpty()) {
-            TransportParameters rememberedTransportParameters = new TransportParameters();
-            sessionTicket.copyTo(rememberedTransportParameters);
-            setZeroRttTransportParameters(rememberedTransportParameters);
-            // https://tools.ietf.org/html/draft-ietf-quic-tls-27#section-4.5
-            // "the amount of data which the client can send in 0-RTT is controlled by the "initial_max_data"
-            //   transport parameter supplied by the server"
-            long earlyDataSizeLeft = sessionTicket.getInitialMaxData();
-
-            List<QuicStream> earlyDataStreams = new ArrayList<>();
-            for (StreamEarlyData streamEarlyData: streamEarlyDataList) {
-                EarlyDataStream earlyDataStream = streamManager.createEarlyDataStream(true);
-                if (earlyDataStream != null) {
-                    earlyDataStream.writeEarlyData(streamEarlyData.getData(), streamEarlyData.isCloseOutput(), earlyDataSizeLeft);
-                    earlyDataSizeLeft = Long.max(0, earlyDataSizeLeft - streamEarlyData.getData().length);
-                }
-                else {
-                    log.info("Creating early data stream failed, max bidi streams = " + rememberedTransportParameters.getInitialMaxStreamsBidi());
-                }
-                earlyDataStreams.add(earlyDataStream);
-            }
-            earlyDataStatus = Requested;
-            return earlyDataStreams;
-        }
-        else {
+    private List<QuicStream> sendEarlyData(EarlyDataWriter earlyDataWriter) throws IOException {
+        if (earlyDataWriter == null) {
             return Collections.emptyList();
         }
+        TransportParameters rememberedTransportParameters = new TransportParameters();
+        sessionTicket.copyTo(rememberedTransportParameters);
+        setZeroRttTransportParameters(rememberedTransportParameters);
+        // https://tools.ietf.org/html/draft-ietf-quic-tls-27#section-4.5
+        // "the amount of data which the client can send in 0-RTT is controlled by the "initial_max_data"
+        //   transport parameter supplied by the server"
+        long[] earlyDataSizeLeft = { sessionTicket.getInitialMaxData() };
+
+        List<QuicStream> earlyDataStreams = new ArrayList<>();
+        earlyDataWriter.write((bidirectional, data, closeOutput) -> {
+            EarlyDataStream earlyDataStream = streamManager.createEarlyDataStream(bidirectional);
+            if (earlyDataStream != null) {
+                earlyDataStream.writeEarlyData(data, closeOutput, earlyDataSizeLeft[0]);
+                earlyDataSizeLeft[0] = Long.max(0, earlyDataSizeLeft[0] - data.length);
+            }
+            else {
+                log.info("Creating early data stream failed, max streams (bidi) = "
+                        + rememberedTransportParameters.getInitialMaxStreamsBidi());
+            }
+            earlyDataStreams.add(earlyDataStream);
+            return earlyDataStream;
+        });
+        if (earlyDataStreams.isEmpty()) {
+            // The ClientHello has already offered "early_data"; sending none would make it a claim
+            // about this client that is not true.
+            throw new IllegalStateException("an early data writer must write early data");
+        }
+        earlyDataStatus = Requested;
+        return earlyDataStreams;
     }
 
     private void abortHandshake() {
