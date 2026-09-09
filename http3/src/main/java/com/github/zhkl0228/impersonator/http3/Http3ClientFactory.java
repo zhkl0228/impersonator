@@ -40,9 +40,13 @@ public class Http3ClientFactory {
 
     private Duration connectTimeout = Duration.ofSeconds(10);
 
-    private Http3ClientFactory(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings) {
+    private final Impersonator impersonator;
+
+    private Http3ClientFactory(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings,
+                               Impersonator impersonator) {
         this.quicClientFactory = quicClientFactory;
         this.http3Settings = http3Settings;
+        this.impersonator = impersonator;
     }
 
     /**
@@ -54,7 +58,8 @@ public class Http3ClientFactory {
     public static Http3ClientFactory create(ImpersonatorApi api) {
         Impersonator impersonator = api instanceof Impersonator? (Impersonator) api: null;
         return new Http3ClientFactory(QuicClientFactory.create(api),
-                impersonator == null? null: impersonator.getHttp3Settings());
+                impersonator == null? null: impersonator.getHttp3Settings(),
+                impersonator);
     }
 
     /**
@@ -67,7 +72,7 @@ public class Http3ClientFactory {
 
     /** A ClientHello and the QUIC layer that goes with it, with no profile behind them. */
     public static Http3ClientFactory create(QuicClientHello quicClientHello, QuicTransport quicTransport) {
-        return new Http3ClientFactory(QuicClientFactory.create(quicClientHello, quicTransport), null);
+        return new Http3ClientFactory(QuicClientFactory.create(quicClientHello, quicTransport), null, null);
     }
 
     /**
@@ -75,7 +80,7 @@ public class Http3ClientFactory {
      * Useful as the control in a fingerprint comparison, and for plain HTTP/3.
      */
     public static Http3ClientFactory create() {
-        return new Http3ClientFactory(QuicClientFactory.create(), null);
+        return new Http3ClientFactory(QuicClientFactory.create(), null, null);
     }
 
     /** How long {@link HttpClient#send} waits for the QUIC handshake. Defaults to 10 seconds. */
@@ -108,7 +113,7 @@ public class Http3ClientFactory {
      *         this module is Java 21 while the ones below it are Java 11.
      */
     public HttpClient newHttpClient() {
-        return new Http3Client(quicClientFactory, http3Settings, connectTimeout);
+        return new Http3Client(quicClientFactory, http3Settings, connectTimeout, impersonator);
     }
 
 }

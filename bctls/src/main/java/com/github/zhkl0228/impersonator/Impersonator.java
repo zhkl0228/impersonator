@@ -7,6 +7,29 @@ import java.util.Map;
 
 public interface Impersonator {
 
+    /**
+     * The User-Agent of the impersonated browser, or null when there is none.
+     */
+    default String getUserAgent() {
+        return null;
+    }
+
+    /**
+     * The request headers the impersonated browser sends, in the order it sends them, added to the
+     * map the caller passes in.
+     * <p>
+     * The caller seeds the map with the User-Agent first, because a profile moves that header rather
+     * than supplying it - Chrome puts its client hints before it and the user agent after
+     * Upgrade-Insecure-Requests, which it can only do to a header that is already there.
+     * <p>
+     * Declared here as well as on the TCP side because a browser is not only its handshake. A
+     * connection whose QUIC, TLS and HTTP/3 fingerprints all match a browser exactly, carrying a
+     * request with no User-Agent at all, is more obviously not a browser than a mismatched
+     * fingerprint would be.
+     */
+    default void fillRequestHeaders(Map<String, String> headers) {
+    }
+
     int[] getCipherSuites();
 
     int[] getKeyShareGroups();

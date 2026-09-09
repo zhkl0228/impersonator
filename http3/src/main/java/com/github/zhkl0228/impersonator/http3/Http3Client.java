@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.quic.QuicClientFactory;
+import com.github.zhkl0228.impersonator.Impersonator;
 import com.github.zhkl0228.impersonator.quic.SessionTicketStore;
 import tech.kwik.core.QuicClientConnection;
 import tech.kwik.core.QuicSessionTicket;
@@ -10,15 +11,19 @@ import tech.kwik.flupke.Http3ClientConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.Authenticator;
 import java.net.CookieHandler;
 import java.net.ProxySelector;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -26,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Flow;
 
 /**
  * One QUIC connection per host and port, each carrying the factory's profile, behind one
@@ -48,16 +54,104 @@ class Http3Client extends HttpClient {
 
     private volatile boolean closed;
 
-    Http3Client(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings, Duration connectTimeout) {
+    /** The profile whose request headers every request through this client carries; null when none. */
+    private final Impersonator impersonator;
+
+    Http3Client(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings, Duration connectTimeout,
+                Impersonator impersonator) {
         this.quicClientFactory = quicClientFactory;
         this.http3Settings = http3Settings;
         this.connectTimeout = connectTimeout;
+        this.impersonator = impersonator;
     }
 
     @Override
     public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
             throws IOException, InterruptedException {
-        return connectionFor(request.uri()).send(request, responseBodyHandler);
+        HttpRequest impersonated = withProfileHeaders(request);
+        return connectionFor(impersonated.uri()).send(impersonated, decoding(responseBodyHandler));
+    }
+
+    /**
+     * The caller's body handler, with any Content-Encoding undone first.
+     * <p>
+     * The profile's Accept-Encoding asks for gzip, deflate, br and zstd because that is what the
+     * browser asks for, so the answer has to be decoded rather than handed on compressed - which is
+     * what happened for one run of the tests, and looked like a response body of binary noise.
+     * <p>
+     * The body is buffered whole to decode it, which is what decoding needs anyway, and then fed to
+     * the handler the caller gave. A response with no Content-Encoding goes straight through and is
+     * not buffered.
+     */
+    private <T> HttpResponse.BodyHandler<T> decoding(HttpResponse.BodyHandler<T> handler) {
+        return responseInfo -> {
+            String contentEncoding = responseInfo.headers().firstValue("content-encoding").orElse(null);
+            if (!ContentEncoding.isEncoded(contentEncoding)) {
+                return handler.apply(responseInfo);
+            }
+            return HttpResponse.BodySubscribers.mapping(HttpResponse.BodySubscribers.ofByteArray(), body -> {
+                byte[] decoded;
+                try {
+                    decoded = ContentEncoding.decode(contentEncoding, body);
+                }
+                catch (IOException e) {
+                    throw new UncheckedIOException("decode a " + contentEncoding + " response body", e);
+                }
+                HttpResponse.BodySubscriber<T> delegate = handler.apply(responseInfo);
+                delegate.onSubscribe(new Flow.Subscription() {
+                    @Override
+                    public void request(long n) {
+                    }
+
+                    @Override
+                    public void cancel() {
+                    }
+                });
+                delegate.onNext(List.of(ByteBuffer.wrap(decoded)));
+                delegate.onComplete();
+                return delegate.getBody().toCompletableFuture().join();
+            });
+        };
+    }
+
+    /**
+     * The request with the browser's own headers added - its User-Agent above all, but also the
+     * client hints, the Accept set and the rest of what it always sends.
+     * <p>
+     * Without this a connection whose QUIC, TLS and HTTP/3 fingerprints match a browser byte for byte
+     * carries a request with no User-Agent at all, which is a plainer tell than any mismatch. A header
+     * the caller set itself is left alone: the profile describes the browser, not the request.
+     * <p>
+     * The order they end up in is not the browser's. {@link HttpRequest} keeps its headers in a sorted
+     * map, so they go out alphabetically whatever order they are added in, and matching a browser's
+     * order means building the field section without java.net.http's help.
+     */
+    private HttpRequest withProfileHeaders(HttpRequest request) {
+        if (impersonator == null) {
+            return request;
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
+        // Seeded first, because a profile moves the User-Agent rather than supplying it.
+        String userAgent = impersonator.getUserAgent();
+        if (userAgent != null) {
+            headers.put("User-Agent", userAgent);
+        }
+        impersonator.fillRequestHeaders(headers);
+        if (headers.isEmpty()) {
+            return request;
+        }
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder(request.uri());
+        request.timeout().ifPresent(builder::timeout);
+        request.version().ifPresent(builder::version);
+        builder.method(request.method(), request.bodyPublisher().orElseGet(HttpRequest.BodyPublishers::noBody));
+        request.headers().map().forEach((name, values) -> values.forEach(value -> builder.header(name, value)));
+        for (Map.Entry<String, String> header : headers.entrySet()) {
+            if (request.headers().firstValue(header.getKey()).isEmpty()) {
+                builder.header(header.getKey(), header.getValue());
+            }
+        }
+        return builder.build();
     }
 
     @Override

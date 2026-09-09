@@ -29,6 +29,9 @@ public class ChromeQuicFingerprintTest extends TestCase {
             + "_0201,0401,0403,0501,0503,0601,0804,0805,0806";
     private static final String CHROME_H3_HASH = "049704d97f9b";
 
+    private static final String USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+            + " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+
     public void testTheClientHelloIsChromes() throws Exception {
         JSONObject fingerprint = fingerprint();
 
@@ -190,6 +193,19 @@ public class ChromeQuicFingerprintTest extends TestCase {
             }
         }
         throw new AssertionError("no GREASE setting was sent");
+    }
+
+
+    /**
+     * The request itself, not only the handshake. A connection whose QUIC, TLS and HTTP/3
+     * fingerprints match this browser byte for byte, carrying a request with no User-Agent at all,
+     * is a plainer tell than any mismatch would be - and that is what this client sent until the
+     * profile's headers were applied to the HTTP/3 path as they always were to the TCP one.
+     * <p>
+     * The endpoint echoes what it received, so this compares against the browser's own.
+     */
+    public void testTheRequestCarriesTheBrowsersUserAgent() throws Exception {
+        assertEquals(USER_AGENT, fingerprint().getString("user_agent"));
     }
 
     private static JSONObject fingerprint() throws Exception {
