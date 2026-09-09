@@ -61,6 +61,7 @@ Files changed relative to `edb3155f`:
 | `impl/QuicClientConnectionImpl.java` (message sender) | sends the client's EncryptedExtensions that agent15's ALPS support produces |
 | `QuicClientConnection.java` | `connect(EarlyDataWriter)`, so 0-RTT data can be something other than a list of bidirectional streams. HTTP/3's first flight is its control stream, which is unidirectional, and `connect(List<StreamEarlyData>)` cannot express it |
 | `impl/QuicClientConnectionImpl.java` (connect) | implements it; the list variant is now one line on top of it, and an early data writer that writes nothing is an error rather than a ClientHello that offered "early_data" and meant nothing |
+| `QuicClientConnection.java` (isSessionResumed) | passes agent15's answer through, so a caller can tell a resumption that happened from one that only looks like it |
 | `stream/StreamInputStream.java` | a stream's input stream can say which stream id it reads; not answered by default, so that a subclass which reads no stream says so rather than inventing an id |
 | `stream/StreamInputStreamImpl.java` | answers it |
 

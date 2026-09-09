@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator.http3;
 
 import com.alibaba.fastjson2.JSONObject;
+import com.github.zhkl0228.impersonator.DnsOverHttpsEchConfigProvider;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 
 import junit.framework.TestCase;
@@ -36,6 +37,15 @@ public class SessionResumptionTest extends TestCase {
     private static final String CHROME_RESUMED_JA4 = "q13d0314h3_55b375c5d22e_22df90fcce4c";
 
     /**
+     * Whether a ticket is <em>accepted</em> has to be asked of a server that reliably accepts one.
+     * The fingerprinting endpoint above is not that server: it answers a ticket it issued itself with
+     * a full handshake about as often as not, which is what a host behind several backends without a
+     * shared ticket key looks like, and it flip-flops on 0-RTT the same way. It is still the right
+     * place to ask what the ClientHello <em>looks</em> like, which is settled by this end alone.
+     */
+    private static final String ACCEPTING_URL = "https://www.google.com/";
+
+    /**
      * The whole point in one: the first connection is Chrome's full handshake and every one after it
      * is Chrome's resumed handshake, both matched against the captures. The tickets come from the
      * factory, which is the scope a browser's ticket cache has - one profile, every host it visited.
@@ -47,6 +57,22 @@ public class SessionResumptionTest extends TestCase {
         assertEquals(CHROME_RESUMED_JA4, ja4(factory));
         assertEquals("a ticket is used once, so the third connection needs one of its own",
                 CHROME_RESUMED_JA4, ja4(factory));
+    }
+
+    /**
+     * That the resumption is real and not a costume. This is the assertion that matters most here,
+     * because its absence is invisible: a server that will not accept the ticket - because the binder
+     * was computed over the wrong bytes, say - simply does a full handshake instead, and the
+     * ClientHello that offered it is identical on the wire either way. An earlier version of this
+     * work produced exactly the right resumed JA4 while every connection was in fact a full
+     * handshake, and only the ServerHello's pre_shared_key told the difference.
+     */
+    public void testTheServerReallyAcceptsTheTicket() throws Exception {
+        Http3ClientFactory factory = Http3ClientFactory.create(ImpersonatorFactory.macChrome());
+        assertFalse("the first connection has no ticket, so nothing to accept", resumed(factory, ACCEPTING_URL));
+
+        assertTrue("the ClientHello offered a pre_shared_key and the server did not answer with one,"
+                + " so this connection only looks resumed", resumed(factory, ACCEPTING_URL));
     }
 
     /**
@@ -78,24 +104,41 @@ public class SessionResumptionTest extends TestCase {
     }
 
     /**
-     * A host that publishes an ECHConfig keeps its Encrypted Client Hello and does not resume.
+     * A host that publishes an ECHConfig gets both: the server name stays encrypted and the session
+     * still resumes.
      * <p>
-     * The two cannot both be used: RFC 9849 has the ClientHelloInner and the ClientHelloOuter carry
-     * different pre_shared_key extensions, the outer's a GREASE one, and there is no capture of what
-     * a browser puts in the outer - so it is not implemented and not guessed at. ECH wins, because it
-     * hides the server name from everyone on the path while resumption only saves a round trip and
-     * makes the ClientHello look like a second visit. Giving up the name for that would be the wrong
-     * way round, and the choice is asserted here rather than left to be discovered.
+     * These were refused together for a while, on the grounds that the two ClientHellos would need
+     * their own binders over their own transcripts. They do not. The ClientHelloOuter carries no
+     * pre_shared_key at all - RFC 9849 section 6.1.2 recommends a GREASE one and BoringSSL declines,
+     * its should_offer_psk returning false for the outer outright - so there is one binder and it
+     * covers the ClientHelloInner, which is also the transcript and the one the 0-RTT keys come from.
+     * <p>
+     * Refusing was the expensive choice, and it was made for a bad reason: it meant every
+     * Cloudflare-fronted host, which is where ECH is actually deployed, could never resume.
      */
-    public void testAnEchHostKeepsItsEncryptedClientHelloInsteadOfResuming() throws Exception {
+    public void testAnEchHostResumesWithoutGivingUpTheEncryptedServerName() throws Exception {
         Http3ClientFactory factory = Http3ClientFactory.create(ImpersonatorFactory.macChrome())
-                .setEchConfigProvider(com.github.zhkl0228.impersonator.DnsOverHttpsEchConfigProvider.getInstance());
+                .setEchConfigProvider(DnsOverHttpsEchConfigProvider.getInstance());
         String url = "https://cloudflare-ech.com/cdn-cgi/trace";
 
         assertTrue("the first connection should encrypt the server name",
                 Http3Get.body(factory, url).contains("sni=encrypted"));
-        assertTrue("the second connection must not trade the encrypted server name for a resumption",
-                Http3Get.body(factory, url).contains("sni=encrypted"));
+
+        try (Http3Client client = (Http3Client) factory.newHttpClient()) {
+            String body = client.send(HttpRequest.newBuilder(URI.create(url)).build(),
+                    HttpResponse.BodyHandlers.ofString()).body();
+            assertTrue("the second connection must keep the encrypted server name", body.contains("sni=encrypted"));
+            assertTrue("and must resume, rather than trading one for the other",
+                    client.quicConnectionFor("cloudflare-ech.com:443").isSessionResumed());
+        }
+    }
+
+    private static boolean resumed(Http3ClientFactory factory, String url) throws Exception {
+        URI uri = URI.create(url);
+        try (Http3Client client = (Http3Client) factory.newHttpClient()) {
+            client.send(HttpRequest.newBuilder(uri).build(), HttpResponse.BodyHandlers.ofString());
+            return client.quicConnectionFor(uri.getHost() + ":443").isSessionResumed();
+        }
     }
 
     private static String ja4(Http3ClientFactory factory) throws Exception {

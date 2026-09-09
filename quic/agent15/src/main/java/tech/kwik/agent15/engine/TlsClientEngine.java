@@ -41,6 +41,17 @@ import java.util.function.Function;
 public interface TlsClientEngine extends TlsEngine {
 
     /**
+     * Whether the server accepted the session ticket this connection offered, by answering with a
+     * "pre_shared_key" in its ServerHello.
+     * <p>
+     * Worth being able to ask, because the alternative is invisible: a server that does not accept
+     * the ticket - because the binder was wrong, say - simply does a full handshake instead, and the
+     * ClientHello that offered it looks exactly the same on the wire either way. A resumption that
+     * never happened and one that did are told apart only here.
+     */
+    boolean isSessionResumed();
+
+    /**
      * Set the name of the server that is connected; will be used in the SNI extension.
      * @param serverName
      */

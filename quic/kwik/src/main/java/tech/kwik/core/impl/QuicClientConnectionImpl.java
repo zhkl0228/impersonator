@@ -1357,6 +1357,11 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     }
 
     @Override
+    public boolean isSessionResumed() {
+        return tlsEngine != null && tlsEngine.isSessionResumed();
+    }
+
+    @Override
     public List<QuicSessionTicket> getNewSessionTickets() {
         return newSessionTickets;
     }

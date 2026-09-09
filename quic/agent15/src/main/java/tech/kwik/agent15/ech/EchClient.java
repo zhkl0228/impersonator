@@ -152,8 +152,8 @@ public class EchClient {
          * The server rebuilds the ClientHelloInner this way round, so this order is the one that goes
          * into the transcript.
          */
-        List<Extension> innerExtensions = groupCompressible(
-                factory.createExtensions(serverName, EncryptedClientHelloExtension.createInner()));
+        List<Extension> innerExtensions = pskLast(groupCompressible(
+                factory.createExtensions(serverName, EncryptedClientHelloExtension.createInner())));
 
         byte[] innerRandom = new byte[32];
         SECURE_RANDOM.nextBytes(innerRandom);
@@ -186,11 +186,14 @@ public class EchClient {
         byte[] outerRandom = new byte[32];
         SECURE_RANDOM.nextBytes(outerRandom);
         ClientHello outerClientHello = factory.createClientHello(outerRandom,
-                factory.createExtensions(config.getPublicName(), outerEch),
+                withoutPreSharedKey(factory.createExtensions(config.getPublicName(), outerEch)),
                 aad -> seal(hpkeContext, aad, encodedInner, outerEch.getPayloadLength(), config));
 
         return new EchClient(serverName, config, innerClientHello, outerClientHello);
     }
+
+    /** RFC 8446 "pre_shared_key", which is the ClientHelloInner's alone and always its last extension. */
+    private static final int PRE_SHARED_KEY = 41;
 
     /**
      * RFC 9849 section 5.1: the extension the compressed run is replaced by.
@@ -210,7 +213,53 @@ public class EchClient {
     private static boolean isShared(Extension extension) {
         int type = extension.getType() & 0xffff;
         return type != (TlsConstants.ExtensionType.server_name.value & 0xffff)
-                && type != EncryptedClientHelloExtension.TYPE;
+                && type != EncryptedClientHelloExtension.TYPE
+                // The pre_shared_key is the ClientHelloInner's alone - the ClientHelloOuter does not
+                // carry one at all - so there is nothing in the outer for it to be borrowed from.
+                // BoringSSL says the same in one line: "The PSK extension must be last. It is never
+                // compressed."
+                && type != PRE_SHARED_KEY;
+    }
+
+    /**
+     * Moves the pre_shared_key to the very end, after the compressible run, which is where RFC 8446
+     * section 4.2.11 requires it and where BoringSSL writes it - after the compressed extensions and
+     * after the ech_outer_extensions reference that replaces them.
+     */
+    private static List<Extension> pskLast(List<Extension> extensions) {
+        List<Extension> ordered = new ArrayList<>(extensions.size());
+        Extension preSharedKey = null;
+        for (Extension extension : extensions) {
+            if ((extension.getType() & 0xffff) == PRE_SHARED_KEY) {
+                preSharedKey = extension;
+            }
+            else {
+                ordered.add(extension);
+            }
+        }
+        if (preSharedKey != null) {
+            ordered.add(preSharedKey);
+        }
+        return ordered;
+    }
+
+    /**
+     * The ClientHelloOuter's extensions, which are the same list without the pre_shared_key.
+     * <p>
+     * RFC 9849 section 6.1.2 recommends a GREASE pre_shared_key there, and Chrome does not send one:
+     * BoringSSL's should_offer_psk returns false for the outer outright, with a standing TODO about
+     * the early_data that is then left in the outer without one. Sending what the browser sends is
+     * the point here, and inventing a GREASE PSK the browser does not send would be a difference from
+     * it rather than a nicety - so the outer carries no pre_shared_key, and its early_data alone.
+     */
+    private static List<Extension> withoutPreSharedKey(List<Extension> extensions) {
+        List<Extension> outer = new ArrayList<>(extensions.size());
+        for (Extension extension : extensions) {
+            if ((extension.getType() & 0xffff) != PRE_SHARED_KEY) {
+                outer.add(extension);
+            }
+        }
+        return outer;
     }
 
     /** Moves the borrowable extensions to the end, keeping their relative order. */
@@ -227,9 +276,16 @@ public class EchClient {
     private static List<Extension> compress(List<Extension> innerExtensions) {
         List<Extension> compressed = new ArrayList<>();
         List<Integer> borrowed = new ArrayList<>();
+        Extension preSharedKey = null;
         for (Extension extension : innerExtensions) {
             if (isShared(extension)) {
                 borrowed.add(extension.getType() & 0xffff);
+            }
+            else if ((extension.getType() & 0xffff) == PRE_SHARED_KEY) {
+                // Held back so that it stays the last extension once the reference has been put in
+                // place of the compressed run. RFC 8446 section 4.2.11 requires it of every
+                // ClientHello, and the encoded form is the ClientHello the server rebuilds.
+                preSharedKey = extension;
             }
             else {
                 compressed.add(extension);
@@ -252,6 +308,9 @@ public class EchClient {
             buffer.putShort((short) type);
         }
         compressed.add(new RawExtension(EXT_ech_outer_extensions, buffer.array()));
+        if (preSharedKey != null) {
+            compressed.add(preSharedKey);
+        }
         return compressed;
     }
 

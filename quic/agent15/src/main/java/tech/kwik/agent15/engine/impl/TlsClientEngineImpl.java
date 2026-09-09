@@ -213,24 +213,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             throw new IllegalStateException("not all mandatory properties are set");
         }
 
-        /*
-         * Asked before the pre_shared_key is built, because the two cannot both be used and this
-         * decides which. RFC 9849 has the ClientHelloInner and the ClientHelloOuter carry different
-         * pre_shared_key extensions - the outer's a GREASE one - and there is no capture of what a
-         * browser puts in the outer, so that is not implemented and not guessed at.
-         *
-         * When a host offers both, Encrypted Client Hello wins and this connection is a full
-         * handshake: ECH hides the server name from everyone on the path, and resumption only saves
-         * a round trip and makes the ClientHello look like a browser's second visit. Giving up the
-         * name to save a round trip would be the wrong way round. The ticket is put back so that it
-         * is still there if the same host is reached later without an ECHConfig.
-         */
         byte[] echConfigList = echConfigProvider != null? echConfigProvider.getEchConfigList(serverName): null;
-        if (echConfigList != null && newSessionTicket != null) {
-            Logger.debug("Not resuming: this connection uses Encrypted Client Hello, which cannot carry the"
-                    + " session ticket's pre_shared_key");
-            newSessionTicket = null;
-        }
 
         List<Extension> extensions;
         if (newSessionTicket != null) {
@@ -248,14 +231,19 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         }
 
         if (echConfigList != null) {
-            // Both are refused rather than approximated: with a PSK the two ClientHellos need their own binders over
-            // their own transcripts, which is the easiest part of RFC 9849 to get subtly wrong, and the compatibility
-            // mode would make the ClientHelloOuter echo a legacy_session_id the ClientHelloInner has to copy.
-            // https://www.rfc-editor.org/rfc/rfc9001.html#section-8.4 forbids the latter for QUIC anyway.
-            if (newSessionTicket != null) {
-                throw new IllegalStateException("Encrypted Client Hello combined with session resumption is not"
-                        + " implemented; offer no ECHConfigList for " + serverName + " or do a full handshake");
-            }
+            /*
+             * Resumption used to be refused here as well, on the grounds that the two ClientHellos
+             * would need their own binders over their own transcripts. They do not: the
+             * ClientHelloOuter carries no pre_shared_key at all, so there is one binder and it covers
+             * the ClientHelloInner. RFC 9849 section 6.1.2 does recommend a GREASE pre_shared_key in
+             * the outer, and BoringSSL does not send one - should_offer_psk returns false for the
+             * outer outright - so neither does this, which is also what the browser being imitated
+             * puts on the wire.
+             *
+             * The compatibility mode is still refused: it would make the ClientHelloOuter echo a
+             * legacy_session_id the ClientHelloInner has to copy, and
+             * https://www.rfc-editor.org/rfc/rfc9001.html#section-8.4 forbids it for QUIC anyway.
+             */
             if (compatibilityMode) {
                 throw new IllegalStateException("Encrypted Client Hello combined with the TLS 1.3 compatibility mode"
                         + " is not implemented; offer no ECHConfigList for " + serverName
@@ -278,8 +266,15 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                     @Override
                     public ClientHello createClientHello(byte[] clientRandom, List<Extension> clientHelloExtensions,
                                                          EchPayloadCalculator payloadCalculator) {
+                        /*
+                         * The state is handed over for all three messages and used for exactly one of
+                         * them. Only the ClientHelloInner carries a pre_shared_key, and only the first
+                         * time it is serialized is the binder not computed yet; the compressed form of
+                         * the same message copies the extension as it stands, and the ClientHelloOuter
+                         * has none at all.
+                         */
                         return new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
-                                clientHelloExtensions, payloadCalculator, null);
+                                clientHelloExtensions, payloadCalculator, state);
                     }
                 });
             }
@@ -315,7 +310,16 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         sentExtensions = clientHello.getExtensions();
 
         if (state != null) {
-            transcriptHash.record(clientHello);
+            /*
+             * Resuming, so the early secret exists already and the 0-RTT keys can be derived now,
+             * before the ServerHello. Under Encrypted Client Hello the message that goes on the wire
+             * is the ClientHelloOuter, but the transcript is the ClientHelloInner's - RFC 9849
+             * section 6.1.5 - and so is the early traffic secret the 0-RTT keys come from. The
+             * client cannot know yet whether the server will accept ECH, so it assumes it does,
+             * which is the same assumption the server makes: early data is only ever accepted
+             * together with ECH.
+             */
+            transcriptHash.record(echClient != null? echClient.getInnerClientHello(): clientHello);
             state.computeEarlyTrafficSecret();
             statusHandler.earlySecretsKnown();
         }
@@ -455,6 +459,26 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             transcriptHash.record(clientHello);
             state.computeEarlyTrafficSecret();
             statusHandler.earlySecretsKnown();
+        }
+        else if (echClient != null) {
+            /*
+             * Resuming under ECH: the state and the transcript were built when the ClientHello was
+             * sent, with the ClientHelloInner recorded on the assumption that the server would
+             * accept. This is where that assumption is settled.
+             */
+            echClient.processAcceptConfirmation(state, serverHello);
+            if (echClient.isAccepted()) {
+                clientHello = echClient.getInnerClientHello();
+                Logger.debug("Server has accepted Encrypted Client Hello");
+            }
+            else {
+                // Recording it again replaces the ClientHelloInner, which is what every hash from the
+                // ServerHello onwards is then computed over. The one hash already taken - the
+                // ClientHelloInner's, for the early traffic secret - stays cached and stale, and that
+                // is harmless: a server that rejects ECH rejects the early data with it.
+                transcriptHash.record(clientHello);
+                Logger.debug("Server has rejected Encrypted Client Hello");
+            }
         }
 
         if (preSharedKey.isPresent()) {
@@ -1023,6 +1047,11 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     @Override
     public void setNewSessionTicket(NewSessionTicket newSessionTicket) {
         this.newSessionTicket = newSessionTicket;
+    }
+
+    @Override
+    public boolean isSessionResumed() {
+        return pskAccepted;
     }
 
     @Override

@@ -42,6 +42,15 @@ public class ClientHelloPreSharedKeyExtension extends PreSharedKeyExtension {
     private int binderPosition;
     private byte[] binder;
 
+    /**
+     * Whether {@link #calculateBinder} has run. With Encrypted Client Hello the same extension object
+     * is serialized twice - once into the real ClientHelloInner and once into its compressed form,
+     * which carries the PSK verbatim rather than compressed - and the binder covers the first of those
+     * two. So the second serialization must leave it alone rather than recompute it over the wrong
+     * message.
+     */
+    private boolean binderComputed;
+
 
     public ClientHelloPreSharedKeyExtension(NewSessionTicket newSessionTicket) {
         Date ticketCreationDate = newSessionTicket.getTicketCreationDate();
@@ -164,6 +173,12 @@ public class ClientHelloPreSharedKeyExtension extends PreSharedKeyExtension {
         ByteBuffer.wrap(clientHello).get(partialHello);
 
         binders.set(0, new PskBinderEntry(calculator.computePskBinder(partialHello)));
+        binderComputed = true;
+    }
+
+    /** See {@link #binderComputed}. */
+    public boolean isBinderComputed() {
+        return binderComputed;
     }
 
     public List<PskIdentity> getIdentities() {

@@ -100,10 +100,7 @@ class Http3Client extends HttpClient {
          * this every connection is a full handshake for ever, which no browser's history contains.
          */
         SessionTicketStore sessionTicketStore = quicClientFactory.getSessionTicketStore();
-        QuicSessionTicket ticket = sessionTicketStore == null
-                || quicClientFactory.usesEncryptedClientHello(uri.getHost())
-                ? null
-                : sessionTicketStore.take(uri.getHost());
+        QuicSessionTicket ticket = sessionTicketStore == null ? null : sessionTicketStore.take(uri.getHost());
 
         QuicClientConnection quicConnection = quicClientFactory.newBuilder()
                 .uri(uri)

@@ -91,6 +91,13 @@ public interface QuicClientConnection extends QuicConnection {
 
     List<QuicSessionTicket> getNewSessionTickets();
 
+    /**
+     * Whether this connection resumed an earlier session, the server having accepted the ticket it
+     * was offered. See {@link tech.kwik.agent15.engine.TlsClientEngine#isSessionResumed()}: a
+     * rejected ticket is not an error and not visible on the wire, it is just a full handshake.
+     */
+    boolean isSessionResumed();
+
     InetSocketAddress getLocalAddress();
 
     InetSocketAddress getServerAddress();

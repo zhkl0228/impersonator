@@ -583,11 +583,7 @@ kwik 也有完整的客户端 0-RTT（`EarlyDataStream`、接受/拒绝、拒绝
   让调用方自己开流写；底层 `createEarlyDataStream(bidirectional)` 本来就支持单向，只是没暴露。
   写了不写东西直接报错——ClientHello 已经说了要发 early data。
 
-**ECH 和复用不能并用，ECH 赢。** RFC 9849 里 ClientHelloInner 和 Outer 要带**不同**的
-pre_shared_key（outer 那个是 GREASE），浏览器往 outer 里放什么没有抓包，所以不实现也不猜。
-遇到发布了 ECHConfig 的主机就走全握手：ECH 把服务器名对整条链路藏起来，复用只省一个 RTT 加一个
-更像样的 ClientHello——拿名字换 RTT 是反的。这个判断放在**取 ticket 之前**（`Http3Client`），
-不能放引擎里：引擎里丢掉 ticket 时 kwik 已经准备发 early data 了，0-RTT 密钥装不上，直接炸。
+**ECH 和复用可以并用**——这一条我先判断错了，后来查 BoringSSL 才纠正过来，记在下面。
 
 **证据**：`SessionResumptionTest`。第一条连接是 Chrome 的全握手 JA4，之后每条都是 Chrome 的复用
 JA4，实测 12/12 稳定。PSK 是真被接受的，不是摆样子——Google 和 Scrapfly 的 ServerHello 都回了
@@ -597,3 +593,52 @@ JA4，实测 12/12 稳定。PSK 是真被接受的，不是摆样子——Google
 
 服务端**接受**early data 与否是它自己的事（防重放，经常拒），拒了 kwik 会在握手完成后把同样的字节
 重发一遍，连接照常。所以测试只断言这端能控制的一半：early data 确实被请求并写出去了。
+
+### ECH + 复用：查 Chrome 源码纠正的一次判断
+
+上一节先写的是「两者不能并用，ECH 赢」，理由是「RFC 9849 要求 inner/outer 带**不同**的
+pre_shared_key，outer 那个是 GREASE，浏览器放什么没抓包所以不猜」。**这个理由是错的**，代价是
+Cloudflare 系的主机（正是 ECH 真正部署的地方）永远不能复用。
+
+RFC 9849 6.1.2 确实**建议**（SHOULD）在 outer 里放一个 GREASE PSK，identity 随机、binder 是与
+inner 等长的随机串。但 BoringSSL **不发**：
+
+```cpp
+static bool should_offer_psk(const SSL_HANDSHAKE *hs, ssl_client_hello_type_t type) {
+  // TODO(crbug.com/boringssl/275): Should we synthesize a placeholder
+  // PSK, at least when we offer early data? ...
+  return hs->max_version >= TLS1_3_VERSION && !hs->pre_shared_keys.empty() &&
+         type != ssl_client_hello_outer;
+}
+```
+
+**ClientHelloOuter 根本不带 pre_shared_key**，还留着一条 TODO 承认这事。所以：只有一个 binder，
+覆盖 ClientHelloInner；outer 里没有 PSK 可造，也就没有「需要抓包才知道放什么」这回事。
+
+另外两个只有源码能给准话的细节：
+
+- **PSK 永远不压缩**，而且是 inner 的最后一个扩展。BoringSSL 一行写死：
+  `// The PSK extension must be last. It is never compressed.` 然后把它**逐字节拷进**
+  EncodedClientHelloInner。所以 binder 算一次，覆盖的是未压缩的真 inner，压缩那份原样照抄。
+- **early_data 两份都发**，故意的：
+  `// If offering ECH, the extension only applies to ClientHelloInner, but we send the extension in
+  both ClientHellos. This ensures that, if the server handshakes with ClientHelloOuter, it can skip
+  past early data.` 也就是说 outer 里会出现「有 early_data 没有 pre_shared_key」，Cloudflare 照收。
+
+实现时踩到的两个坑，都是**静默失败**，只有断言才抓得到：
+
+1. **压缩后 PSK 不在最后**。我们的 `compress` 把 `ech_outer_extensions` 追加在末尾，PSK 移到尾部后
+   就变成 `[…][pre_shared_key][ech_outer_extensions]`——重建出来的 ClientHello 里 PSK 不是最后一个，
+   Cloudflare 回 `illegal_parameter(47)`。要的是 `[…][ech_outer_extensions][pre_shared_key]`。
+2. **ECH 的 accept confirmation 写在 `if (state == null)` 里**。复用时 `state` 早就建好了，整段被跳过，
+   于是既不判断 ECH 是否被接受，也不把 transcript 换成 inner——握手直接卡死超时。复用时
+   ClientHello 是在发出时就记进 transcript 的（0-RTT 密钥要用），所以那一刻记的必须是
+   **inner**（RFC 9849 6.1.5），被拒了再换回 outer。
+
+**证据**：`SessionResumptionTest` 对 cloudflare-ech.com 同时断言 `sni=encrypted` 和
+`isSessionResumed()`。后者是这次特意加的 API：**ticket 被拒是完全看不见的**——服务端只是改做全握手，
+ClientHello 一模一样。前面已经有一次「JA4 完美但复用是假的」，不能再靠肉眼。
+
+顺带一个发现：**Scrapfly 那个端点不能用来断言「接受」**——它对自己发的 ticket 有一半概率回全握手
+（多后端不共享 ticket key 的典型表现），0-RTT 标志也是一样飘。它仍然是问「ClientHello 长什么样」的
+好地方，那个只取决于我们这端。断言「被接受」用 Google。

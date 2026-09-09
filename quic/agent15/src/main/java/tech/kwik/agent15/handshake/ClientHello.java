@@ -320,8 +320,15 @@ public class ClientHello extends HandshakeMessage {
      *                        otherwise ignored, which is what a peer does with them too.
      * @param extensions      every extension, in wire order.
      * @param echPayloadCalculator  see the constructor above; null unless this is a ClientHelloOuter.
-     * @param binderCalculator      null unless the extensions contain a ClientHelloPreSharedKeyExtension,
-     *                              whose binder is computed over this message as the spec serialized it
+     * @param binderCalculator      null unless the extensions contain a ClientHelloPreSharedKeyExtension
+     *                              whose binder has not been computed yet; it is then computed over this
+     *                              message as the spec serialized it. Under Encrypted Client Hello the
+     *                              same extension is serialized again into the compressed form of the
+     *                              ClientHelloInner, and that second time it is copied as it stands -
+     *                              which is what BoringSSL does too ("The PSK extension must be last.
+     *                              It is never compressed", then copied to EncodedClientHelloInner).
+     *                              There is no HelloRetryRequest here, so a ClientHello is built once
+     *                              and a computed binder can never be stale.
      */
     public ClientHello(byte[] clientRandom, byte[] sessionId, int[] cipherSuites, List<Extension> extensions,
                        EchPayloadCalculator echPayloadCalculator, BinderCalculator binderCalculator) {
@@ -396,10 +403,10 @@ public class ClientHello extends HandshakeMessage {
          * requires pre_shared_key to be the last extension, so the spec has to have put it there;
          * the check is in the engine, which is where the spec's order is known to be a choice.
          */
-        if (pskExtension != null) {
+        if (pskExtension != null && !pskExtension.isBinderComputed()) {
             if (binderCalculator == null) {
                 throw new IllegalArgumentException("a BinderCalculator is required when the extensions"
-                        + " contain a pre_shared_key");
+                        + " contain a pre_shared_key whose binder has not been computed yet");
             }
             pskExtension.calculateBinder(data, pskStartPosition, binderCalculator);
             byte[] withBinder = pskExtension.getBytes();
