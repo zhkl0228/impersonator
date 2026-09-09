@@ -35,6 +35,8 @@ import tech.kwik.agent15.extension.*;
 import tech.kwik.agent15.handshake.*;
 import tech.kwik.agent15.log.Logger;
 
+import java.nio.ByteBuffer;
+
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 import javax.security.auth.x500.X500Principal;
@@ -116,6 +118,12 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     private Function<List<X500Principal>, CertificateWithPrivateKey> clientCertificateSelector;
     private List<TlsConstants.SignatureScheme> serverSupportedSignatureSchemes;
     private EchConfigProvider echConfigProvider;
+    private ClientHelloSpec clientHelloSpec;
+    private int[] offeredKeyShareGroups;
+    private final SecureRandom secureRandom = new SecureRandom();
+
+    /** Room for a key_share offering several hybrid groups; ML-KEM-1024 alone is 1568 bytes. */
+    private static final int MAX_KEY_SHARE_SIZE = 8192;
     private EchClient echClient;
     private byte[] echRetryConfigs;
     private boolean echPublicNameAuthenticated;
@@ -176,7 +184,9 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
 
         supportedSignatures = signatureSchemes;
         this.ecCurve = ecCurve;
-        generateKeys(ecCurve);
+        if (clientHelloSpec == null) {
+            generateKeys(ecCurve);
+        }
         if (serverName == null || supportedCiphers.isEmpty()) {
             throw new IllegalStateException("not all mandatory properties are set");
         }
@@ -197,6 +207,12 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         }
 
         byte[] echConfigList = echConfigProvider != null? echConfigProvider.getEchConfigList(serverName): null;
+        if (echConfigList != null && clientHelloSpec != null) {
+            // EchClient still builds its two ClientHellos the way agent15 does, so honouring the spec here
+            // would mean silently sending one the spec did not describe. Refuse instead of picking one.
+            throw new IllegalStateException("Encrypted Client Hello combined with a ClientHelloSpec is not"
+                    + " implemented; the two ClientHellos ECH builds do not go through the spec yet");
+        }
         if (echConfigList != null) {
             // Both are refused rather than approximated: with a PSK the two ClientHellos need their own binders over
             // their own transcripts, which is the easiest part of RFC 9849 to get subtly wrong, and the compatibility
@@ -215,6 +231,19 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                     ecCurve, extensions);
             // The ClientHelloOuter is what goes on the wire; the transcript is decided when the ServerHello arrives.
             clientHello = echClient.getOuterClientHello();
+        }
+        else if (clientHelloSpec != null) {
+            if (newSessionTicket != null) {
+                // The PSK binder is computed over the ClientHello as serialized, and a spec decides that
+                // serialization; nothing has been built against the two together, so it is refused rather
+                // than guessed at.
+                throw new IllegalStateException("a ClientHelloSpec combined with session resumption is not"
+                        + " implemented; unset one of the two");
+            }
+            byte[] clientRandom = new byte[32];
+            secureRandom.nextBytes(clientRandom);
+            clientHello = new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
+                    buildSpecExtensions(extensions), null);
         }
         else {
             clientHello = new ClientHello(serverName, publicKey, compatibilityMode, supportedCiphers, supportedSignatures,
@@ -310,7 +339,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                     .map(extension -> ((KeyShareExtension) extension).getKeyShareEntries().get(0))
                     .orElseThrow(() -> new IllegalParameterAlert("")));
             // In the context of a server hello, the key share extension contains exactly one key share entry
-            if (keyShare.get().getNamedGroup() != ecCurve) {
+            if (clientHelloSpec == null && keyShare.get().getNamedGroup() != ecCurve) {
                 throw new IllegalParameterAlert("server supplied key share does not match client supported named group");
             }
         }
@@ -388,9 +417,14 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             state.setNoPskSelected();
         }
         if (keyShare.isPresent()) {
-            state.setOwnKey(privateKey);
-            state.setPeerKey(keyShare.get().getKey());
-            state.computeSharedSecret();
+            if (clientHelloSpec != null) {
+                computeSpecSharedSecret(keyShare.get());
+            }
+            else {
+                state.setOwnKey(privateKey);
+                state.setPeerKey(keyShare.get().getKey());
+                state.computeSharedSecret();
+            }
         }
         transcriptHash.record(serverHello);
         state.computeHandshakeSecrets();
@@ -888,6 +922,83 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     @Override
     public void setEchConfigProvider(EchConfigProvider echConfigProvider) {
         this.echConfigProvider = echConfigProvider;
+    }
+
+    @Override
+    public void setClientHelloSpec(ClientHelloSpec clientHelloSpec) {
+        this.clientHelloSpec = clientHelloSpec;
+    }
+
+    /**
+     * Asks the spec for the key shares and then for the whole extension list. The engine keeps no
+     * private key of its own on this path: the spec generated the ephemerals and is the only thing
+     * that can turn the server's value back into a shared secret.
+     */
+    private List<Extension> buildSpecExtensions(List<Extension> engineExtensions) {
+        int[] groups = clientHelloSpec.getKeyShareGroups();
+        if (groups.length == 0) {
+            throw new IllegalStateException("a ClientHelloSpec must offer at least one key share group;"
+                    + " a ClientHello with an empty key_share can only be answered with a HelloRetryRequest,"
+                    + " which is not implemented");
+        }
+        offeredKeyShareGroups = groups;
+
+        ByteBuffer entries = ByteBuffer.allocate(MAX_KEY_SHARE_SIZE);
+        for (int namedGroup : groups) {
+            byte[] ephemeral = clientHelloSpec.generateEphemeral(namedGroup);
+            entries.putShort((short) namedGroup);
+            entries.putShort((short) ephemeral.length);
+            entries.put(ephemeral);
+        }
+        byte[] extensionData = new byte[2 + entries.position()];
+        extensionData[0] = (byte) (entries.position() >> 8);
+        extensionData[1] = (byte) entries.position();
+        entries.rewind();
+        entries.get(extensionData, 2, extensionData.length - 2);
+
+        /*
+         * server_name is the engine's to supply, not the spec's: the spec describes the shape of a
+         * ClientHello and knows nothing about which host this connection is for. Listing it here also
+         * means the check below catches a spec that drops it, and it stays a ServerNameExtension rather
+         * than becoming raw bytes, which matters because EncryptedExtensions may answer it and the
+         * engine matches that answer by class.
+         */
+        List<Extension> engineSupplied = new ArrayList<>(engineExtensions.size() + 1);
+        engineSupplied.add(new ServerNameExtension(serverName));
+        engineSupplied.addAll(engineExtensions);
+
+        Extension keyShare = new RawExtension(TlsConstants.ExtensionType.key_share.value & 0xffff, extensionData);
+        List<Extension> extensions = clientHelloSpec.getExtensions(serverName, keyShare, engineSupplied);
+        for (Extension engineExtension : engineSupplied) {
+            if (!extensions.contains(engineExtension)) {
+                throw new IllegalStateException("the ClientHelloSpec dropped " + engineExtension
+                        + ", which the caller of this engine added and the handshake needs");
+            }
+        }
+        return extensions;
+    }
+
+    /**
+     * Turns the server's key_share into the shared secret. With a spec in play the group can be one
+     * agent15 has no key exchange for, so the entry is handed back raw.
+     */
+    private void computeSpecSharedSecret(KeyShareExtension.KeyShareEntry keyShare) throws IllegalParameterAlert {
+        int namedGroup = keyShare.getNamedGroup().value & 0xffff;
+        boolean offered = false;
+        for (int group : offeredKeyShareGroups) {
+            offered |= group == namedGroup;
+        }
+        if (!offered) {
+            throw new IllegalParameterAlert("server selected key share group 0x"
+                    + Integer.toHexString(namedGroup) + ", which was not offered");
+        }
+
+        byte[] peerValue = keyShare.getRawKey();
+        if (peerValue == null) {
+            throw new IllegalParameterAlert("server key share for group 0x" + Integer.toHexString(namedGroup)
+                    + " carries no key exchange value");
+        }
+        state.setSharedSecret(clientHelloSpec.calculateSharedSecret(namedGroup, peerValue));
     }
 
     /**

@@ -33,12 +33,19 @@ Files changed relative to `977b893`:
 | `TlsConstants.java` | added `ExtensionType.encrypted_client_hello` (0xfe0d) and `AlertDescription.ech_required` (121) |
 | `handshake/ClientHello.java` | one more constructor taking an `EchPayloadCalculator`, which seals the ClientHelloInner into the message after it has been serialized - the same "serialize, then patch" the PSK binder next to it already does |
 | `handshake/HandshakeMessage.java` | `parseExtensions` recognizes "encrypted_client_hello" in a ClientHello and in EncryptedExtensions |
-| `engine/TlsClientEngine.java` | added `setEchConfigProvider` |
-| `engine/TlsClientEngineFactory.java` | added the process wide default `EchConfigProvider` |
-| `engine/impl/TlsClientEngineImpl.java` | build both ClientHellos, pick the transcript on the accept confirmation, verify the certificate against the public name, send an empty client Certificate and throw `EchRejectedException` when ECH was rejected |
-| `engine/impl/TlsState.java` | added `hkdfExtract` and widened `hkdfExpandLabel(byte[], String, byte[], short)` to public, for the ECH accept confirmation |
+| `extension/KeyShareExtension.java` | a server key_share entry keeps its key exchange value raw, so a `ClientHelloSpec` can own a group agent15 has no key exchange for |
+| `engine/TlsClientEngine.java` | added `setEchConfigProvider` and `setClientHelloSpec` |
+| `engine/TlsClientEngineFactory.java` | added the process wide defaults for both |
+| `engine/impl/TlsClientEngineImpl.java` | ECH: build both ClientHellos, pick the transcript on the accept confirmation, verify the certificate against the public name, send an empty client Certificate, throw `EchRejectedException` on rejection. Fingerprint: build the ClientHello from a `ClientHelloSpec` and let it own the key shares |
+| `engine/impl/TlsState.java` | added `hkdfExtract` and widened `hkdfExpandLabel(byte[], String, byte[], short)` to public for the ECH accept confirmation; added `setSharedSecret` for a key exchange agent15 does not implement |
 
-Everything under `tech/kwik/agent15/ech/` is new and has no upstream counterpart. It reuses the
+New with no upstream counterpart: everything under `tech/kwik/agent15/ech/`, plus
+`extension/RawExtension.java` (an extension carried as the bytes it was given, so that a ClientHello
+can hold extensions agent15 has no model of) and `engine/ClientHelloSpec.java` (which dictates the
+whole ClientHello - cipher suites, extensions, their order, and the key shares - so that it can be
+made to look like some other client's).
+
+The ECH part It reuses the
 ECHConfigList parsing and selection of `impersonator-bctls` (`org.bouncycastle.tls.EchConfig` and
 `EchConfigList`) rather than carrying a second copy, so "which config do we pick, and what happens
 when none fits" answers the same on the TCP and the QUIC path. That is also why this part could

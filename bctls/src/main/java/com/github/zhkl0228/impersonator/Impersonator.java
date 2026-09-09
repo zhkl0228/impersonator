@@ -20,4 +20,17 @@ public interface Impersonator {
      */
     byte[] getEchConfigList(String host);
 
+    /**
+     * The ClientHello this profile sends over QUIC, for impersonator-quic to build agent15's
+     * ClientHello from. A different capture from the TCP one; see {@link QuicClientHello}.
+     *
+     * @throws UnsupportedOperationException if no QUIC capture of this browser has been taken yet.
+     *             Deriving one from the TCP ClientHello would send extensions no browser sends over
+     *             QUIC, which is a fingerprint of its own.
+     */
+    default QuicClientHello getQuicClientHello() {
+        throw new UnsupportedOperationException(getClass().getSimpleName()
+                + " has no QUIC ClientHello; no capture of this browser over HTTP/3 has been taken");
+    }
+
 }

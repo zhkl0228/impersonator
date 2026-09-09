@@ -163,6 +163,16 @@ public class TlsState implements BinderCalculator {
         }
     }
 
+    /**
+     * Sets the (EC)DHE shared secret instead of computing it here, for a key exchange this class has
+     * no implementation of. A hybrid group like X25519MLKEM768 is one: its secret is a KEM
+     * decapsulation concatenated with an X25519 agreement, and RFC 8446's key schedule takes it from
+     * here on unchanged.
+     */
+    public void setSharedSecret(byte[] sharedSecret) {
+        this.sharedSecret = sharedSecret;
+    }
+
     public void computeEarlyTrafficSecret() {
         byte[] clientHelloHash = transcriptHash.getHash(TlsConstants.HandshakeType.client_hello);
 

@@ -82,6 +82,15 @@ public interface TlsClientEngine extends TlsEngine {
     void setEchConfigProvider(EchConfigProvider echConfigProvider);
 
     /**
+     * Sets what the ClientHello should look like, so that it can be made to resemble some other
+     * client's rather than agent15's own. Defaults to
+     * {@link TlsClientEngineFactory#getDefaultClientHelloSpec()}, which is where a QUIC
+     * implementation that creates its engines itself has to set it. Null means agent15 builds the
+     * ClientHello it needs, which is the behaviour without this.
+     */
+    void setClientHelloSpec(ClientHelloSpec clientHelloSpec);
+
+    /**
      * Sets the hostname verifier to use for verifying the server name against the server certificate.
      * If not set, the DefaultHostnameVerifier is used, which checks that
      * - the server name equals the CN part of the certificate's subject DN, or

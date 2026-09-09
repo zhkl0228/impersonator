@@ -307,6 +307,93 @@ public class ClientHello extends HandshakeMessage {
         }
     }
 
+    /**
+     * Builds a ClientHello that is exactly what it is given: these cipher suites, these extensions,
+     * in this order, and nothing added. The constructors above assemble a working ClientHello from a
+     * few parameters, which is right when what matters is that the handshake succeeds; this one is
+     * for when what matters is what the message looks like on the wire, because something is reading
+     * it as a fingerprint.
+     *
+     * @param clientRandom    the 32 byte random.
+     * @param cipherSuites    cipher suite values in wire order, GREASE included. The recognized ones
+     *                        are also kept in {@link #getCipherSuites()}; the rest are written and
+     *                        otherwise ignored, which is what a peer does with them too.
+     * @param extensions      every extension, in wire order.
+     * @param echPayloadCalculator  see the constructor above; null unless this is a ClientHelloOuter.
+     */
+    public ClientHello(byte[] clientRandom, byte[] sessionId, int[] cipherSuites, List<Extension> extensions,
+                       EchPayloadCalculator echPayloadCalculator) {
+        if (clientRandom.length != 32) {
+            throw new IllegalArgumentException("client random must be 32 bytes, got " + clientRandom.length);
+        }
+        if (sessionId.length > 32) {
+            throw new IllegalArgumentException("legacy_session_id must be at most 32 bytes, got " + sessionId.length);
+        }
+        if (cipherSuites.length == 0) {
+            throw new IllegalArgumentException("a ClientHello must offer at least one cipher suite");
+        }
+
+        this.clientRandom = clientRandom;
+        this.sessionId = sessionId;
+        this.extensions = extensions;
+        this.pskExtensionStartPosition = -1;
+        for (int cipherSuite : cipherSuites) {
+            // A GREASE value, or any suite this implementation does not know, is written but not offered:
+            // the engine matches the server's choice against its own list, not against this one.
+            Arrays.stream(TlsConstants.CipherSuite.values())
+                    .filter(item -> (item.value & 0xffff) == cipherSuite)
+                    .findFirst()
+                    .ifPresent(item -> this.cipherSuites.add(item));
+        }
+
+        int extensionsLength = extensions.stream().mapToInt(ext -> ext.getBytes().length).sum();
+        ByteBuffer buffer = ByteBuffer.allocate(4 + 2 + 32 + 1 + sessionId.length + 2 + cipherSuites.length * 2
+                + 2 + 2 + extensionsLength);
+
+        buffer.put((byte) 1);
+        buffer.put(new byte[3]);            // length, filled in below
+        buffer.put((byte) 0x03);
+        buffer.put((byte) 0x03);
+        buffer.put(clientRandom);
+        buffer.put((byte) sessionId.length);
+        buffer.put(sessionId);
+        buffer.putShort((short) (cipherSuites.length * 2));
+        for (int cipherSuite : cipherSuites) {
+            buffer.putShort((short) cipherSuite);
+        }
+        buffer.put(new byte[] { (byte) 0x01, (byte) 0x00 });   // legacy_compression_methods
+
+        buffer.putShort((short) extensionsLength);
+        EncryptedClientHelloExtension echExtension = null;
+        int echExtensionStartPosition = -1;
+        for (Extension extension : extensions) {
+            if (extension instanceof EncryptedClientHelloExtension
+                    && ((EncryptedClientHelloExtension) extension).getVariant() == EncryptedClientHelloExtension.Variant.outer) {
+                echExtension = (EncryptedClientHelloExtension) extension;
+                echExtensionStartPosition = buffer.position();
+            }
+            buffer.put(extension.getBytes());
+        }
+
+        int clientHelloLength = buffer.position() - 4;
+        buffer.putShort(2, (short) clientHelloLength);
+        data = new byte[clientHelloLength + 4];
+        buffer.rewind();
+        buffer.get(data);
+
+        if ((echPayloadCalculator != null) != (echExtension != null)) {
+            throw new IllegalArgumentException("EchPayloadCalculator and an outer EncryptedClientHelloExtension must"
+                    + " be given together; calculator=" + (echPayloadCalculator != null)
+                    + " extension=" + (echExtension != null));
+        }
+        if (echExtension != null) {
+            byte[] clientHelloOuterAad = Arrays.copyOfRange(data, 4, data.length);
+            echExtension.setPayload(echPayloadCalculator.calculatePayload(clientHelloOuterAad));
+            byte[] withPayload = echExtension.getBytes();
+            System.arraycopy(withPayload, 0, data, echExtensionStartPosition, withPayload.length);
+        }
+    }
+
     private PskKeyExchangeModesExtension createPskKeyExchangeModesExtension(PskKeyEstablishmentMode pskKeyEstablishmentMode) {
         switch (pskKeyEstablishmentMode) {
             case PSKonly:

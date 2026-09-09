@@ -160,7 +160,10 @@ public class KeyShareExtension extends Extension {
                         byte[] keyData = new byte[keyLength - 1];
                         buffer.get(keyData);
                         ECPublicKey ecPublicKey = rawToEncodedECPublicKey(namedGroup, keyData);
-                        keyShareEntries.add(new ECKeyShareEntry(namedGroup, ecPublicKey));
+                        byte[] rawKey = new byte[keyLength];
+                        rawKey[0] = 4;
+                        System.arraycopy(keyData, 0, rawKey, 1, keyData.length);
+                        keyShareEntries.add(new ECKeyShareEntry(namedGroup, ecPublicKey, rawKey));
                     }
                     else {
                         throw new DecodeErrorException("EC keys must be in legacy form");
@@ -170,11 +173,20 @@ public class KeyShareExtension extends Extension {
                     byte[] keyData = new byte[keyLength];
                     buffer.get(keyData);
                     PublicKey publicKey = rawToEncodedXDHPublicKey(namedGroup, keyData);
-                    keyShareEntries.add(new KeyShareEntry(namedGroup, publicKey));
+                    keyShareEntries.add(new KeyShareEntry(namedGroup, publicKey, keyData));
                 }
             }
             else {
-                buffer.get(new byte[keyLength]);
+                byte[] keyData = new byte[keyLength];
+                buffer.get(keyData);
+                /*
+                 * A group this implementation has no key exchange for. It is still kept, raw, because a
+                 * ClientHelloSpec can offer groups agent15 does not implement (X25519MLKEM768 is the
+                 * reason) and it is the spec, not this class, that will turn the server's value into a
+                 * shared secret. Dropping it here would leave the engine unable to tell "the server
+                 * chose a group we offered" from "the server sent nothing usable".
+                 */
+                recognizedNamedGroup.ifPresent(namedGroup -> keyShareEntries.add(new KeyShareEntry(namedGroup, keyData)));
             }
         }
         return buffer.position() - startPosition;
@@ -265,10 +277,21 @@ public class KeyShareExtension extends Extension {
     public static class KeyShareEntry {
         protected TlsConstants.NamedGroup namedGroup;
         protected final PublicKey key;
+        private final byte[] rawKey;
 
         public KeyShareEntry(TlsConstants.NamedGroup namedGroup, PublicKey key) {
+            this(namedGroup, key, null);
+        }
+
+        /** An entry whose group this implementation has no key exchange for; only the bytes are kept. */
+        KeyShareEntry(TlsConstants.NamedGroup namedGroup, byte[] rawKey) {
+            this(namedGroup, null, rawKey);
+        }
+
+        KeyShareEntry(TlsConstants.NamedGroup namedGroup, PublicKey key, byte[] rawKey) {
             this.namedGroup = namedGroup;
             this.key = key;
+            this.rawKey = rawKey;
         }
 
         public TlsConstants.NamedGroup getNamedGroup() {
@@ -278,13 +301,27 @@ public class KeyShareExtension extends Extension {
         public PublicKey getKey() {
             return key;
         }
+
+        /**
+         * The key exchange value exactly as it arrived, kept even when this implementation also
+         * parsed it into a {@link #getKey() PublicKey}, because a {@code ClientHelloSpec} owns the
+         * private half and needs the peer's value in the encoding the peer sent. Null only for an
+         * entry from a HelloRetryRequest, which names a group and carries no key.
+         */
+        public byte[] getRawKey() {
+            return rawKey;
+        }
     }
 
     public static class ECKeyShareEntry extends KeyShareEntry {
         private final ECPublicKey key;
 
         public ECKeyShareEntry(TlsConstants.NamedGroup namedGroup, ECPublicKey key) {
-            super(namedGroup, key);
+            this(namedGroup, key, null);
+        }
+
+        ECKeyShareEntry(TlsConstants.NamedGroup namedGroup, ECPublicKey key, byte[] rawKey) {
+            super(namedGroup, key, rawKey);
             this.namedGroup = namedGroup;
             this.key = key;
         }

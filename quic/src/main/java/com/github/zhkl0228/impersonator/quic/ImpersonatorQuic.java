@@ -1,6 +1,10 @@
 package com.github.zhkl0228.impersonator.quic;
 
 import com.github.zhkl0228.impersonator.EchConfigProvider;
+import com.github.zhkl0228.impersonator.Impersonator;
+import com.github.zhkl0228.impersonator.ImpersonatorApi;
+import com.github.zhkl0228.impersonator.ImpersonatorFactory;
+import com.github.zhkl0228.impersonator.QuicClientHello;
 import tech.kwik.agent15.ech.EchRejectedException;
 import tech.kwik.agent15.engine.TlsClientEngineFactory;
 
@@ -24,6 +28,39 @@ import tech.kwik.agent15.engine.TlsClientEngineFactory;
 public class ImpersonatorQuic {
 
     private ImpersonatorQuic() {
+    }
+
+    /**
+     * Makes every QUIC ClientHello from here on look like this profile's, instead of like agent15's.
+     * <p>
+     * {@link ImpersonatorFactory#macChrome()} and friends return an {@link ImpersonatorApi}, so a
+     * caller reaching the profile's ClientHello casts, the same as it does for the other hooks that
+     * live on the profile rather than on the API:
+     *
+     * <pre>
+     * ImpersonatorQuic.setImpersonator((Impersonator) ImpersonatorFactory.macChrome());
+     * </pre>
+     *
+     * @param impersonator the profile, or null to go back to agent15's own ClientHello.
+     * @throws UnsupportedOperationException if no capture of this browser over HTTP/3 has been taken;
+     *             see {@link Impersonator#getQuicClientHello()}.
+     */
+    public static void setImpersonator(Impersonator impersonator) {
+        setQuicClientHello(impersonator == null? null: impersonator.getQuicClientHello());
+    }
+
+    /**
+     * The same, from a {@link QuicClientHello} on its own rather than from a profile.
+     *
+     * @param quicClientHello the ClientHello to send, or null to go back to agent15's own.
+     */
+    public static void setQuicClientHello(QuicClientHello quicClientHello) {
+        if (quicClientHello == null) {
+            TlsClientEngineFactory.setDefaultClientHelloSpec(null);
+            return;
+        }
+        // One spec per connection: it holds the private halves of the key shares it generated.
+        TlsClientEngineFactory.setDefaultClientHelloSpec(() -> new QuicClientHelloSpec(quicClientHello));
     }
 
     /**
