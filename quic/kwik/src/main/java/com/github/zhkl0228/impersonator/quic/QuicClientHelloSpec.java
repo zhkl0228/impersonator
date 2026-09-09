@@ -94,6 +94,19 @@ public class QuicClientHelloSpec implements ClientHelloSpec {
         if (extensionOrder != null) {
             extensionOrder.sort(clientExtensions);
         }
+        /*
+         * https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
+         * "The "pre_shared_key" extension MUST be the last extension in the ClientHello"
+         * This is the protocol's rule and not the profile's choice, so it is applied after whatever
+         * order the profile asked for - a profile that shuffles its extensions per connection, as
+         * Chrome's does, would otherwise land it somewhere else once in fourteen times. Chrome's own
+         * resumed ClientHello has it last, for the same reason. Re-putting moves it to the end of the
+         * LinkedHashMap, which is the wire order.
+         */
+        byte[] preSharedKey = clientExtensions.remove(PRE_SHARED_KEY);
+        if (preSharedKey != null) {
+            clientExtensions.put(PRE_SHARED_KEY, preSharedKey);
+        }
 
         List<Extension> extensions = new ArrayList<>(clientExtensions.size());
         for (Map.Entry<Integer, byte[]> entry : clientExtensions.entrySet()) {
@@ -112,6 +125,9 @@ public class QuicClientHelloSpec implements ClientHelloSpec {
         }
         return extensions;
     }
+
+    /** RFC 8446 "pre_shared_key", which has to be the last extension whatever order a profile asks for. */
+    private static final int PRE_SHARED_KEY = 41;
 
     private static void put(Map<Integer, byte[]> clientExtensions, Map<Integer, Extension> byType, Extension extension) {
         clientExtensions.put(extension.getType() & 0xffff, extensionData(extension));

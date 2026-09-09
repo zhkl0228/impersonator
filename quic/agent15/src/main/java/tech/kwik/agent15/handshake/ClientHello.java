@@ -320,9 +320,11 @@ public class ClientHello extends HandshakeMessage {
      *                        otherwise ignored, which is what a peer does with them too.
      * @param extensions      every extension, in wire order.
      * @param echPayloadCalculator  see the constructor above; null unless this is a ClientHelloOuter.
+     * @param binderCalculator      null unless the extensions contain a ClientHelloPreSharedKeyExtension,
+     *                              whose binder is computed over this message as the spec serialized it
      */
     public ClientHello(byte[] clientRandom, byte[] sessionId, int[] cipherSuites, List<Extension> extensions,
-                       EchPayloadCalculator echPayloadCalculator) {
+                       EchPayloadCalculator echPayloadCalculator, BinderCalculator binderCalculator) {
         if (clientRandom.length != 32) {
             throw new IllegalArgumentException("client random must be 32 bytes, got " + clientRandom.length);
         }
@@ -366,11 +368,17 @@ public class ClientHello extends HandshakeMessage {
         buffer.putShort((short) extensionsLength);
         EncryptedClientHelloExtension echExtension = null;
         int echExtensionStartPosition = -1;
+        ClientHelloPreSharedKeyExtension pskExtension = null;
+        int pskStartPosition = -1;
         for (Extension extension : extensions) {
             if (extension instanceof EncryptedClientHelloExtension
                     && ((EncryptedClientHelloExtension) extension).getVariant() == EncryptedClientHelloExtension.Variant.outer) {
                 echExtension = (EncryptedClientHelloExtension) extension;
                 echExtensionStartPosition = buffer.position();
+            }
+            if (extension instanceof ClientHelloPreSharedKeyExtension) {
+                pskExtension = (ClientHelloPreSharedKeyExtension) extension;
+                pskStartPosition = buffer.position();
             }
             buffer.put(extension.getBytes());
         }
@@ -380,6 +388,23 @@ public class ClientHello extends HandshakeMessage {
         data = new byte[clientHelloLength + 4];
         buffer.rewind();
         buffer.get(data);
+
+        /*
+         * The binder covers the message up to the identities, so it can only be computed once the
+         * message exists - which is why it is patched in afterwards rather than built in, the same
+         * "serialize, then patch" the Encrypted Client Hello payload below needs. RFC 8446 also
+         * requires pre_shared_key to be the last extension, so the spec has to have put it there;
+         * the check is in the engine, which is where the spec's order is known to be a choice.
+         */
+        if (pskExtension != null) {
+            if (binderCalculator == null) {
+                throw new IllegalArgumentException("a BinderCalculator is required when the extensions"
+                        + " contain a pre_shared_key");
+            }
+            pskExtension.calculateBinder(data, pskStartPosition, binderCalculator);
+            byte[] withBinder = pskExtension.getBytes();
+            System.arraycopy(withBinder, 0, data, pskStartPosition, withBinder.length);
+        }
 
         if ((echPayloadCalculator != null) != (echExtension != null)) {
             throw new IllegalArgumentException("EchPayloadCalculator and an outer EncryptedClientHelloExtension must"

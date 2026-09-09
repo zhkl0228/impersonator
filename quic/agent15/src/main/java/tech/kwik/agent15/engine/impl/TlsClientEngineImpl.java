@@ -213,6 +213,25 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             throw new IllegalStateException("not all mandatory properties are set");
         }
 
+        /*
+         * Asked before the pre_shared_key is built, because the two cannot both be used and this
+         * decides which. RFC 9849 has the ClientHelloInner and the ClientHelloOuter carry different
+         * pre_shared_key extensions - the outer's a GREASE one - and there is no capture of what a
+         * browser puts in the outer, so that is not implemented and not guessed at.
+         *
+         * When a host offers both, Encrypted Client Hello wins and this connection is a full
+         * handshake: ECH hides the server name from everyone on the path, and resumption only saves
+         * a round trip and makes the ClientHello look like a browser's second visit. Giving up the
+         * name to save a round trip would be the wrong way round. The ticket is put back so that it
+         * is still there if the same host is reached later without an ECHConfig.
+         */
+        byte[] echConfigList = echConfigProvider != null? echConfigProvider.getEchConfigList(serverName): null;
+        if (echConfigList != null && newSessionTicket != null) {
+            Logger.debug("Not resuming: this connection uses Encrypted Client Hello, which cannot carry the"
+                    + " session ticket's pre_shared_key");
+            newSessionTicket = null;
+        }
+
         List<Extension> extensions;
         if (newSessionTicket != null) {
             extensions = new ArrayList<>();
@@ -228,7 +247,6 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             // Defer initialization of TlsState until selected cipher is known.
         }
 
-        byte[] echConfigList = echConfigProvider != null? echConfigProvider.getEchConfigList(serverName): null;
         if (echConfigList != null) {
             // Both are refused rather than approximated: with a PSK the two ClientHellos need their own binders over
             // their own transcripts, which is the easiest part of RFC 9849 to get subtly wrong, and the compatibility
@@ -261,7 +279,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                     public ClientHello createClientHello(byte[] clientRandom, List<Extension> clientHelloExtensions,
                                                          EchPayloadCalculator payloadCalculator) {
                         return new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
-                                clientHelloExtensions, payloadCalculator);
+                                clientHelloExtensions, payloadCalculator, null);
                     }
                 });
             }
@@ -273,17 +291,22 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             clientHello = echClient.getOuterClientHello();
         }
         else if (clientHelloSpec != null) {
-            if (newSessionTicket != null) {
-                // The PSK binder is computed over the ClientHello as serialized, and a spec decides that
-                // serialization; nothing has been built against the two together, so it is refused rather
-                // than guessed at.
-                throw new IllegalStateException("a ClientHelloSpec combined with session resumption is not"
-                        + " implemented; unset one of the two");
-            }
             byte[] clientRandom = new byte[32];
             secureRandom.nextBytes(clientRandom);
+            List<Extension> specExtensions = buildSpecExtensions(serverName, extensions, buildSpecKeyShare());
+            if (newSessionTicket != null) {
+                // https://www.rfc-editor.org/rfc/rfc8446.html#section-4.2.11
+                // "The "pre_shared_key" extension MUST be the last extension in the ClientHello"
+                // A spec decides the order, including a profile that shuffles it per connection, so this
+                // is the point where that choice is checked rather than assumed.
+                Extension last = specExtensions.get(specExtensions.size() - 1);
+                if (!(last instanceof ClientHelloPreSharedKeyExtension)) {
+                    throw new IllegalStateException("pre_shared_key must be the last extension of a ClientHello,"
+                            + " but the ClientHelloSpec put " + last + " after it");
+                }
+            }
             clientHello = new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
-                    buildSpecExtensions(serverName, extensions, buildSpecKeyShare()), null);
+                    specExtensions, null, state);
         }
         else {
             clientHello = new ClientHello(serverName, publicKey, compatibilityMode, supportedCiphers, supportedSignatures,
