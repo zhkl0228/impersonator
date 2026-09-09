@@ -27,6 +27,8 @@ import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.TlsProtocolException;
 import tech.kwik.agent15.alert.*;
 import tech.kwik.agent15.ech.EchClient;
+import tech.kwik.agent15.ech.EchClientHelloFactory;
+import tech.kwik.agent15.ech.EchPayloadCalculator;
 import tech.kwik.agent15.ech.EchConfigProvider;
 import tech.kwik.agent15.ech.EchRejectedException;
 import tech.kwik.agent15.ech.EncryptedClientHelloExtension;
@@ -122,6 +124,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     private List<TlsConstants.SignatureScheme> serverSupportedSignatureSchemes;
     private EchConfigProvider echConfigProvider;
     private ClientHelloSpec clientHelloSpec;
+    private List<Extension> specExtensions;
     private int[] offeredKeyShareGroups;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -232,13 +235,19 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                  * says may differ. The profile's GREASE ECH is replaced by the real one in its own slot.
                  */
                 Extension keyShare = buildSpecKeyShare();
-                echClient = EchClient.create(serverName, echConfigList,
-                        (name, echExtension, payloadCalculator) -> {
-                            byte[] clientRandom = new byte[32];
-                            secureRandom.nextBytes(clientRandom);
-                            return new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
-                                    buildSpecExtensions(name, extensions, keyShare, echExtension), payloadCalculator);
-                        });
+                echClient = EchClient.create(serverName, echConfigList, new EchClientHelloFactory() {
+                    @Override
+                    public List<Extension> createExtensions(String name, Extension echExtension) {
+                        return specExtensionsFor(name, extensions, keyShare, echExtension);
+                    }
+
+                    @Override
+                    public ClientHello createClientHello(byte[] clientRandom, List<Extension> clientHelloExtensions,
+                                                         EchPayloadCalculator payloadCalculator) {
+                        return new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
+                                clientHelloExtensions, payloadCalculator);
+                    }
+                });
             }
             else {
                 echClient = EchClient.create(serverName, echConfigList, publicKey, supportedCiphers, supportedSignatures,
@@ -258,7 +267,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             byte[] clientRandom = new byte[32];
             secureRandom.nextBytes(clientRandom);
             clientHello = new ClientHello(clientRandom, new byte[0], clientHelloSpec.getCipherSuites(),
-                    buildSpecExtensions(serverName, extensions, buildSpecKeyShare(), null), null);
+                    buildSpecExtensions(serverName, extensions, buildSpecKeyShare()), null);
         }
         else {
             clientHello = new ClientHello(serverName, publicKey, compatibilityMode, supportedCiphers, supportedSignatures,
@@ -985,14 +994,52 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     }
 
     /**
+     * The spec's extension list, drawn once and then handed out with two slots substituted.
+     * <p>
+     * Encrypted Client Hello builds two ClientHellos and section 5.1 lets the inner borrow the
+     * extensions the outer repeats - but only if both agree on which extensions those are and on
+     * their relative order. A profile that shuffles its extensions per connection, which Chrome does,
+     * would otherwise draw a different order for each of the two and nothing could be borrowed.
+     */
+    private List<Extension> specExtensionsFor(String serverName, List<Extension> engineExtensions,
+                                              Extension keyShare, Extension echExtension) {
+        if (specExtensions == null) {
+            specExtensions = buildSpecExtensions(serverName, engineExtensions, keyShare);
+        }
+        List<Extension> extensions = new ArrayList<>(specExtensions.size());
+        boolean replacedEch = false;
+        for (Extension extension : specExtensions) {
+            int type = extension.getType() & 0xffff;
+            if (type == (TlsConstants.ExtensionType.server_name.value & 0xffff)) {
+                extensions.add(new ServerNameExtension(serverName));
+            }
+            else if (type == EncryptedClientHelloExtension.TYPE) {
+                extensions.add(echExtension);
+                replacedEch = true;
+            }
+            else {
+                extensions.add(extension);
+            }
+        }
+        if (!replacedEch) {
+            /*
+             * An ECHConfigList was resolved for this host but the ClientHello has no slot for it. Adding
+             * one would put an extension in the message that the browser being impersonated never sends,
+             * which is a worse outcome than not offering ECH; the same reasoning as on the TCP path.
+             */
+            throw new IllegalStateException("an ECHConfigList was supplied for " + serverName
+                    + " but this ClientHelloSpec carries no encrypted_client_hello extension, so the client it"
+                    + " describes does not support Encrypted Client Hello");
+        }
+        return extensions;
+    }
+
+    /**
      * @param serverName   what goes in server_name: the real host, or an ECHConfig's public name when
      *                     this is a ClientHelloOuter.
-     * @param echExtension the "encrypted_client_hello" to send in place of the one the spec produces,
-     *                     or null to keep the spec's. A profile that does ECH puts a GREASE one there;
-     *                     a real one takes its slot, which is where a browser puts it too.
      */
     private List<Extension> buildSpecExtensions(String serverName, List<Extension> engineExtensions,
-                                                Extension keyShare, Extension echExtension) {
+                                                Extension keyShare) {
         /*
          * server_name is the engine's to supply, not the spec's: the spec describes the shape of a
          * ClientHello and knows nothing about which host this connection is for. Listing it here also
@@ -1011,32 +1058,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
                         + ", which the caller of this engine added and the handshake needs");
             }
         }
-        if (echExtension == null) {
-            return extensions;
-        }
-
-        List<Extension> withEch = new ArrayList<>(extensions.size());
-        boolean replaced = false;
-        for (Extension extension : extensions) {
-            if ((extension.getType() & 0xffff) == EncryptedClientHelloExtension.TYPE) {
-                withEch.add(echExtension);
-                replaced = true;
-            }
-            else {
-                withEch.add(extension);
-            }
-        }
-        if (!replaced) {
-            /*
-             * An ECHConfigList was resolved for this host but the ClientHello has no slot for it. Adding
-             * one would put an extension in the message that the browser being impersonated never sends,
-             * which is a worse outcome than not offering ECH; the same reasoning as on the TCP path.
-             */
-            throw new IllegalStateException("an ECHConfigList was supplied for " + serverName
-                    + " but this ClientHelloSpec carries no encrypted_client_hello extension, so the client it"
-                    + " describes does not support Encrypted Client Hello");
-        }
-        return withEch;
+        return extensions;
     }
 
     /**

@@ -28,14 +28,17 @@ import org.bouncycastle.tls.EchConfigList;
 import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.engine.impl.TlsState;
 import tech.kwik.agent15.extension.Extension;
+import tech.kwik.agent15.extension.RawExtension;
 import tech.kwik.agent15.handshake.ClientHello;
 import tech.kwik.agent15.handshake.ServerHello;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -59,6 +62,8 @@ public class EchClient {
 
     /** RFC 9849 section 6.1, the first half of the HPKE info string. */
     private static final byte[] INFO_PREFIX = "tls ech".getBytes(StandardCharsets.US_ASCII);
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final String serverName;
     private final EchConfig config;
@@ -139,8 +144,29 @@ public class EchClient {
         int cipherSuite = selectCipherSuite(config);
         int kdfId = cipherSuite >>> 16, aeadId = cipherSuite & 0xffff;
 
-        ClientHello innerClientHello = factory.create(serverName, EncryptedClientHelloExtension.createInner(), null);
-        byte[] encodedInner = encodeClientHelloInner(innerClientHello, serverName, config);
+        /*
+         * Section 5.1: the extensions the ClientHelloOuter repeats verbatim are moved to the end of
+         * the ClientHelloInner, so that they form the one contiguous run that may be replaced by a
+         * single "ech_outer_extensions" reference. Their relative order is kept, which is what the
+         * requirement that they appear in the same relative order in the ClientHelloOuter amounts to.
+         * The server rebuilds the ClientHelloInner this way round, so this order is the one that goes
+         * into the transcript.
+         */
+        List<Extension> innerExtensions = groupCompressible(
+                factory.createExtensions(serverName, EncryptedClientHelloExtension.createInner()));
+
+        byte[] innerRandom = new byte[32];
+        SECURE_RANDOM.nextBytes(innerRandom);
+        ClientHello innerClientHello = factory.createClientHello(innerRandom, innerExtensions, null);
+
+        /*
+         * The same message again, with that run replaced by the reference. This and not the one above
+         * is what gets encrypted; without it the ClientHelloOuter carries a second copy of every
+         * extension, which for a browser's ClientHello - a post-quantum key share alone is over a
+         * kilobyte - is the difference between two Initial packets and four.
+         */
+        ClientHello encodedClientHello = factory.createClientHello(innerRandom, compress(innerExtensions), null);
+        byte[] encodedInner = encodeClientHelloInner(encodedClientHello, serverName, config);
 
         HPKE hpke = new HPKE(HPKE.mode_base, (short) EchConfig.KEM_DHKEM_X25519_HKDF_SHA256, (short) kdfId,
                 (short) aeadId);
@@ -157,10 +183,76 @@ public class EchClient {
                 config.getConfigId(), hpkeContext.getEncapsulation(),
                 encodedInner.length + EncryptedClientHelloExtension.AEAD_TAG_LENGTH);
 
-        ClientHello outerClientHello = factory.create(config.getPublicName(), outerEch,
+        byte[] outerRandom = new byte[32];
+        SECURE_RANDOM.nextBytes(outerRandom);
+        ClientHello outerClientHello = factory.createClientHello(outerRandom,
+                factory.createExtensions(config.getPublicName(), outerEch),
                 aad -> seal(hpkeContext, aad, encodedInner, outerEch.getPayloadLength(), config));
 
         return new EchClient(serverName, config, innerClientHello, outerClientHello);
+    }
+
+    /**
+     * RFC 9849 section 5.1: the extension the compressed run is replaced by.
+     * <pre>
+     * enum { ech_outer_extensions(0xfd00), (65535) } ExtensionType;
+     * ExtensionType OuterExtensions&lt;2..254&gt;;
+     * </pre>
+     * It may appear only in the EncodedClientHelloInner, never in either ClientHello.
+     */
+    private static final int EXT_ech_outer_extensions = 0xfd00;
+
+    /**
+     * @return true if the ClientHelloOuter carries this extension byte for byte, so the
+     *         ClientHelloInner can borrow it. Only the server name and the
+     *         "encrypted_client_hello" differ between the two; everything else is the same list.
+     */
+    private static boolean isShared(Extension extension) {
+        int type = extension.getType() & 0xffff;
+        return type != (TlsConstants.ExtensionType.server_name.value & 0xffff)
+                && type != EncryptedClientHelloExtension.TYPE;
+    }
+
+    /** Moves the borrowable extensions to the end, keeping their relative order. */
+    private static List<Extension> groupCompressible(List<Extension> extensions) {
+        List<Extension> uncompressed = new ArrayList<>(), compressible = new ArrayList<>();
+        for (Extension extension : extensions) {
+            (isShared(extension)? compressible: uncompressed).add(extension);
+        }
+        uncompressed.addAll(compressible);
+        return uncompressed;
+    }
+
+    /** The EncodedClientHelloInner form: the grouped run dropped and one reference put in its place. */
+    private static List<Extension> compress(List<Extension> innerExtensions) {
+        List<Extension> compressed = new ArrayList<>();
+        List<Integer> borrowed = new ArrayList<>();
+        for (Extension extension : innerExtensions) {
+            if (isShared(extension)) {
+                borrowed.add(extension.getType() & 0xffff);
+            }
+            else {
+                compressed.add(extension);
+            }
+        }
+        if (borrowed.isEmpty()) {
+            return innerExtensions;
+        }
+        if (borrowed.size() > 127) {
+            throw new EchException("OuterExtensions may name at most 127 extensions, got " + borrowed.size());
+        }
+
+        ByteBuffer buffer = ByteBuffer.allocate(1 + borrowed.size() * 2);
+        buffer.put((byte) (borrowed.size() * 2));
+        for (int type : borrowed) {
+            if (type == EncryptedClientHelloExtension.TYPE) {
+                // Section 5.1: referencing it is a protocol violation the server must reject.
+                throw new EchException("OuterExtensions must not reference encrypted_client_hello");
+            }
+            buffer.putShort((short) type);
+        }
+        compressed.add(new RawExtension(EXT_ech_outer_extensions, buffer.array()));
+        return compressed;
     }
 
     private static EchConfig selectConfig(byte[] echConfigList) {

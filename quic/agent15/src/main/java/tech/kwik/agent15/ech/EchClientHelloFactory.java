@@ -22,6 +22,8 @@ package tech.kwik.agent15.ech;
 import tech.kwik.agent15.extension.Extension;
 import tech.kwik.agent15.handshake.ClientHello;
 
+import java.util.List;
+
 /**
  * Builds one of the two ClientHellos of an Encrypted Client Hello, so that
  * {@link EchClient} can produce both without knowing how either is put together.
@@ -33,17 +35,26 @@ import tech.kwik.agent15.handshake.ClientHello;
  * and what makes a dictated ClientHello work under ECH at all: the shape is described once and used
  * twice.
  */
-@FunctionalInterface
 public interface EchClientHelloFactory {
 
     /**
-     * @param serverName             the real name for the ClientHelloInner, the ECHConfig's public
-     *                               name for the ClientHelloOuter.
-     * @param encryptedClientHello   the extension to send, replacing whatever the ClientHello would
-     *                               otherwise carry in that slot - which for a browser profile is a
-     *                               GREASE ECH, in exactly the position the real one belongs.
-     * @param payloadCalculator      null for the ClientHelloInner; for the ClientHelloOuter, what
-     *                               seals the inner into it once it has been serialized.
+     * The extensions for one of the two messages. The list is drawn once per connection and the same
+     * one is returned every time, with only two slots substituted, so that the inner and the outer
+     * agree on which extensions they carry and in what order - which is what RFC 9849 section 5.1
+     * needs before either can be compressed against the other.
+     *
+     * @param serverName           the real name for the inner, the ECHConfig's public name for the outer.
+     * @param encryptedClientHello the extension to put in the "encrypted_client_hello" slot, replacing
+     *                             whatever the ClientHello would otherwise carry there.
      */
-    ClientHello create(String serverName, Extension encryptedClientHello, EchPayloadCalculator payloadCalculator);
+    List<Extension> createExtensions(String serverName, Extension encryptedClientHello);
+
+    /**
+     * @param clientRandom      the 32 byte random; the ClientHelloInner and its encoded form share one,
+     *                          the ClientHelloOuter has its own.
+     * @param payloadCalculator null except for the ClientHelloOuter, where it seals the inner in once
+     *                          the message has been serialized.
+     */
+    ClientHello createClientHello(byte[] clientRandom, List<Extension> extensions,
+                                  EchPayloadCalculator payloadCalculator);
 }

@@ -419,8 +419,11 @@ Chrome 在这个 endpoint 上的值还没拿到：浏览器自动化开了标签
   QUIC 这条路目前是发一个普通的 ClientHello。要对齐指纹的话这是必须补的。
 - **ECH 扩展目前放在扩展列表最后。** Chrome 放在哪要照抓包改，改的地方是
   `EchClient.create` 里往 `innerExtensions` / `outerExtensions` 里 add 的位置。
-- **一旦要压缩 `ech_outer_extensions`**，inner 和 outer 的扩展顺序就开始互相约束（§5.1），
-  bctls 的 `EchClient.groupCompressibleExtensions` 有现成的实现可以搬。
+- ~~**一旦要压缩 `ech_outer_extensions`**~~ —— 做了，而且**当初判断错了**。计划正文里写的是
+  「第一版可以不做，代价只是 CH 变大」。实际代价是：浏览器的 ClientHello 里光后量子 key share
+  就一千多字节，不压缩的话 outer 里每个扩展再来一份，**3422 字节、三个 Initial 包**，
+  Cloudflare 把三个包全 ACK 了然后**一个字节都不回**。压缩后 1854 字节、两个包，握手正常。
+  这不是优化，是能不能用的问题。
 
 #### 上层
 

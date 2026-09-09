@@ -49,6 +49,13 @@ most servers take it up - Cloudflare does. Without it a profile that says it acc
 certificate gets one and cannot read it. The three decompressors are not reimplemented: they are
 `impersonator-bctls`'s, the ones the TCP path has used all along.
 
+The ECH implementation compresses the ClientHelloInner against the outer
+(`ech_outer_extensions`, RFC 9849 section 5.1). That is a MAY in the spec and was left out of the
+first version as an optimization; it is not one. A browser's ClientHello carries a post-quantum key
+share of over a kilobyte, and repeating every extension put the ClientHelloOuter at 3422 bytes across
+three Initial packets, which Cloudflare acknowledged and then never answered. Compressed it is 1854
+bytes in two, and the handshake completes.
+
 New with no upstream counterpart: everything under `tech/kwik/agent15/ech/`, plus
 `extension/RawExtension.java` (an extension carried as the bytes it was given, so that a ClientHello
 can hold extensions agent15 has no model of) and `engine/ClientHelloSpec.java` (which dictates the

@@ -1,6 +1,7 @@
 package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.DnsOverHttpsEchConfigProvider;
+import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 
 import junit.framework.TestCase;
 import tech.kwik.agent15.ech.EchException;
@@ -139,31 +140,29 @@ public class EchOverHttp3Test extends TestCase {
     }
 
 
-    /*
-     * There was a test here for the two together - a profile's ClientHello carrying a real Encrypted
-     * Client Hello - and it worked: cloudflare-ech.com answered sni=encrypted with
-     * kex=X25519MLKEM768, which says both that the real ECH was accepted and that the inner and outer
-     * carried the same key shares. It is gone because it only works three times in five, and the
-     * reason is not this library's:
-     *
-     *   plain agent15 ClientHello       -> cloudflare-ech.com over h3   3/3
-     *   the curl profile                -> cloudflare-ech.com over h3   3/3
-     *   the Chrome profile              -> quic.tools.scrapfly.io       3/3
-     *   the Chrome profile, ECH removed -> cloudflare-ech.com over h3   3/3
-     *   the Chrome profile + GREASE ECH -> cloudflare-ech.com over h3   0/3
-     *   the Chrome profile + real ECH   -> cloudflare-ech.com over h3   3/5
-     *   the Chrome profile + GREASE ECH -> cloudflare-ech.com over TCP  3/3
-     *
-     * An encrypted_client_hello extension in a QUIC ClientHello to that host gets no answer at all -
-     * not an alert, not a packet. It is not the size (a 16 byte payload fails as surely as a 240 byte
-     * one), not the transport parameters (it fails with none), and not the extension order (fixed and
-     * shuffled fail alike). The same extension over TCP to the same host is fine.
-     *
-     * What that leaves is either something this end gets wrong that only QUIC exposes, or something
-     * that host does. Settling it needs a packet capture of the UDP flow, and a check of whether
-     * Chrome itself can do ECH over HTTP/3 to it. Until then a test that fails two times in five is
-     * worse than no test.
+    /**
+     * The two together: a ClientHello dictated by a profile, and a real Encrypted Client Hello inside
+     * it. ECH needs two ClientHellos and the profile describes one, so it is used twice - same cipher
+     * suites, same extensions in the same order, same key shares - differing only in the name, the
+     * random, and the "encrypted_client_hello". The real ECH takes the slot the profile's GREASE ECH
+     * was in, which is where a browser puts it.
+     * <p>
+     * {@code kex=X25519MLKEM768} in the same answer shows the two key shares survived the round trip:
+     * the inner and the outer carry the same ones, so whichever ClientHello the server used, the
+     * shared secret is the one this end holds the private half of.
+     * <p>
+     * This test failed two times in five until the ClientHelloInner was compressed against the outer.
+     * Without that the ClientHelloOuter carried a second copy of every extension - 3422 bytes across
+     * three Initial packets - and this host acknowledged all three and then never answered. Compressed
+     * it is 1854 bytes in two, and the answer comes.
      */
+    public void testAProfilesClientHelloCarriesARealEch() throws Exception {
+        String body = Http3Get.body(Http3ClientFactory.create(ImpersonatorFactory.macChrome()), TRACE_URL);
+
+        assertTrue("expected an encrypted sni, got:\n" + body, body.contains("sni=encrypted"));
+        assertTrue("expected the hybrid key share to have been used, got:\n" + body,
+                body.contains("kex=X25519MLKEM768"));
+    }
 
     /**
      * A ClientHello with no slot for it. Adding one would put an extension in the message that the
