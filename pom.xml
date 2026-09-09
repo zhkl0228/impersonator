@@ -11,7 +11,25 @@
     <modules>
         <module>bctls</module>
         <module>okhttp</module>
+        <!-- quic is here too, in the profile below; it needs a JDK 11. -->
     </modules>
+
+    <profiles>
+        <!--
+            The quic module vendors agent15 and links kwik, both of which are compiled for Java 11,
+            so it cannot be built by the JDK 8 the other two modules target. Keeping it in a profile
+            means "mvn install" still works on a JDK 8, it just leaves impersonator-quic out.
+        -->
+        <profile>
+            <id>quic</id>
+            <activation>
+                <jdk>[11,)</jdk>
+            </activation>
+            <modules>
+                <module>quic</module>
+            </modules>
+        </profile>
+    </profiles>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -23,9 +41,14 @@
     <description>Spoof TLS/JA3/JA4 and HTTP/2 fingerprints in Java</description>
     <url>https://github.com/zhkl0228/impersonator</url>
     <licenses>
+        <!--
+            The quic module links kwik and vendors agent15, both LGPL-3, so the whole project is
+            LGPL-3. The BouncyCastle and okhttp code the other modules are forked from is MIT
+            resp. Apache-2.0, both of which may be combined into an LGPL-3 work.
+        -->
         <license>
-            <name>The Apache Software License, Version 2.0</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <name>GNU Lesser General Public License v3</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0-standalone.html</url>
         </license>
     </licenses>
     <developers>
@@ -60,16 +83,6 @@
                 <configuration>
                     <additionalOptions>-Xdoclint:none</additionalOptions>
                     <source>8</source>
-                    <!--
-                        The plugin builds -classpath from the dependencies only, never from the
-                        module's own target/classes, so javadoc cannot resolve types that have no
-                        .java on the sourcepath. In okhttp that is every vendored Kotlin class
-                        (OkHttpClient, Dns, Interceptor, ...), which our Java classes sit right on
-                        top of. JDK 8 javadoc rejects a second -classpath, so the module's own jar
-                        is handed over as an extension directory instead; jar:jar runs before
-                        javadoc:jar in the package phase, so it is already there.
-                    -->
-                    <extdirs>${project.build.directory}</extdirs>
                 </configuration>
                 <executions>
                     <execution>

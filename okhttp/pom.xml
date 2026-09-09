@@ -111,13 +111,32 @@
                     </compilerArgs>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <!--
+                        The plugin builds -classpath from the dependencies only, never from the
+                        module's own target/classes, so javadoc cannot resolve types that have no
+                        .java on the sourcepath. Here that is every vendored Kotlin class
+                        (OkHttpClient, Dns, Interceptor, ...), which our Java classes sit right on
+                        top of. JDK 8 javadoc rejects a second -classpath, so the module's own jar
+                        is handed over as an extension directory instead; jar:jar runs before
+                        javadoc:jar in the package phase, so it is already there.
+
+                        This lives here and not in the parent because -extdirs is rejected outright
+                        with a target above 8, which the quic module has.
+                    -->
+                    <extdirs>${project.build.directory}</extdirs>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
     <dependencies>
         <dependency>
             <groupId>com.github.zhkl0228</groupId>
             <artifactId>impersonator-bctls</artifactId>
-            <version>1.5.3</version>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>com.squareup.okio</groupId>
