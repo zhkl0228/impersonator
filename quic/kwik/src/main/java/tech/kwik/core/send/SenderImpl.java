@@ -201,6 +201,14 @@ public class SenderImpl implements Sender, CongestionControlEventListener {
         wakeUpSenderLoop();
     }
 
+    /**
+     * Whether Initial packets are scrambled the way Chrome scrambles them; see
+     * {@link InitialPacketChaosProtector}.
+     */
+    public void setChaosProtection(boolean chaosProtection) {
+        packetAssembler.setChaosProtection(chaosProtection);
+    }
+
     @Override
     public void setInitialToken(byte[] token) {
         if (token != null) {

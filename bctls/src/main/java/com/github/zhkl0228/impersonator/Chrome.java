@@ -215,6 +215,7 @@ abstract class Chrome extends ImpersonatorFactory {
                 // client sends - that 4 is the endpoint's own connection id - which is where the
                 // wrong value came from and why no test caught it.
                 .sourceConnectionIdLength(0)
+                .chaosProtection()
                 .initialMaxData(15728640L)
                 .initialMaxStreamDataBidirectional(6291456L)
                 .initialMaxStreamDataUnidirectional(6291456L)

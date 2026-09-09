@@ -1492,6 +1492,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private ClientHelloSpec clientHelloSpec;
         private int destinationConnectionIdLength = ConnectionIdManager.MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH;
         private Set<Integer> omittedTransportParameters = Set.of();
+        private boolean chaosProtection;
         private Map<Integer, byte[]> addedTransportParameters = Map.of();
         private int[] otherVersionIds;
 
@@ -1520,6 +1521,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                             cipherSuites, clientCertificate, clientCertificateKey, socketFactory,
                             echConfigProvider, clientHelloSpec, destinationConnectionIdLength,
                             omittedTransportParameters, addedTransportParameters, otherVersionIds);
+
+            quicConnection.sender.setChaosProtection(chaosProtection);
 
             if (omitCertificateCheck) {
                 quicConnection.trustAnyServerCertificate();
@@ -1772,6 +1775,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 throw new IllegalArgumentException("Max UDP payload size cannot be larger than " + MAX_SUPPORTED_PACKET_SIZE + ".");
             }
             connectionProperties.setMaxUdpPayloadSize(maxUdpPayloadSize);
+            return this;
+        }
+
+        @Override
+        public Builder chaosProtection(boolean chaosProtection) {
+            this.chaosProtection = chaosProtection;
             return this;
         }
 

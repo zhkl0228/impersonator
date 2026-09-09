@@ -56,6 +56,7 @@ public class QuicTransport {
 
     private final Integer destinationConnectionIdLength;
     private final Integer sourceConnectionIdLength;
+    private final boolean chaosProtection;
     private final Long initialMaxData;
     private final Long initialMaxStreamDataBidirectional;
     private final Long initialMaxStreamDataUnidirectional;
@@ -71,6 +72,7 @@ public class QuicTransport {
     private QuicTransport(Builder builder) {
         this.destinationConnectionIdLength = builder.destinationConnectionIdLength;
         this.sourceConnectionIdLength = builder.sourceConnectionIdLength;
+        this.chaosProtection = builder.chaosProtection;
         this.initialMaxData = builder.initialMaxData;
         this.initialMaxStreamDataBidirectional = builder.initialMaxStreamDataBidirectional;
         this.initialMaxStreamDataUnidirectional = builder.initialMaxStreamDataUnidirectional;
@@ -100,6 +102,11 @@ public class QuicTransport {
     /** Length of the Source Connection ID this endpoint uses, or null for the implementation's own. */
     public Integer getSourceConnectionIdLength() {
         return sourceConnectionIdLength;
+    }
+
+    /** See {@link Builder#chaosProtection()}. */
+    public boolean isChaosProtection() {
+        return chaosProtection;
     }
 
     public Long getInitialMaxData() {
@@ -163,6 +170,7 @@ public class QuicTransport {
 
         private Integer destinationConnectionIdLength;
         private Integer sourceConnectionIdLength;
+        private boolean chaosProtection;
         private Long initialMaxData;
         private Long initialMaxStreamDataBidirectional;
         private Long initialMaxStreamDataUnidirectional;
@@ -177,6 +185,21 @@ public class QuicTransport {
 
         public Builder destinationConnectionIdLength(int length) {
             this.destinationConnectionIdLength = length;
+            return this;
+        }
+
+        /**
+         * Sends the ClientHello the way Chrome sends it: cut into several CRYPTO frames carrying the
+         * pieces out of order, with PING frames and runs of PADDING scattered between them, drawn
+         * afresh for every packet.
+         * <p>
+         * This is QUICHE's chaos protection and it is Chrome's alone - Firefox's QUIC is neqo and
+         * Safari's is Apple's own, and neither scrambles anything - so it is asked for by the profiles
+         * whose browser does it rather than done for all of them. A capture of the browser is the only
+         * way to know which: see docs/captures/chrome-152-quic-initial.pcapng.
+         */
+        public Builder chaosProtection() {
+            this.chaosProtection = true;
             return this;
         }
 

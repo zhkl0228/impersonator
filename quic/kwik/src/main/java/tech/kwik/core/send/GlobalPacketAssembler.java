@@ -24,6 +24,10 @@ import tech.kwik.core.cid.ConnectionIdProvider;
 import tech.kwik.core.common.EncryptionLevel;
 import tech.kwik.core.common.PnSpace;
 import tech.kwik.core.frame.Padding;
+import tech.kwik.core.packet.InitialPacket;
+
+import java.security.SecureRandom;
+import java.util.Random;
 import tech.kwik.core.frame.PathResponseFrame;
 import tech.kwik.core.impl.VersionHolder;
 
@@ -48,11 +52,15 @@ public class GlobalPacketAssembler {
     private SendRequestQueue[] sendRequestQueue;
     private volatile PacketAssembler[] packetAssembler = new PacketAssembler[EncryptionLevel.values().length];
     private volatile EncryptionLevel[] enabledLevels;
+    private final VersionHolder quicVersion;
     private final PaddingMode paddingMode;
+    private final Random random = new SecureRandom();
+    private volatile boolean chaosProtection;
 
 
     public GlobalPacketAssembler(VersionHolder quicVersion, SendRequestQueue[] sendRequestQueues, GlobalAckGenerator globalAckGenerator,
                                  ConnectionIdProvider connectionIdProvider) {
+        this.quicVersion = Objects.requireNonNull(quicVersion);
         this.sendRequestQueue = Objects.requireNonNull(sendRequestQueues);
         Objects.requireNonNull(globalAckGenerator);
         Objects.requireNonNull(connectionIdProvider);
@@ -169,7 +177,29 @@ public class GlobalPacketAssembler {
             }
         }
 
+        if (hasInitial && chaosProtection) {
+            /*
+             * After the padding, because the padding is what pays for the extra frame headers, and
+             * only for Initial packets, which is the flight Chrome scrambles. See
+             * InitialPacketChaosProtector.
+             */
+            for (SendItem item : packets) {
+                if (item.getPacket() instanceof InitialPacket) {
+                    new InitialPacketChaosProtector(quicVersion.getVersion(), random).protect(item.getPacket());
+                }
+            }
+        }
+
         return new AssembledDatagram(packets, minDatagramSize);
+    }
+
+    /**
+     * Whether Initial packets are scrambled the way Chrome scrambles them; see
+     * {@link InitialPacketChaosProtector}, which explains why this is a profile's choice and not
+     * something to do for every client.
+     */
+    public void setChaosProtection(boolean chaosProtection) {
+        this.chaosProtection = chaosProtection;
     }
 
     protected int addPadding(List<SendItem> packets, int currentEstimatedSize, int requiredMinimumSize) {

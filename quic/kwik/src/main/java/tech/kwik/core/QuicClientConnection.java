@@ -185,6 +185,15 @@ public interface QuicClientConnection extends QuicConnection {
         Builder connectionIdLength(int length);
 
         /**
+         * Scrambles Initial packets the way Chrome does: the CRYPTO frames split into pieces sent out
+         * of order, with PING frames and runs of PADDING between them. See
+         * {@link tech.kwik.core.send.InitialPacketChaosProtector}, which explains why this belongs to
+         * a profile rather than being done for every client - Chrome's QUIC does it and Firefox's and
+         * Safari's do not.
+         */
+        Builder chaosProtection(boolean chaosProtection);
+
+        /**
          * Length of the unpredictable Destination Connection ID the first Initial packet carries.
          * RFC 9000 only requires at least 8, so what an implementation picks above that is one of the
          * things a QUIC client is recognized by. Defaults to 8.

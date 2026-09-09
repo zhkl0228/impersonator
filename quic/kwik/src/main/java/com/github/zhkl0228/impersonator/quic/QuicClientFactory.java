@@ -187,6 +187,7 @@ public class QuicClientFactory {
         if (quicTransport.getSourceConnectionIdLength() != null) {
             builder.connectionIdLength(quicTransport.getSourceConnectionIdLength());
         }
+        builder.chaosProtection(quicTransport.isChaosProtection());
         if (quicTransport.getInitialMaxData() != null) {
             builder.initialMaxData(quicTransport.getInitialMaxData());
         }
