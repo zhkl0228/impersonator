@@ -21,6 +21,7 @@
     -->
     <modules>
         <module>agent15</module>
+        <module>qpack</module>
         <module>kwik</module>
     </modules>
 
