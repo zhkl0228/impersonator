@@ -168,6 +168,16 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private volatile String handshakeError;
     private volatile ClientHello originalClientHello;
     private final Set<Integer> omittedTransportParameters;
+    private volatile Integer maxDatagramFrameSize;
+
+    /**
+     * The value to advertise as max_datagram_frame_size, instead of the one
+     * {@link #enableDatagramExtension()} picks. RFC 9221 leaves it to the endpoint, so it identifies
+     * the implementation.
+     */
+    public void setMaxDatagramFrameSize(int maxDatagramFrameSize) {
+        this.maxDatagramFrameSize = maxDatagramFrameSize;
+    }
 
 
     private QuicClientConnectionImpl(String host, int port, InetTools.IPversionOption ipVersionOption, String applicationProtocol, long connectTimeout,
@@ -353,7 +363,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
 
         if (datagramExtensionStatus == DatagramExtensionStatus.Enable) {
-            parameters.setMaxDatagramFrameSize(MAX_DATAGRAM_FRAME_SIZE_TRANSPORT_PARAMETER_VALUE);
+            parameters.setMaxDatagramFrameSize(maxDatagramFrameSize != null
+                    ? maxDatagramFrameSize : MAX_DATAGRAM_FRAME_SIZE_TRANSPORT_PARAMETER_VALUE);
         }
 
         if (reliableStreamResetEnabled) {
@@ -1425,6 +1436,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private KeyStore keyStore;
         private String keyPassword;
         private boolean enableDatagramExtension;
+        private Integer maxDatagramFrameSize;
         private boolean enableReliableStreamReset;
         private X509ExtendedKeyManager keyManager;
         private EchConfigProvider echConfigProvider;
@@ -1476,6 +1488,9 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
             if (enableDatagramExtension) {
                 quicConnection.enableDatagramExtension();
+                if (maxDatagramFrameSize != null) {
+                    quicConnection.setMaxDatagramFrameSize(maxDatagramFrameSize);
+                }
             }
 
             if (enableReliableStreamReset) {
@@ -1698,6 +1713,18 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
 
         @Override
+        public Builder maxUdpPayloadSize(int maxUdpPayloadSize) {
+            if (maxUdpPayloadSize < MIN_MAX_UDP_PAYLOAD_SIZE) {
+                throw new IllegalArgumentException("Max UDP payload size must be at least " + MIN_MAX_UDP_PAYLOAD_SIZE + ".");
+            }
+            if (maxUdpPayloadSize > MAX_SUPPORTED_PACKET_SIZE) {
+                throw new IllegalArgumentException("Max UDP payload size cannot be larger than " + MAX_SUPPORTED_PACKET_SIZE + ".");
+            }
+            connectionProperties.setMaxUdpPayloadSize(maxUdpPayloadSize);
+            return this;
+        }
+
+        @Override
         public Builder omitTransportParameters(Set<Integer> omittedParameters) {
             this.omittedTransportParameters = Set.copyOf(omittedParameters);
             return this;
@@ -1812,6 +1839,16 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
 
         @Override
+        public Builder maxDatagramFrameSize(int maxDatagramFrameSize) {
+            if (maxDatagramFrameSize < 0) {
+                throw new IllegalArgumentException("Max datagram frame size cannot be negative.");
+            }
+            enableDatagramExtension = true;
+            this.maxDatagramFrameSize = maxDatagramFrameSize;
+            return this;
+        }
+
+        @Override
         public Builder enableReliableStreamReset() {
             enableReliableStreamReset = true;
             return this;
@@ -1831,21 +1868,6 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             return this;
         }
 
-        /**
-         * Set the max upd payload size as advertised in the transport parameters. This is the maximum size of a UDP
-         * packet that the client is willing to receive.
-         * See https://www.rfc-editor.org/rfc/rfc9000.html#section-18.2
-         * @param maxSize
-         */
-        public void maxUdpPayloadSize(int maxSize) {
-            if (maxSize < MIN_MAX_UDP_PAYLOAD_SIZE) {
-                throw new IllegalArgumentException("Max UDP payload size must be at least " + MIN_MAX_UDP_PAYLOAD_SIZE + ".");
-            }
-            if (maxSize > MAX_SUPPORTED_PACKET_SIZE) {
-                throw new IllegalArgumentException("Max UDP payload size cannot be larger than " + MAX_SUPPORTED_PACKET_SIZE + ".");
-            }
-            connectionProperties.setMaxUdpPayloadSize(maxSize);
-        }
 
         public void useStrictSmallestAllowedMaximumDatagramSize() {
             connectionProperties.setUseStrictSmallestAllowedMaximumDatagramSize(true);

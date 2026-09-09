@@ -54,10 +54,13 @@ Files changed relative to `edb3155f`:
 
 | File | Change |
 |---|---|
-| `QuicClientConnection.java` | `Builder` gained `echConfigProvider`, `clientHelloSpec`, `destinationConnectionIdLength`, `initialMaxData`, `initialMaxStreamDataBidirectional`, `initialMaxStreamDataUnidirectional` and `omitTransportParameters` |
+| `QuicClientConnection.java` | `Builder` gained `echConfigProvider`, `clientHelloSpec`, `destinationConnectionIdLength`, `initialMaxData`, `initialMaxStreamDataBidirectional`, `initialMaxStreamDataUnidirectional`, `maxUdpPayloadSize`, `maxDatagramFrameSize` and `omitTransportParameters` |
 | `impl/QuicClientConnectionImpl.java` | carries them to the TLS engine and to the connection id manager and transport parameters |
 | `cid/ConnectionIdManager.java` | the initial Destination Connection ID length is a parameter instead of a hardcoded 8 |
 | `tls/QuicTransportParametersExtension.java` | a transport parameter can be left out instead of sent |
+
+`maxUdpPayloadSize` was already on `ExtendedBuilder` returning void; it moved onto `Builder` and
+`ExtendedBuilder`'s copy became the override, so there is one of it rather than two.
 
 The TLS engine is created in the constructor and never handed in, so the builder is the only place a
 per-connection profile can be attached; without it the ECH provider and the ClientHello spec could

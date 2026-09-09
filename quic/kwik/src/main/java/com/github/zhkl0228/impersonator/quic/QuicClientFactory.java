@@ -182,6 +182,15 @@ public class QuicClientFactory {
         if (quicTransport.getInitialMaxStreamsUnidirectional() != null) {
             builder.maxOpenPeerInitiatedUnidirectionalStreams(quicTransport.getInitialMaxStreamsUnidirectional());
         }
+        if (quicTransport.getMaxIdleTimeoutMillis() != null) {
+            builder.maxIdleTimeout(java.time.Duration.ofMillis(quicTransport.getMaxIdleTimeoutMillis()));
+        }
+        if (quicTransport.getMaxUdpPayloadSize() != null) {
+            builder.maxUdpPayloadSize(quicTransport.getMaxUdpPayloadSize());
+        }
+        if (quicTransport.getMaxDatagramFrameSize() != null) {
+            builder.maxDatagramFrameSize(quicTransport.getMaxDatagramFrameSize());
+        }
         builder.omitTransportParameters(quicTransport.getOmittedParameters());
     }
 }

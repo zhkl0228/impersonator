@@ -42,6 +42,9 @@ public class QuicTransport {
     private final Long initialMaxStreamDataUnidirectional;
     private final Integer initialMaxStreamsBidirectional;
     private final Integer initialMaxStreamsUnidirectional;
+    private final Long maxIdleTimeoutMillis;
+    private final Integer maxUdpPayloadSize;
+    private final Integer maxDatagramFrameSize;
     private final Set<Integer> omitted;
 
     private QuicTransport(Builder builder) {
@@ -52,6 +55,9 @@ public class QuicTransport {
         this.initialMaxStreamDataUnidirectional = builder.initialMaxStreamDataUnidirectional;
         this.initialMaxStreamsBidirectional = builder.initialMaxStreamsBidirectional;
         this.initialMaxStreamsUnidirectional = builder.initialMaxStreamsUnidirectional;
+        this.maxIdleTimeoutMillis = builder.maxIdleTimeoutMillis;
+        this.maxUdpPayloadSize = builder.maxUdpPayloadSize;
+        this.maxDatagramFrameSize = builder.maxDatagramFrameSize;
         this.omitted = Collections.unmodifiableSet(new LinkedHashSet<>(builder.omitted));
     }
 
@@ -94,6 +100,21 @@ public class QuicTransport {
         return initialMaxStreamsUnidirectional;
     }
 
+    public Long getMaxIdleTimeoutMillis() {
+        return maxIdleTimeoutMillis;
+    }
+
+    public Integer getMaxUdpPayloadSize() {
+        return maxUdpPayloadSize;
+    }
+
+    /**
+     * The max_datagram_frame_size transport parameter, or null not to offer the datagram extension.
+     */
+    public Integer getMaxDatagramFrameSize() {
+        return maxDatagramFrameSize;
+    }
+
     /** The transport parameters to leave out of the extension entirely. */
     public Set<Integer> getOmittedParameters() {
         return omitted;
@@ -108,6 +129,9 @@ public class QuicTransport {
         private Long initialMaxStreamDataUnidirectional;
         private Integer initialMaxStreamsBidirectional;
         private Integer initialMaxStreamsUnidirectional;
+        private Long maxIdleTimeoutMillis;
+        private Integer maxUdpPayloadSize;
+        private Integer maxDatagramFrameSize;
         private final Set<Integer> omitted = new LinkedHashSet<>();
 
         public Builder destinationConnectionIdLength(int length) {
@@ -142,6 +166,24 @@ public class QuicTransport {
 
         public Builder initialMaxStreamsUnidirectional(int max) {
             this.initialMaxStreamsUnidirectional = max;
+            return this;
+        }
+
+        /** The max_idle_timeout transport parameter, and the idle timeout the connection keeps. */
+        public Builder maxIdleTimeoutMillis(long maxIdleTimeoutMillis) {
+            this.maxIdleTimeoutMillis = maxIdleTimeoutMillis;
+            return this;
+        }
+
+        /** The max_udp_payload_size transport parameter. */
+        public Builder maxUdpPayloadSize(int maxUdpPayloadSize) {
+            this.maxUdpPayloadSize = maxUdpPayloadSize;
+            return this;
+        }
+
+        /** The max_datagram_frame_size transport parameter, i.e. RFC 9221's datagram extension. */
+        public Builder maxDatagramFrameSize(int maxDatagramFrameSize) {
+            this.maxDatagramFrameSize = maxDatagramFrameSize;
             return this;
         }
 

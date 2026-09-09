@@ -136,17 +136,22 @@ out owns QUIC connections: on 11 it had to be an abstract subclass of our own fo
 and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
 directly if you are on 11 and want QUIC without that.
 
-**The QUIC fingerprint is nearly done.** A profile dictates the TLS ClientHello - cipher list,
-extension set and order, supported groups, and multiple key shares including X25519MLKEM768 - and the
-QUIC layer as well: the transport parameters it sends, the ones it deliberately does not send, and
-the connection id lengths. Reproducing a capture of another client gives a byte-identical JA4 and
-every transport parameter reading the same.
+**The QUIC fingerprint is done except for the HTTP/3 SETTINGS frame.** `macChrome()` reproduces
+Chrome 152 over HTTP/3 from a capture kept in `docs/captures/chrome-152-quic.json`: the same JA4
+byte for byte, the same extension order, the same supported groups and both key shares
+(X25519MLKEM768 and X25519), and every QUIC transport parameter including the ones Chrome
+deliberately does not send.
 
-What is left is the Initial packet's frame layout and the HTTP/3 SETTINGS frame. curl's Initial
-carries eleven CRYPTO frames with padding woven between them where kwik sends one; matching that
-means rebuilding kwik's packet assembly to imitate ngtcp2, and ngtcp2 is not the target. That waits
-for a capture of a browser, which is also what `Impersonator.getQuicClientHello()` waits for: no
-profile ships a QUIC ClientHello yet, and it says so rather than deriving one from the TCP capture.
+What still says "flupke" is the HTTP/3 SETTINGS frame: Chrome sends four settings and a GREASE one,
+flupke sends two, and its settings map is protected and unordered so there is no way to change that
+from outside. Also not reproduced: the Initial packet's frame layout - Chrome interleaves CRYPTO and
+PING frames where kwik sends one CRYPTO frame - and three transport parameters Chrome sends that
+kwik cannot (`version_information`, a GREASE one, and `0x3128` carrying the bytes "ORIG", which
+nothing here explains).
+
+Real Encrypted Client Hello and a dictated ClientHello cannot yet be combined: a profile's QUIC
+ClientHello carries a GREASE ECH, and replacing it with a real one needs the ECH path to go through
+the same spec. The engine refuses the combination rather than silently sending one of the two.
 
 ### Timeouts
 

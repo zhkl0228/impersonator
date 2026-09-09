@@ -209,8 +209,11 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
      * the encapsulated key and the payload must be regenerated per connection: a fixed value would
      * be a stable identifier carried by every connection this library makes, which is exactly the
      * kind of thing the impersonation is meant to avoid.
+     * <p>
+     * Protected because a profile's QUIC ClientHello needs the same extension, and it is the same
+     * browser sending it.
      */
-    private static void addGreaseEncryptedClientHelloExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
+    protected static void addGreaseEncryptedClientHelloExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
         int innerBlocks = GREASE_ECH_MIN_INNER_BLOCKS
                 + GREASE_ECH_RANDOM.nextInt(GREASE_ECH_MAX_INNER_BLOCKS - GREASE_ECH_MIN_INNER_BLOCKS + 1);
         int payloadLength = innerBlocks * GREASE_ECH_INNER_BLOCK_SIZE + GREASE_ECH_AEAD_TAG_LENGTH;

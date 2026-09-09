@@ -3,7 +3,9 @@ package com.github.zhkl0228.impersonator;
 import okhttp3.Http2Connection;
 import okhttp3.Settings;
 import org.bouncycastle.tls.CertificateCompressionAlgorithm;
+import org.bouncycastle.tls.CipherSuite;
 import org.bouncycastle.tls.ExtensionType;
+import org.bouncycastle.tls.ProtocolVersion;
 import org.bouncycastle.tls.KeyShareEntry;
 import org.bouncycastle.tls.NamedGroup;
 import org.bouncycastle.tls.PskKeyExchangeMode;
@@ -108,11 +110,111 @@ abstract class Chrome extends ImpersonatorFactory {
         };
     }
 
+    /**
+     * The ClientHello Chrome sends over QUIC, from a capture of Chrome 152.0.7977.84 against
+     * {@code quic.tools.scrapfly.io/api/fp/quic}; the capture is kept verbatim in
+     * {@code docs/captures/chrome-152-quic.json}.
+     * <p>
+     * A different message from the TCP one above, which is why it is a separate capture and not
+     * derived: no "renegotiation_info", no "session_ticket", no "status_request", no ML-DSA among the
+     * signature algorithms, "application_settings" naming h3 rather than h2, TLS 1.3 alone in
+     * "supported_versions" where the TCP one also offers 1.2, and a "quic_transport_parameters" that
+     * has no counterpart at all.
+     * <p>
+     * One thing the capture could not settle: whether this ClientHello carries GREASE cipher suites
+     * and extensions the way the TCP one does. The endpoint flags GREASE explicitly in the transport
+     * parameters and in the HTTP/3 settings but shows none in the TLS lists, which reads either as
+     * "there is none" or as "they are stripped there". So this sends what was observed and no more.
+     * It does not change the JA4, which excludes GREASE by definition, but it would change the bytes;
+     * a packet capture of the same request is what would answer it.
+     */
+    @Override
+    public QuicClientHello getQuicClientHello() {
+        return new QuicClientHello() {
+
+            @Override
+            public int[] getCipherSuites() {
+                return new int[] {
+                        CipherSuite.TLS_AES_128_GCM_SHA256,
+                        CipherSuite.TLS_AES_256_GCM_SHA384,
+                        CipherSuite.TLS_CHACHA20_POLY1305_SHA256
+                };
+            }
+
+            @Override
+            public int[] getKeyShareGroups() {
+                return new int[] { NamedGroup.X25519MLKEM768, NamedGroup.x25519 };
+            }
+
+            @Override
+            public ExtensionOrder onSendClientHelloMessage(Map<Integer, byte[]> clientExtensions) throws IOException {
+                TlsExtensionsUtils.addSupportedVersionsExtensionClient(clientExtensions,
+                        new ProtocolVersion[] { ProtocolVersion.TLSv13 });
+                TlsExtensionsUtils.addPSKKeyExchangeModesExtension(clientExtensions,
+                        new short[] { PskKeyExchangeMode.psk_dhe_ke });
+                addSignatureAlgorithmsExtension(clientExtensions,
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp256r1_sha256),
+                        SignatureAndHashAlgorithm.rsa_pss_rsae_sha256,
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha256),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.ecdsa_secp384r1_sha384),
+                        SignatureAndHashAlgorithm.rsa_pss_rsae_sha384,
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha384),
+                        SignatureAndHashAlgorithm.rsa_pss_rsae_sha512,
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha512),
+                        SignatureAndHashAlgorithm.create(SignatureScheme.rsa_pkcs1_sha1));
+                addSupportedGroupsExtension(clientExtensions, NamedGroup.X25519MLKEM768, NamedGroup.x25519,
+                        NamedGroup.secp256r1, NamedGroup.secp384r1);
+                clientExtensions.put(EXT_trust_anchors, getTrustAnchors());
+                TlsExtensionsUtils.addCompressCertificateExtension(clientExtensions,
+                        new int[] { CertificateCompressionAlgorithm.brotli });
+                // A host that publishes an ECHConfig gets a real one instead, which is not implemented
+                // yet for a dictated ClientHello; the engine refuses that combination rather than
+                // silently sending one of the two.
+                addGreaseEncryptedClientHelloExtension(clientExtensions);
+                addApplicationSettingsExtension(clientExtensions, "h3");
+                return new ExtensionOrder("43-45-57-16-13-51-0-51764-27-65037-17613-10", false);
+            }
+        };
+    }
+
+    /**
+     * The QUIC layer of the same capture.
+     * <p>
+     * Chrome shuffles the transport parameters - the capture has them in the order 15, 7, 5, 9, 1, 6,
+     * 32, 3, GREASE, 8, 0x3128, 17, 4 - so what identifies it is which parameters it sends, not their
+     * order. It omits everything that equals the RFC default, hence {@link QuicTransport.Builder#omit}.
+     * <p>
+     * Not reproduced yet, because nothing here can send them: the "version_information" and GREASE
+     * parameters Chrome also sends, and the parameter 0x3128 carrying the four bytes "ORIG", which
+     * nothing here explains.
+     */
+    @Override
+    public QuicTransport getQuicTransport() {
+        return QuicTransport.newBuilder()
+                .destinationConnectionIdLength(8)
+                .sourceConnectionIdLength(4)
+                .initialMaxData(15728640L)
+                .initialMaxStreamDataBidirectional(6291456L)
+                .initialMaxStreamDataUnidirectional(6291456L)
+                .initialMaxStreamsBidirectional(100)
+                .initialMaxStreamsUnidirectional(103)
+                .maxIdleTimeoutMillis(30000L)
+                .maxUdpPayloadSize(1472)
+                .maxDatagramFrameSize(65536)
+                .omit(QuicTransport.ACK_DELAY_EXPONENT, QuicTransport.MAX_ACK_DELAY,
+                        QuicTransport.ACTIVE_CONNECTION_ID_LIMIT)
+                .build();
+    }
+
     private static void addApplicationSettingsExtension(Map<Integer, byte[]> clientExtensions) throws IOException {
+        addApplicationSettingsExtension(clientExtensions, "h2");
+    }
+
+    private static void addApplicationSettingsExtension(Map<Integer, byte[]> clientExtensions, String protocol) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream(16)) {
             DataOutput dataOutput = new DataOutputStream(baos);
-            dataOutput.writeShort(3);
-            byte[] bytes = "h2".getBytes();
+            byte[] bytes = protocol.getBytes();
+            dataOutput.writeShort(bytes.length + 1);
             dataOutput.writeByte(bytes.length);
             dataOutput.write(bytes);
             clientExtensions.put(ExtensionType.application_settings, baos.toByteArray());

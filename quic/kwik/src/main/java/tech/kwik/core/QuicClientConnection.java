@@ -160,6 +160,12 @@ public interface QuicClientConnection extends QuicConnection {
         Builder initialMaxStreamDataUnidirectional(long initialMaxStreamData);
 
         /**
+         * The max_udp_payload_size transport parameter: the largest UDP payload this endpoint is
+         * willing to receive.
+         */
+        Builder maxUdpPayloadSize(int maxUdpPayloadSize);
+
+        /**
          * Leaves these transport parameters out of the extension rather than sending them with some
          * value. An absent parameter means its default to the peer, and which ones an endpoint
          * bothers to send is as much a fingerprint as the values; several implementations omit
@@ -254,6 +260,13 @@ public interface QuicClientConnection extends QuicConnection {
          * @return  the builder
          */
         Builder enableDatagramExtension();
+
+        /**
+         * Enables the datagram extension and advertises this max_datagram_frame_size, instead of the
+         * value {@link #enableDatagramExtension()} picks. RFC 9221 leaves the value to the endpoint,
+         * so what it advertises identifies it.
+         */
+        Builder maxDatagramFrameSize(int maxDatagramFrameSize);
 
         /**
          * Enable the Stream Resets with Partial Delivery extension
