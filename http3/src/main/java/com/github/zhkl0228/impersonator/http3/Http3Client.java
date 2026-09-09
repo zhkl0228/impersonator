@@ -1,7 +1,9 @@
 package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.quic.QuicClientFactory;
+import com.github.zhkl0228.impersonator.quic.SessionTicketStore;
 import tech.kwik.core.QuicClientConnection;
+import tech.kwik.core.QuicSessionTicket;
 import tech.kwik.core.concurrent.DaemonThreadFactory;
 import tech.kwik.flupke.Http3ClientConnection;
 
@@ -91,11 +93,24 @@ class Http3Client extends HttpClient {
             return existing.http3Connection;
         }
 
+        /*
+         * A ticket kept from an earlier connection to this host turns the handshake into a resumed
+         * one: the ClientHello carries "pre_shared_key" and "early_data" and is a different message
+         * with a different JA4, which is what a browser's second visit to a host looks like. Without
+         * this every connection is a full handshake for ever, which no browser's history contains.
+         */
+        SessionTicketStore sessionTicketStore = quicClientFactory.getSessionTicketStore();
+        QuicSessionTicket ticket = sessionTicketStore == null
+                || quicClientFactory.usesEncryptedClientHello(uri.getHost())
+                ? null
+                : sessionTicketStore.take(uri.getHost());
+
         QuicClientConnection quicConnection = quicClientFactory.newBuilder()
                 .uri(uri)
                 .port(portOf(uri))
                 .applicationProtocol("h3")
                 .connectTimeout(connectTimeout)
+                .sessionTicket(ticket)
                 .build();
 
         // Constructed before the QUIC connection is up, because the constructor is what registers
@@ -105,13 +120,25 @@ class Http3Client extends HttpClient {
         // them wins the race, and the QPACK one carries the dynamic table. Http3Connection.connect()
         // brings the QUIC connection up itself.
         Http3Connection http3Connection = new Http3Connection(quicConnection, executorService, http3Settings);
+        if (ticket != null) {
+            /*
+             * Resuming, so this connection sends 0-RTT data, and what HTTP/3 has to send first is its
+             * control stream and SETTINGS. The QUIC connection is brought up here rather than by
+             * http3Connection.connect() because the early data has to be written between the
+             * ClientHello and the end of the handshake, which is a window only this call has.
+             * Offering "early_data" and sending nothing would be a claim about this client that is
+             * not true - the same mistake as advertising a QPACK dynamic table there is no decoder
+             * for, which is why kwik insists a writer writes something.
+             */
+            quicConnection.connect(sender -> http3Connection.sendControlStreamAsEarlyData(sender));
+        }
         http3Connection.connect();
 
-        Connection connection = new Connection(quicConnection, http3Connection);
+        Connection connection = new Connection(uri.getHost(), quicConnection, http3Connection);
         Connection raced = connections.putIfAbsent(authority, connection);
         if (raced != null) {
             // Another thread got there first; keep theirs and drop the connection just opened.
-            connection.close();
+            connection.close(sessionTicketStore);
             return raced.http3Connection;
         }
         return connection.http3Connection;
@@ -122,15 +149,29 @@ class Http3Client extends HttpClient {
      * and the HTTP/3 connection does not own the QUIC one it was handed.
      */
     private static class Connection {
+        final String host;
         final QuicClientConnection quicConnection;
         final Http3ClientConnection http3Connection;
 
-        Connection(QuicClientConnection quicConnection, Http3ClientConnection http3Connection) {
+        Connection(String host, QuicClientConnection quicConnection, Http3ClientConnection http3Connection) {
+            this.host = host;
             this.quicConnection = quicConnection;
             this.http3Connection = http3Connection;
         }
 
-        void close() {
+        void close(SessionTicketStore sessionTicketStore) {
+            /*
+             * The tickets are collected here rather than after the handshake because that is not when
+             * they arrive: a server sends its NewSessionTickets once the handshake is over, so asking
+             * a connection for them at the moment it is done with is the first point they are all in.
+             */
+            if (sessionTicketStore != null) {
+                try {
+                    sessionTicketStore.put(host, quicConnection.getNewSessionTickets());
+                } catch (RuntimeException ignored) {
+                    // A ticket that cannot be kept costs the next connection a full handshake, nothing more.
+                }
+            }
             try {
                 quicConnection.close();
             } catch (RuntimeException ignored) {
@@ -152,6 +193,17 @@ class Http3Client extends HttpClient {
         return connection == null ? null : (Http3Connection) connection.http3Connection;
     }
 
+    /**
+     * The QUIC connection to an authority, or null when there is none. Package private and here for
+     * the same reason as {@link #openConnection(String)}: whether a connection resumed, and whether
+     * it wrote 0-RTT data, is a property of the handshake and unreachable once a request has gone
+     * through it.
+     */
+    QuicClientConnection quicConnectionFor(String authority) {
+        Connection connection = connections.get(authority);
+        return connection == null ? null : connection.quicConnection;
+    }
+
     private static String authorityOf(URI uri) {
         Objects.requireNonNull(uri.getHost(), () -> "no host in " + uri);
         return uri.getHost() + ":" + portOf(uri);
@@ -171,13 +223,16 @@ class Http3Client extends HttpClient {
     @Override
     public void close() {
         closed = true;
-        executorService.shutdownNow();
+        SessionTicketStore sessionTicketStore = quicClientFactory.getSessionTicketStore();
         for (String authority : connections.keySet()) {
             Connection connection = connections.remove(authority);
             if (connection != null) {
-                connection.close();
+                connection.close(sessionTicketStore);
             }
         }
+        // After the connections, because collecting their session tickets is the last thing they are
+        // asked for and closing this first would take the threads that answer.
+        executorService.shutdownNow();
     }
 
     /** No orderly variant exists here; see {@link #close()}. */

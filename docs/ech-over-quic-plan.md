@@ -552,3 +552,48 @@ profile 通告 `SETTINGS_HEADER_TABLE_SIZE: 65536`，那是**允许对端 HPACK 
 跟 QPACK 那两个数字是同一件事：从抓包抄来的数值是**对自己的承诺**。
 
 结果：Chrome profile 现在 Google/YouTube **两条路都通**——h3 是 302/200，TCP 是 200/200 h2。
+
+### QUIC 会话复用与 0-RTT
+
+指纹上最后一个大破绽不是字节，是**分布**：浏览器对访问过的站点几乎全是复用连接，而我们对同一个
+origin 连一百次、发一百条一模一样的全握手 ClientHello。检测方甚至不用比指纹——「这个客户端从没
+出示过 session ticket」比任何 JA4 不匹配都干净。
+
+两份抓包给出目标：
+
+| | 扩展数 | JA4 |
+|---|---|---|
+| Chrome 全握手 | 12 | `q13d0312h3_..._54c9dd0422dd` |
+| Chrome 复用 | 14（多 42 early_data、41 pre_shared_key） | `q13d0314h3_..._22df90fcce4c` |
+
+**所以不能做一半**：只加 `pre_shared_key` 不加 `early_data` 是 13 个扩展，一个 Chrome 从来不发的
+JA4——比「永远不复用」更糟，因为现在每条连接至少还是一个真实存在的指纹。这跟 `h3_hash` 五个对四个
+等于没对是同一个道理。而 kwik 把两者绑在一起（`startHandshake(protocol, withEarlyData)`），
+想要那个扩展就必须真发 0-RTT 数据，正好也是对的。
+
+**已经有的比预想多**：agent15 早就有 1-RTT PSK 复用（NewSessionTicket、binder、`pskAccepted`），
+kwik 也有完整的客户端 0-RTT（`EarlyDataStream`、接受/拒绝、拒绝后重传）。缺的是三处接缝：
+
+- **spec + 复用**：原来直接抛 `a ClientHelloSpec combined with session resumption is not implemented`。
+  binder 要在 profile 决定的序列化上算，现在照 ECH payload 那套「先序列化再打补丁」补上了。
+- **`pre_shared_key` 必须是最后一个扩展**（RFC 8446 4.2.11），而 profile 是**每连接洗牌**的，
+  十四选一会洗错。钉在 wire order 末尾，引擎里再加一条断言兜底。Chrome 的抓包也是它在最后。
+- **0-RTT 里发什么**：kwik 的 `connect(List<StreamEarlyData>)` 只能把 early data 变成**双向流**，
+  而 HTTP/3 第一个要发的是**单向**的控制流 + SETTINGS。给 kwik 加了 `connect(EarlyDataWriter)`，
+  让调用方自己开流写；底层 `createEarlyDataStream(bidirectional)` 本来就支持单向，只是没暴露。
+  写了不写东西直接报错——ClientHello 已经说了要发 early data。
+
+**ECH 和复用不能并用，ECH 赢。** RFC 9849 里 ClientHelloInner 和 Outer 要带**不同**的
+pre_shared_key（outer 那个是 GREASE），浏览器往 outer 里放什么没有抓包，所以不实现也不猜。
+遇到发布了 ECHConfig 的主机就走全握手：ECH 把服务器名对整条链路藏起来，复用只省一个 RTT 加一个
+更像样的 ClientHello——拿名字换 RTT 是反的。这个判断放在**取 ticket 之前**（`Http3Client`），
+不能放引擎里：引擎里丢掉 ticket 时 kwik 已经准备发 early data 了，0-RTT 密钥装不上，直接炸。
+
+**证据**：`SessionResumptionTest`。第一条连接是 Chrome 的全握手 JA4，之后每条都是 Chrome 的复用
+JA4，实测 12/12 稳定。PSK 是真被接受的，不是摆样子——Google 和 Scrapfly 的 ServerHello 都回了
+`pre_shared_key`，kwik 报 `earlyDataStatus=Accepted`，日志里也有
+`Sending 6 bytes of early data on Stream 2`。**这一条特意查过**：如果 binder 算错，服务端会
+默默退回全握手，ClientHello 照样是 14 个扩展、JA4 照样对，而复用是假的——只看 JA4 就会把这个漏过去。
+
+服务端**接受**early data 与否是它自己的事（防重放，经常拒），拒了 kwik 会在握手完成后把同样的字节
+重发一遍，连接照常。所以测试只断言这端能控制的一半：early data 确实被请求并写出去了。
