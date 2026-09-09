@@ -1,0 +1,69 @@
+# Vendored kwik
+
+`src/main/java/tech/kwik/core/**` is a copy of the `core` subproject of
+[kwik](https://github.com/ptrd/kwik), the QUIC implementation this module drives. It is LGPL-3, as
+is this project.
+
+| | |
+|---|---|
+| Upstream | https://github.com/ptrd/kwik |
+| Subproject | `core`, which is what the `tech.kwik:kwik` artifact is built from |
+| Baseline commit | `edb3155f`, `git describe` = `v0.10.8-152-gedb3155f` |
+| Package names | unchanged (`tech.kwik.core.*`) |
+
+## Why a copy and not a dependency
+
+Two things are needed from kwik that no API of it offers.
+
+**The TLS engine.** `QuicClientConnectionImpl`'s constructor calls
+`TlsClientEngineFactory.createClientEngine(...)`, a static method with no parameter to pass anything
+through, so the ECH provider and the ClientHello spec had to be installed process wide. A profile
+belongs to a connection, not to a JVM, and a factory API in the shape of `OkHttpClientFactory` needs
+the profile to travel with the connection. The constructor does run on the caller's thread, so a
+ThreadLocal would work for `Http3Client.send()` - and break for `sendAsync`, which runs on an
+executor. Not good enough.
+
+**The QUIC layer of the fingerprint.** `quic.tools.scrapfly.io/api/fp/quic` reports, besides the
+JA4 of the ClientHello, the destination connection id length, the Initial packet's padding and
+frames, and the transport parameters. All four are kwik's, and none is reachable: the destination
+connection id is a hardcoded `new byte[8]` in `ConnectionIdManager` that the builder's
+`connectionIdLength()` does not touch, and the transport parameters come from
+`initTransportParameters` with no hook.
+
+## flupke stays an upstream dependency
+
+flupke uses kwik through 13 imported classes, all in `tech.kwik.core`, `.concurrent`, `.generic`,
+`.log` and `.server`, and none in the packages this copy differs from upstream 0.11 in (`cid`,
+`receive`, `send`, `packet`). Checked member by member against `kwik-0.11.jar`: nothing flupke
+imports lost anything. So `tech.kwik:flupke` is kept as an ordinary dependency with
+`tech.kwik:kwik` excluded, and it links against this copy - the same arrangement `impersonator-kwik`
+itself has with `impersonator-agent15`.
+
+`tech.kwik:qpack` becomes a direct dependency because flupke no longer reaches it through kwik.
+
+## Deviations from the baseline
+
+`src/main/java/module-info.java` is **not** copied, for the same reason as in
+`../agent15/UPSTREAM.md`: it would force this module onto the module path.
+
+`KwikVersion.getVersion()` reads a `version.properties` that gradle generates and this build does
+not, so it throws. Nothing on the connection path calls it - only its own `main` - and a version
+string invented here would be a lie about which kwik this is.
+
+Files changed relative to `edb3155f`: none yet. This commit is the copy with not one byte changed,
+so that the diff of the next one is exactly the patch and a future sync with upstream can be done
+mechanically.
+
+Every changed file keeps its upstream LGPL header, with an added "Modified by ..." line as
+section 2 of the LGPL requires.
+
+## Re-syncing with upstream
+
+```sh
+git clone https://github.com/ptrd/kwik.git
+cd kwik && git checkout <new commit>
+cp -R core/src/main/java/tech <impersonator>/quic/kwik/src/main/java/
+```
+
+then re-apply the changes listed above; `git diff` shows exactly what they were, because the
+verbatim copy is its own commit in this repository's history.
