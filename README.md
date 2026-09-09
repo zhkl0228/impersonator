@@ -136,13 +136,17 @@ out owns QUIC connections: on 11 it had to be an abstract subclass of our own fo
 and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
 directly if you are on 11 and want QUIC without that.
 
-**The QUIC fingerprint is only half done.** The TLS ClientHello is fully dictated by the profile -
-cipher list, extension set and order, supported groups, and multiple key shares including
-X25519MLKEM768 - and reproducing a capture of another client gives a byte-identical JA4. What is
-still kwik's and flupke's, and so still says "kwik": the connection id length, the Initial packet's
-padding, the QUIC transport parameters, and the HTTP/3 SETTINGS frame. And no profile ships a QUIC
-ClientHello yet, because that needs a capture of the browser over HTTP/3;
-`Impersonator.getQuicClientHello()` says so rather than deriving one from the TCP capture.
+**The QUIC fingerprint is nearly done.** A profile dictates the TLS ClientHello - cipher list,
+extension set and order, supported groups, and multiple key shares including X25519MLKEM768 - and the
+QUIC layer as well: the transport parameters it sends, the ones it deliberately does not send, and
+the connection id lengths. Reproducing a capture of another client gives a byte-identical JA4 and
+every transport parameter reading the same.
+
+What is left is the Initial packet's frame layout and the HTTP/3 SETTINGS frame. curl's Initial
+carries eleven CRYPTO frames with padding woven between them where kwik sends one; matching that
+means rebuilding kwik's packet assembly to imitate ngtcp2, and ngtcp2 is not the target. That waits
+for a capture of a browser, which is also what `Impersonator.getQuicClientHello()` waits for: no
+profile ships a QUIC ClientHello yet, and it says so rather than deriving one from the TCP capture.
 
 ### Timeouts
 

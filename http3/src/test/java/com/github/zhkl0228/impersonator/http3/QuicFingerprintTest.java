@@ -70,9 +70,9 @@ public class QuicFingerprintTest extends TestCase {
                 names(extension(tls, 51).getJSONArray("data")));
     }
 
-    /** A factory whose profile is the captured curl ClientHello and nothing else. */
+    /** A factory whose profile is the captured curl ClientHello and the QUIC layer that went with it. */
     private static Http3ClientFactory curl() {
-        return Http3ClientFactory.create(new Curl8QuicClientHello());
+        return Http3ClientFactory.create(new Curl8QuicClientHello(), Curl8QuicTransport.create());
     }
 
     private static JSONObject fingerprint(Http3ClientFactory factory) throws Exception {
@@ -106,5 +106,52 @@ public class QuicFingerprintTest extends TestCase {
             names.add(((JSONObject) value).getString("name"));
         }
         return names;
+    }
+
+    /**
+     * The QUIC layer, which a server reads off the packet rather than out of the ClientHello: the
+     * transport parameters and the length of the connection id in the first Initial.
+     * <p>
+     * Two of the parameters are matched by <em>not</em> being sent. The endpoint reports 0 for
+     * max_idle_timeout and 2^62-1 for max_udp_payload_size, which are what it says when a parameter
+     * is absent - so what curl's capture records is that ngtcp2 sends nothing it does not have to,
+     * and matching it means omitting them rather than finding a value that reads the same.
+     */
+    public void testTheQuicTransportParametersMatchToo() throws Exception {
+        JSONObject quic = fingerprint(curl()).getJSONObject("quic");
+        JSONObject parameters = quic.getJSONObject("transport_parameters");
+
+        assertEquals(20, quic.getIntValue("dcid_length"));
+        assertEquals(4, quic.getIntValue("scid_length"));
+
+        assertEquals(1048576000L, parameters.getLongValue("initial_max_data"));
+        assertEquals(32768L, parameters.getLongValue("initial_max_stream_data_bidi_local"));
+        assertEquals(32768L, parameters.getLongValue("initial_max_stream_data_bidi_remote"));
+        assertEquals(1048576000L, parameters.getLongValue("initial_max_stream_data_uni"));
+        assertEquals(262144L, parameters.getLongValue("initial_max_streams_bidi"));
+        assertEquals(262144L, parameters.getLongValue("initial_max_streams_uni"));
+        assertEquals("max_idle_timeout is not sent", 0L, parameters.getLongValue("max_idle_timeout_ms"));
+        assertEquals("max_udp_payload_size is not sent",
+                4611686018427387903L, parameters.getLongValue("max_udp_payload_size"));
+    }
+
+    /**
+     * What is still kwik's and flupke's, asserted so that it is noticed when it changes rather than
+     * quietly drifting: the Initial packet's frame layout, and the HTTP/3 SETTINGS frame.
+     * <p>
+     * curl's Initial carries 11 CRYPTO frames with 12 single byte PADDING frames woven between them;
+     * kwik puts the whole ClientHello in one CRYPTO frame and pads nothing. Matching that means
+     * rebuilding kwik's packet assembly to imitate ngtcp2, and ngtcp2 is not the target - a browser
+     * is, and Chrome's QUIC stack will lay its Initial out differently again. So this waits for a
+     * capture of the browser rather than being built against curl.
+     */
+    public void testTheInitialPacketAndTheSettingsFrameAreStillNotMatched() throws Exception {
+        JSONObject fingerprint = fingerprint(curl());
+        JSONObject initial = fingerprint.getJSONObject("quic").getJSONArray("initial_packets").getJSONObject(0);
+
+        assertEquals("kwik sends the ClientHello as one CRYPTO frame; curl sends eleven",
+                1, initial.getJSONArray("frames").size());
+        assertEquals("flupke sends two SETTINGS parameters, curl sends three",
+                "1:0;7:0", fingerprint.getString("h3_text"));
     }
 }

@@ -70,6 +70,7 @@ import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.util.Set;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
@@ -166,6 +167,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private volatile Thread receiverThread;
     private volatile String handshakeError;
     private volatile ClientHello originalClientHello;
+    private final Set<Integer> omittedTransportParameters;
 
 
     private QuicClientConnectionImpl(String host, int port, InetTools.IPversionOption ipVersionOption, String applicationProtocol, long connectTimeout,
@@ -175,8 +177,10 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                                      List<TlsConstants.CipherSuite> cipherSuites,
                                      X509Certificate clientCertificate, PrivateKey clientCertificateKey,
                                      DatagramSocketFactory socketFactory, EchConfigProvider echConfigProvider,
-                                     ClientHelloSpec clientHelloSpec) throws UnknownHostException, SocketException {
+                                     ClientHelloSpec clientHelloSpec, int destinationConnectionIdLength,
+                                     Set<Integer> omittedTransportParameters) throws UnknownHostException, SocketException {
         super(originalVersion, Role.Client, secretsFile, connectionProperties, "", log);
+        this.omittedTransportParameters = omittedTransportParameters;
         this.applicationProtocol = applicationProtocol;
         this.connectTimeout = connectTimeout;
         this.connectionProperties = connectionProperties;
@@ -198,7 +202,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         BiConsumer<Integer, String> closeWithErrorFunction = (error, reason) -> {
             immediateCloseWithError(error, reason);
         };
-        connectionIdManager = new ConnectionIdManager(cidLength, connectionProperties.getActiveConnectionIdLimit(), closeWithErrorFunction, log);
+        connectionIdManager = new ConnectionIdManager(cidLength, destinationConnectionIdLength, connectionProperties.getActiveConnectionIdLimit(), closeWithErrorFunction, log);
 
         receiver = new MultipleAddressReceiver(log, createPacketFilter(), this::abortConnection);
         socketManager = new ClientSocketManager(new InetSocketAddress(serverAddress, port), receiver, socketFactory);
@@ -563,6 +567,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                     List.of(Version.QUIC_version_2, Version.QUIC_version_1)));
         }
         QuicTransportParametersExtension tpExtension = new QuicTransportParametersExtension(quicVersion.getVersion(), transportParams, Role.Client);
+        tpExtension.omitTransportParameters(omittedTransportParameters);
         if (clientHelloEnlargement != null) {
             tpExtension.addDiscardTransportParameter(clientHelloEnlargement);
         }
@@ -1424,6 +1429,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private X509ExtendedKeyManager keyManager;
         private EchConfigProvider echConfigProvider;
         private ClientHelloSpec clientHelloSpec;
+        private int destinationConnectionIdLength = ConnectionIdManager.MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH;
+        private Set<Integer> omittedTransportParameters = Set.of();
 
         private BuilderImpl() {
             connectionProperties.setMaxIdleTimeout(DEFAULT_MAX_IDLE_TIMEOUT);
@@ -1448,7 +1455,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                     new QuicClientConnectionImpl(host, port, ipVersionOption, applicationProtocol, connectTimeoutInMillis, connectionProperties, sessionTicket, Version.of(quicVersion),
                             Version.of(preferredVersion), log, proxyHost, secretsFile, initialRtt, connectionIdLength,
                             cipherSuites, clientCertificate, clientCertificateKey, socketFactory,
-                            echConfigProvider, clientHelloSpec);
+                            echConfigProvider, clientHelloSpec, destinationConnectionIdLength,
+                            omittedTransportParameters);
 
             if (omitCertificateCheck) {
                 quicConnection.trustAnyServerCertificate();
@@ -1656,6 +1664,42 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 throw new IllegalArgumentException("Connection ID length must between 0 and 20.");
             }
             connectionIdLength = length;
+            return this;
+        }
+
+        @Override
+        public Builder destinationConnectionIdLength(int length) {
+            if (length < ConnectionIdManager.MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH
+                    || length > ConnectionIdManager.MAX_CONNECTION_ID_LENGTH) {
+                throw new IllegalArgumentException("Destination connection ID length must be between "
+                        + ConnectionIdManager.MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH + " and "
+                        + ConnectionIdManager.MAX_CONNECTION_ID_LENGTH + ".");
+            }
+            destinationConnectionIdLength = length;
+            return this;
+        }
+
+        @Override
+        public Builder initialMaxData(long initialMaxData) {
+            connectionProperties.setMaxConnectionBufferSize(initialMaxData);
+            return this;
+        }
+
+        @Override
+        public Builder initialMaxStreamDataBidirectional(long initialMaxStreamData) {
+            connectionProperties.setMaxBidirectionalStreamBufferSize(initialMaxStreamData);
+            return this;
+        }
+
+        @Override
+        public Builder initialMaxStreamDataUnidirectional(long initialMaxStreamData) {
+            connectionProperties.setMaxUnidirectionalStreamBufferSize(initialMaxStreamData);
+            return this;
+        }
+
+        @Override
+        public Builder omitTransportParameters(Set<Integer> omittedParameters) {
+            this.omittedTransportParameters = Set.copyOf(omittedParameters);
             return this;
         }
 

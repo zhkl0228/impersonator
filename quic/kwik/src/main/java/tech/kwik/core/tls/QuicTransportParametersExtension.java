@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.core.tls;
 
@@ -34,10 +37,10 @@ import tech.kwik.core.util.Bytes;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.util.Set;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 import static tech.kwik.core.QuicConstants.TransportErrorCode.FRAME_ENCODING_ERROR;
 import static tech.kwik.core.QuicConstants.TransportErrorCode.TRANSPORT_PARAMETER_ERROR;
@@ -104,12 +107,32 @@ public class QuicTransportParametersExtension extends Extension {
         return CODEPOINT_V1;
     }
 
+    private Set<Integer> omittedParameters = Set.of();
+
     @Override
     public byte[] getBytes() {
         if (data == null) {
             serialize();
         }
         return data;
+    }
+
+    /**
+     * Leaves these transport parameters out of the extension entirely, rather than sending them with
+     * some value.
+     * <p>
+     * The two are not the same to a peer: an absent parameter means its default, and which
+     * parameters an endpoint bothers to send is as much a fingerprint as the values it sends. Several
+     * implementations omit anything that equals the default, and one that always sends the full set
+     * stands out. Only the sending is skipped - this endpoint still behaves as its own configuration
+     * says, which for an omitted parameter can only be more conservative than what the peer will
+     * assume.
+     *
+     * @param omittedParameters {@link QuicConstants.TransportParameterId} values.
+     */
+    public void omitTransportParameters(Set<Integer> omittedParameters) {
+        this.omittedParameters = Set.copyOf(omittedParameters);
+        this.data = null;
     }
 
     public void addDiscardTransportParameter(int parameterSize) {
@@ -488,12 +511,18 @@ public class QuicTransportParametersExtension extends Extension {
     }
 
     private void addTransportParameter(ByteBuffer buffer, QuicConstants.TransportParameterId id) {
+        if (omittedParameters.contains(id.value)) {
+            return;
+        }
         VariableLengthInteger.encode(id.value, buffer);
         int valueLength = 0;
         VariableLengthInteger.encode(valueLength, buffer);
     }
 
     private void addTransportParameter(ByteBuffer buffer, int id, long value) {
+        if (omittedParameters.contains(id)) {
+            return;
+        }
         VariableLengthInteger.encode(id, buffer);
         buffer.mark();
         int encodedValueLength = VariableLengthInteger.encode(value, buffer);

@@ -33,4 +33,15 @@ public interface Impersonator {
                 + " has no QUIC ClientHello; no capture of this browser over HTTP/3 has been taken");
     }
 
+    /**
+     * The QUIC layer of this profile: the transport parameters it sends and its connection id
+     * lengths. A server reads these off the packet, separately from the ClientHello's JA4.
+     *
+     * @return the QUIC transport fingerprint, or null to keep the QUIC implementation's own, which is
+     *         what a profile whose HTTP/3 capture covers only the ClientHello should say.
+     */
+    default QuicTransport getQuicTransport() {
+        return null;
+    }
+
 }

@@ -24,6 +24,8 @@ package tech.kwik.core;
 import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.ech.EchConfigProvider;
 import tech.kwik.agent15.engine.ClientHelloSpec;
+
+import java.util.Set;
 import tech.kwik.core.impl.QuicClientConnectionImpl;
 import tech.kwik.core.log.Logger;
 
@@ -137,6 +139,35 @@ public interface QuicClientConnection extends QuicConnection {
         Builder preferIPv6();
 
         Builder connectionIdLength(int length);
+
+        /**
+         * Length of the unpredictable Destination Connection ID the first Initial packet carries.
+         * RFC 9000 only requires at least 8, so what an implementation picks above that is one of the
+         * things a QUIC client is recognized by. Defaults to 8.
+         */
+        Builder destinationConnectionIdLength(int length);
+
+        /** The initial_max_data transport parameter, and the connection level flow control it promises. */
+        Builder initialMaxData(long initialMaxData);
+
+        /**
+         * The initial_max_stream_data_bidi_local and initial_max_stream_data_bidi_remote transport
+         * parameters, and the per stream flow control they promise. kwik uses one value for both.
+         */
+        Builder initialMaxStreamDataBidirectional(long initialMaxStreamData);
+
+        /** The initial_max_stream_data_uni transport parameter, and the flow control it promises. */
+        Builder initialMaxStreamDataUnidirectional(long initialMaxStreamData);
+
+        /**
+         * Leaves these transport parameters out of the extension rather than sending them with some
+         * value. An absent parameter means its default to the peer, and which ones an endpoint
+         * bothers to send is as much a fingerprint as the values; several implementations omit
+         * anything that equals the default.
+         *
+         * @param omittedParameters {@link tech.kwik.core.QuicConstants.TransportParameterId} values.
+         */
+        Builder omitTransportParameters(Set<Integer> omittedParameters);
 
         /**
          * Offers a real Encrypted Client Hello (RFC 9849) on this connection, so that the server name

@@ -5,6 +5,7 @@ import com.github.zhkl0228.impersonator.Impersonator;
 import com.github.zhkl0228.impersonator.ImpersonatorApi;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 import com.github.zhkl0228.impersonator.QuicClientHello;
+import com.github.zhkl0228.impersonator.QuicTransport;
 import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.ech.EchRejectedException;
 import tech.kwik.core.QuicClientConnection;
@@ -30,12 +31,15 @@ import tech.kwik.core.QuicClientConnection;
 public class QuicClientFactory {
 
     private final QuicClientHello quicClientHello;
+    private final QuicTransport quicTransport;
 
     private EchConfigProvider echConfigProvider;
     private EchRejectionHandler echRejectionHandler;
 
-    private QuicClientFactory(QuicClientHello quicClientHello, EchConfigProvider echConfigProvider) {
+    private QuicClientFactory(QuicClientHello quicClientHello, QuicTransport quicTransport,
+                              EchConfigProvider echConfigProvider) {
         this.quicClientHello = quicClientHello;
+        this.quicTransport = quicTransport;
         this.echConfigProvider = echConfigProvider;
     }
 
@@ -53,7 +57,8 @@ public class QuicClientFactory {
         }
         Impersonator impersonator = (Impersonator) api;
         // Asked for now rather than per connection, so a profile with no HTTP/3 capture says so here.
-        return new QuicClientFactory(impersonator.getQuicClientHello(), impersonator::getEchConfigList);
+        return new QuicClientFactory(impersonator.getQuicClientHello(), impersonator.getQuicTransport(),
+                impersonator::getEchConfigList);
     }
 
     /**
@@ -61,10 +66,15 @@ public class QuicClientFactory {
      * capture of something that is not one of this library's browsers.
      */
     public static QuicClientFactory create(QuicClientHello quicClientHello) {
+        return create(quicClientHello, null);
+    }
+
+    /** A ClientHello and the QUIC layer that goes with it, with no profile behind them. */
+    public static QuicClientFactory create(QuicClientHello quicClientHello, QuicTransport quicTransport) {
         if (quicClientHello == null) {
             throw new NullPointerException("quicClientHello");
         }
-        return new QuicClientFactory(quicClientHello, null);
+        return new QuicClientFactory(quicClientHello, quicTransport, null);
     }
 
     /**
@@ -72,7 +82,7 @@ public class QuicClientFactory {
      * Useful as the control in a fingerprint comparison, and for plain QUIC.
      */
     public static QuicClientFactory create() {
-        return new QuicClientFactory(null, null);
+        return new QuicClientFactory(null, null, null);
     }
 
     /**
@@ -122,6 +132,9 @@ public class QuicClientFactory {
                 }
             }
         }
+        if (quicTransport != null) {
+            applyTransport(builder);
+        }
         if (echConfigProvider != null) {
             builder.echConfigProvider(new tech.kwik.agent15.ech.EchConfigProvider() {
                 @Override
@@ -141,4 +154,34 @@ public class QuicClientFactory {
         return builder;
     }
 
+
+    /**
+     * Everything the profile says about the QUIC layer goes through the builder, which is what makes
+     * the connection behave the way it advertises: a flow control limit on the wire is a promise, and
+     * setting it here sets both halves.
+     */
+    private void applyTransport(QuicClientConnection.Builder builder) {
+        if (quicTransport.getDestinationConnectionIdLength() != null) {
+            builder.destinationConnectionIdLength(quicTransport.getDestinationConnectionIdLength());
+        }
+        if (quicTransport.getSourceConnectionIdLength() != null) {
+            builder.connectionIdLength(quicTransport.getSourceConnectionIdLength());
+        }
+        if (quicTransport.getInitialMaxData() != null) {
+            builder.initialMaxData(quicTransport.getInitialMaxData());
+        }
+        if (quicTransport.getInitialMaxStreamDataBidirectional() != null) {
+            builder.initialMaxStreamDataBidirectional(quicTransport.getInitialMaxStreamDataBidirectional());
+        }
+        if (quicTransport.getInitialMaxStreamDataUnidirectional() != null) {
+            builder.initialMaxStreamDataUnidirectional(quicTransport.getInitialMaxStreamDataUnidirectional());
+        }
+        if (quicTransport.getInitialMaxStreamsBidirectional() != null) {
+            builder.maxOpenPeerInitiatedBidirectionalStreams(quicTransport.getInitialMaxStreamsBidirectional());
+        }
+        if (quicTransport.getInitialMaxStreamsUnidirectional() != null) {
+            builder.maxOpenPeerInitiatedUnidirectionalStreams(quicTransport.getInitialMaxStreamsUnidirectional());
+        }
+        builder.omitTransportParameters(quicTransport.getOmittedParameters());
+    }
 }

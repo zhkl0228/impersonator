@@ -5,6 +5,7 @@ import com.github.zhkl0228.impersonator.Impersonator;
 import com.github.zhkl0228.impersonator.ImpersonatorApi;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 import com.github.zhkl0228.impersonator.QuicClientHello;
+import com.github.zhkl0228.impersonator.QuicTransport;
 import com.github.zhkl0228.impersonator.quic.EchRejectionHandler;
 import com.github.zhkl0228.impersonator.quic.QuicClientFactory;
 
@@ -56,7 +57,12 @@ public class Http3ClientFactory {
      * of this library's browsers.
      */
     public static Http3ClientFactory create(QuicClientHello quicClientHello) {
-        return new Http3ClientFactory(QuicClientFactory.create(quicClientHello));
+        return create(quicClientHello, null);
+    }
+
+    /** A ClientHello and the QUIC layer that goes with it, with no profile behind them. */
+    public static Http3ClientFactory create(QuicClientHello quicClientHello, QuicTransport quicTransport) {
+        return new Http3ClientFactory(QuicClientFactory.create(quicClientHello, quicTransport));
     }
 
     /**

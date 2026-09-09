@@ -54,13 +54,27 @@ Files changed relative to `edb3155f`:
 
 | File | Change |
 |---|---|
-| `QuicClientConnection.java` | `Builder` gained `echConfigProvider` and `clientHelloSpec` |
-| `impl/QuicClientConnectionImpl.java` | carries both to the TLS engine it creates |
+| `QuicClientConnection.java` | `Builder` gained `echConfigProvider`, `clientHelloSpec`, `destinationConnectionIdLength`, `initialMaxData`, `initialMaxStreamDataBidirectional`, `initialMaxStreamDataUnidirectional` and `omitTransportParameters` |
+| `impl/QuicClientConnectionImpl.java` | carries them to the TLS engine and to the connection id manager and transport parameters |
+| `cid/ConnectionIdManager.java` | the initial Destination Connection ID length is a parameter instead of a hardcoded 8 |
+| `tls/QuicTransportParametersExtension.java` | a transport parameter can be left out instead of sent |
 
-Two methods and two fields. The engine is created in the constructor and never handed in, so this is
-the only place a per-connection profile can be attached; without it the two could only be static
-defaults on `TlsClientEngineFactory`, which a `ClientHelloSpec` cannot be at all, since it holds the
-private halves of one connection's key shares.
+The TLS engine is created in the constructor and never handed in, so the builder is the only place a
+per-connection profile can be attached; without it the ECH provider and the ClientHello spec could
+only be static defaults on `TlsClientEngineFactory`, which a `ClientHelloSpec` cannot be at all,
+since it holds the private halves of one connection's key shares.
+
+The rest is the QUIC layer of the fingerprint. RFC 9000 requires the initial Destination Connection
+ID to be at least 8 bytes and kwik picks exactly 8; what a client picks above that identifies it
+(curl picks 20). And an absent transport parameter means its default to the peer, so which ones an
+implementation bothers to send is as much a giveaway as the values - ngtcp2 omits everything that
+equals the default, kwik always sends the full set. Only the sending is skipped; the connection still
+behaves as its own configuration says, which for an omitted parameter can only be more conservative
+than what the peer will assume.
+
+The flow control setters exist because those values are a promise as well as a fingerprint: they go
+through `ClientConnectionConfig`, so the wire and the connection's actual behaviour cannot drift
+apart.
 
 Both parameters are agent15 types, not impersonator ones, so this patch stays as close to something
 upstream might take as it can.

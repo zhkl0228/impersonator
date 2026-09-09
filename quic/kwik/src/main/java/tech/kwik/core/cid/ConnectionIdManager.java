@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.core.cid;
 
@@ -47,6 +50,13 @@ import static tech.kwik.core.impl.Role.Server;
  * Manages the collections of connection ID's for the connection, both for this (side of the) connection and the peer's.
  */
 public class ConnectionIdManager implements ConnectionIdProvider {
+
+    /** RFC 9000 section 7.2: "MUST be at least 8 bytes in length". */
+    public static final int MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH = 8;
+
+    /** RFC 9000 section 17.2: a connection id is at most 20 bytes. */
+    public static final int MAX_CONNECTION_ID_LENGTH = 20;
+
 
     public static final int MAX_CIDS_PER_CONNECTION = 6;
 
@@ -110,6 +120,16 @@ public class ConnectionIdManager implements ConnectionIdProvider {
      * @param log                     logger
      */
     public ConnectionIdManager(Integer connectionIdLength, int maxPeerCids, BiConsumer<Integer, String> closeConnectionCallback, Logger log) {
+        this(connectionIdLength, MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH, maxPeerCids, closeConnectionCallback, log);
+    }
+
+    /**
+     * @param initialDestinationConnectionIdLength  length of the unpredictable value the first Initial
+     *        packet carries as its Destination Connection ID. RFC 9000 only requires at least 8, and
+     *        what an implementation picks above that is one of the things a QUIC client is recognized
+     *        by, so it is a parameter rather than a constant.
+     */
+    public ConnectionIdManager(Integer connectionIdLength, int initialDestinationConnectionIdLength, int maxPeerCids, BiConsumer<Integer, String> closeConnectionCallback, Logger log) {
         this.maxPeerCids = maxPeerCids;
         cidRegistry = new SourceConnectionIdRegistry(connectionIdLength, log);
         this.connectionIdLength = cidRegistry.getConnectionIdlength();
@@ -120,7 +140,13 @@ public class ConnectionIdManager implements ConnectionIdProvider {
         // https://www.rfc-editor.org/rfc/rfc9000.html#name-negotiating-connection-ids
         // "When an Initial packet is sent by a client (...), the client populates the Destination Connection ID field
         //  with an unpredictable value. This Destination Connection ID MUST be at least 8 bytes in length."
-        originalDestinationConnectionId = new byte[8];
+        if (initialDestinationConnectionIdLength < MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH
+                || initialDestinationConnectionIdLength > MAX_CONNECTION_ID_LENGTH) {
+            throw new IllegalArgumentException("initial destination connection id length must be between "
+                    + MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH + " and " + MAX_CONNECTION_ID_LENGTH
+                    + ", got " + initialDestinationConnectionIdLength);
+        }
+        originalDestinationConnectionId = new byte[initialDestinationConnectionIdLength];
         new SecureRandom().nextBytes(originalDestinationConnectionId);
 
         peerCidRegistry = new DestinationConnectionIdRegistry(originalDestinationConnectionId, log);
