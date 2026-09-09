@@ -39,7 +39,13 @@ public class ApplicationSettingsTest extends TestCase {
      * not on the client's wish.
      */
     public void testHostsThatDoNotNegotiateAlpsAreUnaffected() throws Exception {
-        assertEquals(200, status("https://nghttp2.org/"));
+        /*
+         * Two hosts and not three. nghttp2.org was here as well and times out often enough to fail
+         * this run about once in three, and what it was proving - that a server which does not
+         * negotiate ALPS still works - either of these proves as well. It is kept in
+         * QpackDynamicTableTest, which has no substitute for it: it is the only reachable server
+         * whose QPACK encoder uses the dynamic table at all.
+         */
         assertEquals(200, status("https://cloudflare-ech.com/cdn-cgi/trace"));
         assertEquals(200, status("https://quic.tools.scrapfly.io/api/fp/quic"));
     }
