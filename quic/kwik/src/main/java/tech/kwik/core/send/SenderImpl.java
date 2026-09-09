@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to scramble Initial
+ * packets the way Chrome does; see quic/kwik/UPSTREAM.md.
  */
 package tech.kwik.core.send;
 

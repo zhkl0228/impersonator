@@ -62,8 +62,19 @@ Files changed relative to `edb3155f`:
 | `QuicClientConnection.java` | `connect(EarlyDataWriter)`, so 0-RTT data can be something other than a list of bidirectional streams. HTTP/3's first flight is its control stream, which is unidirectional, and `connect(List<StreamEarlyData>)` cannot express it |
 | `impl/QuicClientConnectionImpl.java` (connect) | implements it; the list variant is now one line on top of it, and an early data writer that writes nothing is an error rather than a ClientHello that offered "early_data" and meant nothing |
 | `QuicClientConnection.java` (isSessionResumed) | passes agent15's answer through, so a caller can tell a resumption that happened from one that only looks like it |
+| `QuicClientConnection.java` (chaosProtection) | a profile can ask for its Initial packets to be scrambled the way Chrome scrambles them |
+| `impl/QuicClientConnectionImpl.java` (chaosProtection) | passes it to the sender once the connection is built |
+| `send/SenderImpl.java` | passes it on to the packet assembler |
+| `send/GlobalPacketAssembler.java` | scrambles Initial packets when a profile asked for it, after the padding, which is what pays for the extra frame headers. Also keeps the version it was given, which it needs to build the split CRYPTO frames |
 | `stream/StreamInputStream.java` | a stream's input stream can say which stream id it reads; not answered by default, so that a subclass which reads no stream says so rather than inventing an id |
 | `stream/StreamInputStreamImpl.java` | answers it |
+
+New with no upstream counterpart: `send/InitialPacketChaosProtector.java`, a port of QUICHE's
+`QuicChaosProtector`. Chrome cuts its ClientHello into pieces, sends them out of order, and scatters
+PING frames and runs of PADDING between them, differently every time; the file explains why that is
+worth reproducing, why it is a profile's choice rather than everyone's, and which half of it is still
+missing. It is only a fingerprint matter - the packet it produces is equivalent to the one it was
+given, and any peer reassembles the identical message.
 
 `maxUdpPayloadSize` was already on `ExtendedBuilder` returning void; it moved onto `Builder` and
 `ExtendedBuilder`'s copy became the override, so there is one of it rather than two.
