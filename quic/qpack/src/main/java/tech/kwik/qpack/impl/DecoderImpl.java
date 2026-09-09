@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to implement the QPACK
+ * dynamic table of RFC 9204; see quic/qpack/UPSTREAM.md.
  */
 package tech.kwik.qpack.impl;
 
@@ -23,48 +26,151 @@ import tech.kwik.qpack.Decoder;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PushbackInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static tech.kwik.qpack.impl.PrefixedInteger.parsePrefixedInteger;
+import static tech.kwik.qpack.impl.PrefixedInteger.writePrefixedInteger;
 
 
 public class DecoderImpl implements Decoder {
 
+    /**
+     * How long a field section may stay blocked on entries the encoder stream has not delivered.
+     * There is no such limit in RFC 9204 - the encoder is trusted to send the inserts it made a
+     * section depend on - but without one an encoder that never does hangs the request forever.
+     */
+    private static final long BLOCKED_SECTION_TIMEOUT_MILLIS = 10_000;
+
     private final Huffman huffman;
     private final StaticTable staticTable;
-    private final List<AbstractMap.Entry<String, String>> dynamicTable;
+
+    /**
+     * The stream the field section being decoded on this thread arrived on, needed for the Section
+     * Acknowledgment that RFC 9204 section 4.4.1 requires once it has been decoded. The QPACK
+     * {@link Decoder} interface is handed the section's bytes and nothing else, so the id has to come
+     * from the caller, and it is per thread because a connection decodes several sections at once.
+     */
+    private final ThreadLocal<Long> sectionStreamId = new ThreadLocal<>();
+
+    private final AtomicInteger blockedStreams = new AtomicInteger();
+
+    private final AtomicLong dynamicTableReferences = new AtomicLong();
+
+    private DynamicTable dynamicTable = new DynamicTable(0);
+    private int maxBlockedStreams;
+    private OutputStream decoderStream;
+    private long pendingInsertCountIncrement;
 
     public DecoderImpl() {
         staticTable = StaticTable.getInstance();
         huffman = Huffman.getInstance();
-        dynamicTable = new ArrayList<>();
     }
 
+    /**
+     * The dynamic table capacity this end advertises as {@code SETTINGS_QPACK_MAX_TABLE_CAPACITY}.
+     * Zero, the default, is what says there is no dynamic table at all: the peer may then insert
+     * nothing and every field section is decodable on its own.
+     * <p>
+     * Must be set before the connection carries any traffic, because it is the modulus the peer
+     * encodes a Required Insert Count against.
+     */
+    public void setMaxTableCapacity(long maxTableCapacity) {
+        dynamicTable = new DynamicTable(maxTableCapacity);
+    }
+
+    /**
+     * The number of streams this end advertises as {@code SETTINGS_QPACK_BLOCKED_STREAMS}, which is
+     * how many field sections the encoder may send that refer to entries it has not yet delivered.
+     */
+    public void setMaxBlockedStreams(int maxBlockedStreams) {
+        this.maxBlockedStreams = maxBlockedStreams;
+    }
+
+    public int getMaxBlockedStreams() {
+        return maxBlockedStreams;
+    }
+
+    /**
+     * The QPACK decoder stream (RFC 9204 section 4.4), on which the peer's encoder is told what has
+     * arrived and what has been decoded. Without it the peer's Known Received Count never moves and
+     * it can only refer to a dynamic table entry by risking a blocked stream.
+     */
+    public void setDecoderStream(OutputStream decoderStream) {
+        this.decoderStream = decoderStream;
+    }
+
+    /**
+     * Names the stream the next field section decoded on this thread came in on. Set by the HTTP/3
+     * connection, which is the only place that knows both.
+     *
+     * @param streamId null when the caller cannot tell, which leaves a section that needs
+     *                 acknowledging to fail rather than be acknowledged against whatever this thread
+     *                 decoded last
+     */
+    public void setSectionStreamId(Long streamId) {
+        sectionStreamId.set(streamId);
+    }
+
+    public DynamicTable getDynamicTable() {
+        return dynamicTable;
+    }
+
+    /**
+     * How many field line representations have been resolved against the dynamic table. Inserting
+     * entries and referring to them are separate capabilities and a peer can use the first without
+     * the second, so this counts the second: it is the only way to tell that a connection really
+     * exercised the dynamic table rather than merely filling one.
+     */
+    public long getDynamicTableReferences() {
+        return dynamicTableReferences.get();
+    }
+
+    private TableEntry referenced(long absoluteIndex, String representation) {
+        dynamicTableReferences.incrementAndGet();
+        return dynamicTable.get(absoluteIndex, representation);
+    }
+
+    /**
+     * Reads the peer's encoder stream (RFC 9204 section 4.3) until it ends, which it should not do
+     * before the connection does. Runs on its own thread: it is the only writer of the dynamic table,
+     * and the request threads read it.
+     */
     public void decodeEncoderStream(InputStream inputStream) throws IOException {
         PushbackInputStream pushbackInputStream = new PushbackInputStream(inputStream, 16);
-        int instruction = pushbackInputStream.read();
-        pushbackInputStream.unread(instruction);
+        int instruction = peek(pushbackInputStream);
 
         while (instruction >= 0) {  // EOF returns -1
-
+            // RFC 9204 section 4.3 defines four instructions and they exhaust the first byte, so
+            // there is no "unknown instruction" left to reject here.
             if ((instruction & 0x80) == 0x80) {
                 parseInsertWithNameReference(pushbackInputStream);
             }
             else if ((instruction & 0xc0) == 0x40) {
                 parseInsertWithoutNameReference(pushbackInputStream);
             }
+            else if ((instruction & 0xe0) == 0x20) {
+                parseSetDynamicTableCapacity(pushbackInputStream);
+            }
             else {
-                throw new NotYetImplementedException("Error: unknown instruction in encoder stream: " + instruction);
+                parseDuplicate(pushbackInputStream);
             }
 
-            instruction = pushbackInputStream.read();
-            pushbackInputStream.unread(instruction);
+            // Tell the encoder what has arrived, once per batch rather than once per insert: until it
+            // hears, it can only refer to these entries by blocking a stream.
+            if (pushbackInputStream.available() == 0) {
+                flushInsertCountIncrement();
+            }
+            instruction = peek(pushbackInputStream);
         }
+        flushInsertCountIncrement();
     }
 
     @Override
@@ -72,102 +178,254 @@ public class DecoderImpl implements Decoder {
         PushbackInputStream pushbackInputStream = new PushbackInputStream(inputStream, 16);
         List<Map.Entry<String, String>> headers = new ArrayList<>();
 
-        // https://tools.ietf.org/html/draft-ietf-quic-qpack-07#section-4.5.1
+        // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.5.1
         // "Header Block Prefix"
-        long requiredInsertCount = parsePrefixedInteger(8, pushbackInputStream);
-        int deltaBase = (int) parsePrefixedInteger(7, pushbackInputStream);
+        long requiredInsertCount = decodeRequiredInsertCount(parsePrefixedInteger(8, pushbackInputStream));
+        byte deltaBaseFirstByte = read(pushbackInputStream);
+        pushbackInputStream.unread(deltaBaseFirstByte);
+        boolean baseIsBelowRequiredInsertCount = (deltaBaseFirstByte & 0x80) == 0x80;
+        long deltaBase = parsePrefixedInteger(7, pushbackInputStream);
+        // "Base = ReqInsertCount + DeltaBase" when the sign bit is 0, "Base = ReqInsertCount - DeltaBase - 1" when it is 1.
+        long base = baseIsBelowRequiredInsertCount
+                ? requiredInsertCount - deltaBase - 1
+                : requiredInsertCount + deltaBase;
 
-        int instruction = pushbackInputStream.read();
-        pushbackInputStream.unread(instruction);
+        awaitRequiredInsertCount(requiredInsertCount);
+
+        int instruction = peek(pushbackInputStream);
         while (instruction >= 0) {  // EOF returns -1
-            Map.Entry<String, String> entry = null;
+            Map.Entry<String, String> entry;
             if ((instruction & 0x80) == 0x80) {
-                entry = parseIndexedHeaderField(pushbackInputStream);
+                entry = parseIndexedHeaderField(pushbackInputStream, base);
             }
             else if ((instruction & 0xc0) == 0x40) {
-                entry = parseLiteralHeaderFieldWithNameReference(pushbackInputStream);
+                entry = parseLiteralHeaderFieldWithNameReference(pushbackInputStream, base);
             }
             else if ((instruction & 0xe0) == 0x20) {
                 entry = parseLiteralHeaderFieldWithoutNameReference(pushbackInputStream);
             }
+            else if ((instruction & 0xf0) == 0x10) {
+                entry = parseIndexedHeaderFieldWithPostBaseIndex(pushbackInputStream, base);
+            }
             else {
-                throw new NotYetImplementedException("Error: unknown instruction: " + instruction);
+                // RFC 9204 section 4.5 defines six representations and they exhaust the first byte;
+                // 0000xxxx is the last of them.
+                entry = parseLiteralHeaderFieldWithPostBaseNameReference(pushbackInputStream, base);
             }
 
-            if (entry != null) {
-                headers.add(entry);
-            }
-            instruction = pushbackInputStream.read();
-            pushbackInputStream.unread(instruction);
+            headers.add(entry);
+            instruction = peek(pushbackInputStream);
         }
 
+        acknowledgeSection(requiredInsertCount);
         return headers;
     }
 
-    // https://tools.ietf.org/html/draft-ietf-quic-qpack-07#section-4.3.1
+    /**
+     * RFC 9204 section 4.5.1.1. The Required Insert Count is sent modulo twice the number of entries
+     * the table can hold, so that it stays small; recovering it needs the number of inserts this end
+     * has seen, and a value that cannot be reconciled with that is an error rather than a guess.
+     */
+    long decodeRequiredInsertCount(long encodedInsertCount) {
+        if (encodedInsertCount == 0) {
+            return 0;
+        }
+        long maxEntries = dynamicTable.maxEntries();
+        if (maxEntries == 0) {
+            throw new HttpQPackDecompressionFailedException("field section requires " + encodedInsertCount
+                    + " dynamic table entries, but this end advertised no dynamic table capacity");
+        }
+        long fullRange = 2 * maxEntries;
+        if (encodedInsertCount > fullRange) {
+            throw new HttpQPackDecompressionFailedException("encoded Required Insert Count "
+                    + encodedInsertCount + " exceeds the full range " + fullRange);
+        }
+        long maxValue = dynamicTable.insertCount() + maxEntries;
+        long maxWrapped = (maxValue / fullRange) * fullRange;
+        long requiredInsertCount = maxWrapped + encodedInsertCount - 1;
+        if (requiredInsertCount > maxValue) {
+            if (requiredInsertCount <= fullRange) {
+                throw new HttpQPackDecompressionFailedException("encoded Required Insert Count "
+                        + encodedInsertCount + " does not resolve: " + requiredInsertCount
+                        + " is above the maximum " + maxValue + " and cannot be unwrapped");
+            }
+            requiredInsertCount -= fullRange;
+        }
+        if (requiredInsertCount == 0) {
+            throw new HttpQPackDecompressionFailedException("encoded Required Insert Count "
+                    + encodedInsertCount + " resolves to zero, which is only encoded as zero");
+        }
+        return requiredInsertCount;
+    }
+
+    /**
+     * Waits for the entries a field section refers to, which is what {@code
+     * SETTINGS_QPACK_BLOCKED_STREAMS} allows the encoder to make this end do. More streams blocked at
+     * once than were advertised is the encoder exceeding what it was given.
+     */
+    private void awaitRequiredInsertCount(long requiredInsertCount) throws IOException {
+        if (requiredInsertCount <= dynamicTable.insertCount()) {
+            return;
+        }
+        int blocked = blockedStreams.incrementAndGet();
+        try {
+            if (blocked > maxBlockedStreams) {
+                throw new HttpQPackDecompressionFailedException("field section requires insert count "
+                        + requiredInsertCount + " with " + dynamicTable.insertCount() + " delivered, which would"
+                        + " block " + blocked + " streams; this end advertised SETTINGS_QPACK_BLOCKED_STREAMS "
+                        + maxBlockedStreams);
+            }
+            dynamicTable.awaitInsertCount(requiredInsertCount, BLOCKED_SECTION_TIMEOUT_MILLIS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted while blocked on Required Insert Count " + requiredInsertCount, e);
+        }
+        finally {
+            blockedStreams.decrementAndGet();
+        }
+    }
+
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.3.2
     void parseInsertWithNameReference(PushbackInputStream inputStream) throws IOException {
         byte first = read(inputStream);
         inputStream.unread(first);
-
-        int index = (int) parsePrefixedInteger(6, inputStream);
         boolean referStatic = (first & 0x40) == 0x40;
-        String name = referStatic? staticTable.lookupName(index): lookupDynamicTable(index).getKey();
+
+        long index = parsePrefixedInteger(6, inputStream);
+        String name = referStatic
+                ? staticTable.lookupName((int) index)
+                : dynamicTable.get(relativeToInsertPoint(index), "Insert With Name Reference").getKey();
 
         String value = parseStringValue(inputStream);
-        addToTable(name, value);
+        insert(name, value);
     }
 
-    // https://tools.ietf.org/html/draft-ietf-quic-qpack-07#section-4.3.2
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.3.3
     void parseInsertWithoutNameReference(PushbackInputStream inputStream) throws IOException {
         String name = parseStringValue(5, inputStream);
         String value = parseStringValue(inputStream);
-        addToTable(name, value);
+        insert(name, value);
     }
 
-    // https://tools.ietf.org/html/draft-ietf-quic-qpack-07#section-4.5.2
-    Map.Entry<String, String> parseIndexedHeaderField(PushbackInputStream inputStream) throws IOException {
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.3.1
+    void parseSetDynamicTableCapacity(PushbackInputStream inputStream) throws IOException {
+        dynamicTable.setCapacity(parsePrefixedInteger(5, inputStream));
+    }
+
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.3.4
+    void parseDuplicate(PushbackInputStream inputStream) throws IOException {
+        long index = parsePrefixedInteger(5, inputStream);
+        TableEntry entry = dynamicTable.get(relativeToInsertPoint(index), "Duplicate");
+        insert(entry.getKey(), entry.getValue());
+    }
+
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.5.2
+    Map.Entry<String, String> parseIndexedHeaderField(PushbackInputStream inputStream, long base) throws IOException {
         byte first = read(inputStream);
         inputStream.unread(first);
         boolean inStaticTable = (first & 0x40) == 0x40;
-        int index = (int) parsePrefixedInteger(6, inputStream);
+        long index = parsePrefixedInteger(6, inputStream);
 
-        if (inStaticTable) {
-            return staticTable.lookupNameValue(index);
-        }
-        else {
-            return lookupDynamicTable(index);
-        }
+        return inStaticTable
+                ? staticTable.lookupNameValue((int) index)
+                : referenced(relativeToBase(base, index), "Indexed Field Line");
     }
 
-    // https://tools.ietf.org/html/draft-ietf-quic-qpack-07#section-4.5.4
-    Map.Entry<String, String> parseLiteralHeaderFieldWithNameReference(PushbackInputStream inputStream) throws IOException {
-        byte first = read((inputStream));
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.5.3
+    Map.Entry<String, String> parseIndexedHeaderFieldWithPostBaseIndex(PushbackInputStream inputStream, long base) throws IOException {
+        long index = parsePrefixedInteger(4, inputStream);
+        return referenced(base + index, "Indexed Field Line With Post-Base Index");
+    }
+
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.5.4
+    Map.Entry<String, String> parseLiteralHeaderFieldWithNameReference(PushbackInputStream inputStream, long base) throws IOException {
+        byte first = read(inputStream);
         inputStream.unread(first);
         boolean inStaticTable = (first & 0x10) == 0x10;
-        int nameIndex = (int) parsePrefixedInteger(4, inputStream);
-        if (! inStaticTable) {
-            throw new NotYetImplementedException("non static ref in parseLiteralHeaderFieldWithNameReference");
-        }
-        String name = inStaticTable? staticTable.lookupName(nameIndex): "<tbd>";
+        long nameIndex = parsePrefixedInteger(4, inputStream);
+        String name = inStaticTable
+                ? staticTable.lookupName((int) nameIndex)
+                : referenced(relativeToBase(base, nameIndex), "Literal Field Line With Name Reference").getKey();
 
         String value = parseStringValue(inputStream);
-
         return new AbstractMap.SimpleEntry<>(name, value);
     }
 
-    // https://tools.ietf.org/html/draft-ietf-quic-qpack-07#section-4.5.6
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.5.5
+    Map.Entry<String, String> parseLiteralHeaderFieldWithPostBaseNameReference(PushbackInputStream inputStream, long base) throws IOException {
+        long nameIndex = parsePrefixedInteger(3, inputStream);
+        String name = referenced(base + nameIndex, "Literal Field Line With Post-Base Name Reference").getKey();
+
+        String value = parseStringValue(inputStream);
+        return new AbstractMap.SimpleEntry<>(name, value);
+    }
+
+    // https://www.rfc-editor.org/rfc/rfc9204.html#section-4.5.6
     Map.Entry<String, String> parseLiteralHeaderFieldWithoutNameReference(PushbackInputStream inputStream) throws IOException {
         String name = parseStringValue(3, inputStream);
         String value = parseStringValue(inputStream);
         return new AbstractMap.SimpleEntry<>(name, value);
     }
 
-    Map.Entry<String, String> lookupDynamicTable(int index) {
-        if (index < dynamicTable.size()) {
-            return dynamicTable.get(index);
+    /**
+     * RFC 9204 section 3.2.5: on the encoder stream a relative index counts back from the entry that
+     * is about to be added, so entry 0 is the one inserted last.
+     */
+    private long relativeToInsertPoint(long relativeIndex) {
+        return dynamicTable.insertCount() - relativeIndex - 1;
+    }
+
+    /**
+     * RFC 9204 section 3.2.6: in a field section a relative index counts back from the Base, so that
+     * the section keeps meaning the same entries however many inserts happen after it was encoded.
+     */
+    private long relativeToBase(long base, long relativeIndex) {
+        return base - relativeIndex - 1;
+    }
+
+    private void insert(String name, String value) {
+        dynamicTable.insert(name, value);
+        pendingInsertCountIncrement++;
+    }
+
+    /**
+     * RFC 9204 section 4.4.3, Insert Count Increment: how many entries have arrived since this end
+     * last said. Until the encoder hears this, its Known Received Count stays where it was and it
+     * cannot refer to the new entries without blocking a stream.
+     */
+    private void flushInsertCountIncrement() throws IOException {
+        OutputStream stream = decoderStream;
+        if (pendingInsertCountIncrement == 0 || stream == null) {
+            return;
         }
-        else {
-            return null;
+        synchronized (stream) {
+            writePrefixedInteger(6, (byte) 0x00, pendingInsertCountIncrement, stream);
+            stream.flush();
+        }
+        pendingInsertCountIncrement = 0;
+    }
+
+    /**
+     * RFC 9204 section 4.4.1: "After the decoder finishes decoding a field section encoded using
+     * representations containing dynamic table references, it MUST emit a Section Acknowledgment
+     * instruction." A section with a Required Insert Count of zero contains none, and is not
+     * acknowledged.
+     */
+    private void acknowledgeSection(long requiredInsertCount) throws IOException {
+        if (requiredInsertCount == 0) {
+            return;
+        }
+        OutputStream stream = decoderStream;
+        Long streamId = sectionStreamId.get();
+        if (stream == null || streamId == null) {
+            throw new HttpQPackDecompressionFailedException("a field section with Required Insert Count "
+                    + requiredInsertCount + " must be acknowledged, but "
+                    + (stream == null ? "no decoder stream was opened" : "the stream it arrived on is not known"));
+        }
+        synchronized (stream) {
+            writePrefixedInteger(7, (byte) 0x80, streamId, stream);
+            stream.flush();
         }
     }
 
@@ -202,8 +460,12 @@ public class DecoderImpl implements Decoder {
         return huffmanEncoded? huffman.decode(rawBytes): new String(rawBytes, StandardCharsets.ISO_8859_1);
     }
 
-    private void addToTable(String name, String value) {
-        dynamicTable.add(new AbstractMap.SimpleEntry<>(name, value));
+    private static int peek(PushbackInputStream inputStream) throws IOException {
+        int value = inputStream.read();
+        if (value >= 0) {
+            inputStream.unread(value);
+        }
+        return value;
     }
 
     static private byte read(InputStream stream) throws IOException {

@@ -59,5 +59,51 @@ handed the section's bytes and nothing else. flupke's `readHeadersFrame` is priv
 
 ## Deviations from the baseline
 
-Files changed relative to `fb39170`: none yet. This commit is the copy with not one byte changed,
-so that what is done to it afterwards is a diff and not an assertion.
+| File | Change |
+|---|---|
+| `impl/DecoderImpl.java` | the dynamic table: all four encoder stream instructions, the Required Insert Count and Base of a field section prefix, the four representations that reference the table, blocking on entries not yet delivered, and the two decoder stream instructions this end sends. Configuration for the two SETTINGS values and for the stream a section arrived on |
+| `impl/PrefixedInteger.java` | added `writePrefixedInteger`. Fixed two bugs found while relying on it: the continuation boundary was `> 128` where it has to be `>= 128`, so a remainder of exactly 128 was written as a single byte that reads back as a continuation worth zero; and the parser shifted an `int` by up to 63 bits, which wraps, where RFC 9204 section 4.1.1 requires 62 bit integers |
+| `impl/StaticTable.java` | a rejected index says which index it was |
+| `impl/HttpQPackDecompressionFailedException.java` | can carry a message and a cause |
+
+New with no upstream counterpart: `impl/DynamicTable.java` (the table itself, and the only shared
+state between the encoder stream's thread and the request threads) and
+`impl/QPackEncoderStreamException.java` (RFC 9204 distinguishes `QPACK_ENCODER_STREAM_ERROR` from
+`QPACK_DECOMPRESSION_FAILED`, and it is a real distinction: a bad field section fails one request,
+while a bad encoder stream leaves the two tables out of step and every later section undecodable).
+
+Every changed file keeps its upstream LGPL header, with an added "Modified by" line as section 2 of
+the LGPL requires.
+
+## What is not implemented, and why it is not
+
+**Stream Cancellation** (RFC 9204 section 4.4.2) is not sent. It is what tells the encoder to stop
+counting a section that will never be decoded, and the path that would need it - flupke abandoning a
+response stream part way through - is not one this client takes. Leaving it out costs the peer's
+encoder some bookkeeping it can only resolve when the connection ends; writing it would mean writing
+a branch nothing here reaches.
+
+## Testing
+
+`QpackDynamicTableTest` in `impersonator-http3` runs against a server whose encoder actually uses the
+dynamic table. That turns out to be a short list: Cloudflare's QPACK encoder and Scrapfly's set a
+capacity of zero and encode every field line against the static table alone, so they exercise none of
+this. nghttp2.org sets a capacity of 4096, inserts, and then references what it inserted - which is
+the part that cannot be faked, because a server only keeps referencing entries it has been told
+arrived.
+
+The test is deliberately not a set of hand-written byte vectors. Bytes written from reading the RFC
+would assert that the decoder agrees with how the RFC was read; a server choosing its own encoding is
+the thing that can disagree.
+
+## Re-syncing with upstream
+
+```sh
+git clone https://github.com/ptrd/qpack.git
+cd qpack && git checkout <new commit>
+cp -R src/main/java/tech <impersonator>/quic/qpack/src/main/java/
+cp -R src/main/resources/tech <impersonator>/quic/qpack/src/main/resources/
+```
+
+then re-apply the changes in the table above; `git diff` shows exactly what they were, because the
+verbatim copy is its own commit in this repository's history.

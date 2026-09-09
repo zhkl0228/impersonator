@@ -97,8 +97,13 @@ class Http3Client extends HttpClient {
                 .applicationProtocol("h3")
                 .connectTimeout(connectTimeout)
                 .build();
-        quicConnection.connect();
 
+        // Constructed before the QUIC connection is up, because the constructor is what registers
+        // the callback for peer-initiated streams and kwik drops any that arrive before there is
+        // one - silently, its default being a no-op consumer. The server opens its control and QPACK
+        // encoder streams as soon as the handshake completes, so connecting first loses whichever of
+        // them wins the race, and the QPACK one carries the dynamic table. Http3Connection.connect()
+        // brings the QUIC connection up itself.
         Http3Connection http3Connection = new Http3Connection(quicConnection, executorService, http3Settings);
         http3Connection.connect();
 
@@ -132,6 +137,19 @@ class Http3Client extends HttpClient {
                 // Closing a connection that is already gone must not mask what the caller was doing.
             }
         }
+    }
+
+    /**
+     * The connection open to an authority ({@code host:port}), or null when there is none.
+     * <p>
+     * Package private and here for the tests. Whether the peer's QPACK encoder really used the
+     * dynamic table is a property of the connection, and a connection is otherwise unreachable once
+     * a request has gone through it - so without this, "we advertise a dynamic table" could only be
+     * tested by observing that nothing broke, which is not the same claim.
+     */
+    Http3Connection openConnection(String authority) {
+        Connection connection = connections.get(authority);
+        return connection == null ? null : (Http3Connection) connection.http3Connection;
     }
 
     private static String authorityOf(URI uri) {

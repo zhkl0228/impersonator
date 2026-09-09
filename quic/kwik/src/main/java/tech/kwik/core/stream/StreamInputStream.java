@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) so that QPACK can name the
+ * stream a field section arrived on; see quic/kwik/UPSTREAM.md.
  */
 package tech.kwik.core.stream;
 
@@ -24,6 +27,19 @@ import tech.kwik.core.impl.TransportError;
 import java.io.InputStream;
 
 public abstract class StreamInputStream extends InputStream {
+
+    /**
+     * The id of the stream this reads, for a caller that holds the input stream but not the
+     * {@link tech.kwik.core.QuicStream} it came from. HTTP/3 has one such caller: QPACK must
+     * acknowledge a decoded field section by the id of the stream it arrived on (RFC 9204 section
+     * 4.4.1), and by then the section is just bytes and a stream to read them from.
+     * <p>
+     * Not every input stream here reads a stream, so this is not answered by default rather than
+     * answered with something made up.
+     */
+    public long getStreamId() {
+        throw new UnsupportedOperationException(getClass().getSimpleName() + " does not read a stream");
+    }
 
     abstract long addDataFrom(StreamFrame frame) throws TransportError;
 

@@ -65,13 +65,18 @@
                     <groupId>tech.kwik</groupId>
                     <artifactId>kwik</artifactId>
                 </exclusion>
+                <exclusion>
+                    <!-- Vendored too; see ../qpack/UPSTREAM.md. -->
+                    <groupId>tech.kwik</groupId>
+                    <artifactId>qpack</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
             <!-- flupke needs it and no longer gets it through kwik. -->
-            <groupId>tech.kwik</groupId>
-            <artifactId>qpack</artifactId>
-            <version>2.0.1</version>
+            <groupId>com.github.zhkl0228</groupId>
+            <artifactId>impersonator-qpack</artifactId>
+            <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

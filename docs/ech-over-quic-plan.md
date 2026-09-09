@@ -368,7 +368,7 @@ curl 的那份 profile 在 **test 源码**里（`Curl8QuicClientHello`），不�
 | transport parameters | kwik | 不能 |
 | DCID 长度 | kwik | **不能**——`ConnectionIdManager` 里写死 `new byte[8]`；builder 的 `connectionIdLength()` 只管 source CID |
 | Initial 包 padding / frames | kwik | 不能 |
-| h3 SETTINGS | flupke | 快能了——`settingsParameters` 是 protected `Map` 且有 add 方法，但它是 `HashMap`，参数顺序未定义 |
+| h3 SETTINGS | flupke | 快能了——`settingsParameters` 是 protected `Map` 且有 add 方法，但它是 `HashMap`，参数顺序未定义（后来做了：清空后按 `LinkedHashMap` 顺序 putAll，见下面「QPACK 动态表」） |
 
 第一行是最要紧的：**`ImpersonatorQuic` 现在那两个进程级静态入口（ECH provider 和 profile）
 不是设计偏好，是这一个事实逼出来的。** 构造器跑在调用方线程上，所以 ThreadLocal 对
@@ -388,6 +388,7 @@ curl 的那份 profile 在 **test 源码**里（`Curl8QuicClientHello`），不�
    我们自己建好 QUIC 连接交给它就行。
 4. 用同一个 endpoint 把 transport parameters、DCID 长度、Initial padding 逐项对上，
    h3_hash 最后再说；真要动 SETTINGS 的顺序时再评估要不要 vendor flupke。
+   （结论：SETTINGS 的顺序和取值都不用 vendor flupke，vendor 的是 **qpack**，见下面「QPACK 动态表」。）
 
 模块结构跟着变成四个（`quic` 是聚合 pom，两份 vendored 各自一个 artifact，
 这样每个模块 1:1 顶替一个上游 artifact，各有各的 UPSTREAM.md 和基线 commit，
@@ -399,6 +400,7 @@ impersonator/
 ├── okhttp/         impersonator-okhttp    OkHttpClientFactory
 ├── quic/           聚合 pom
 │   ├── agent15/    impersonator-agent15   vendored agent15 + ECH + ClientHelloSpec
+│   ├── qpack/      impersonator-qpack     vendored qpack + QPACK 动态表
 │   └── kwik/       impersonator-kwik      vendored kwik + per-connection profile 接线
 └── http3/          impersonator-http3     flupke（上游依赖）+ Http3ClientFactory
 ```
@@ -415,8 +417,10 @@ Chrome 在这个 endpoint 上的值还没拿到：浏览器自动化开了标签
 
 #### ECH 本身还欠的
 
-- **没有 GREASE ECH。** TCP 那条路对没有 ECHConfig 的主机会发 GREASE ECH（因为浏览器会），
-  QUIC 这条路目前是发一个普通的 ClientHello。要对齐指纹的话这是必须补的。
+- ~~**没有 GREASE ECH。**~~ —— 做了。profile 的 ClientHello 里带 GREASE ECH，服务端回
+  retry_configs 时按 RFC 9849 6.2.1 忽略（"It otherwise ignores the extension. It MUST NOT save
+  the retry_configs value"）。这条当初连着两个 bug：引擎按 Java 类而不是扩展类型去匹配「发过没发过」，
+  以及匹配上之后当成错误而不是忽略。
 - **ECH 扩展目前放在扩展列表最后。** Chrome 放在哪要照抓包改，改的地方是
   `EchClient.create` 里往 `innerExtensions` / `outerExtensions` 里 add 的位置。
 - ~~**一旦要压缩 `ech_outer_extensions`**~~ —— 做了，而且**当初判断错了**。计划正文里写的是
@@ -429,3 +433,55 @@ Chrome 在这个 endpoint 上的值还没拿到：浏览器自动化开了标签
 
 proxy-transport 现在可以去掉 `ClashProxies.noteEchNotHonored` 那条 info，
 改成 `ImpersonatorQuic.setEchConfigProvider(EchConfigs.shared(), EchConfigs.shared()::recordRejection)`。
+
+### QPACK 动态表（h3_hash 对上 Chrome）
+
+Chrome 的 SETTINGS 是 `1:65536; 6:262144; 7:100; 51:1; GREASE`。前面一直只对上三个，
+`QPACK_MAX_TABLE_CAPACITY` 和 `QPACK_BLOCKED_STREAMS` 故意写 0——因为这两个数字不是描述自己，
+**是给对端 encoder 的邀请**：允许它建动态表、允许它引用还没送达的条目。乱写不是指纹不准，是连接直接废。
+而且 `h3_hash` 是整组算的，**五个对四个和对一个一样**，所以这两个不补，前面三个白对。
+
+补的时候发现缺口比预想的深：
+
+- 上游 qpack 的 `DecoderImpl` 四条 encoder stream 指令只实现两条，服务端开场第一条
+  Set Dynamic Table Capacity 就 `NotYetImplementedException`；field section 前缀的
+  Required Insert Count / Base 读出来直接丢掉；引用动态表的四种表示全部不支持。
+  那个「动态表」还是**从旧端开始索引**的（RFC 9204 的相对索引从最新一条往回数），
+  而且查不到时返回 null，`decodeStream` 里 `if (entry != null)` **把这个 header 悄悄丢了**。
+- 而且从外面够不着：`Decoder` 接口只有一个 `decodeStream(InputStream)`，builder 没有任何选项，
+  flupke 在构造器里把它赋给 `protected final` 字段。**所以只能 vendor qpack**（第 4 份 vendored 树）。
+- flupke 这边还缺两块，但**都不用 vendor flupke**：它收下对端的 encoder stream 却从来不读
+  （`setPeerEncoderStream` 存进一个没人看的字段），也从不开自己的 decoder stream。
+  两处都能在 `Http3Connection` 这个子类里补上。
+- 唯一真正的 API 缺口是 Section Acknowledgment 要**按流 id** 确认（RFC 9204 4.4.1），
+  而 `decodeStream` 只拿到一段字节。flupke 的 `readHeadersFrame` 是 private，
+  但它调用的 `readFrame(InputStream, long, long)` 是 protected 且拿到的就是 kwik 自己的流——
+  所以 kwik 的 `StreamInputStream` 加了个 `getStreamId()`。
+
+顺手挖出来的两个 bug：
+
+- **`PrefixedInteger`**：续字节边界写成 `> 128`（该是 `>= 128`），余数正好 128 时写成单字节 0x80，
+  读回来变成「续字节，值 0」；解析时 `(next & 0x7f) << factor` 是 int 移位，factor 到 32 就绕回，
+  而 RFC 9204 4.1.1 要求支持 62 位整数。
+- **`Http3Client` 的连接顺序**：先 `quicConnection.connect()` 再 new `Http3Connection`，
+  但注册 peer-initiated stream 回调的正是 flupke 的构造器，而 kwik 在没有回调时默认
+  `NO_OP_CONSUMER`——**握手一完成服务端就开的 control / QPACK encoder 两条流，谁先到谁被静默丢弃**。
+  一直没人发现，是因为在动态表用上之前，丢了也看不出来。改成先构造再 connect。
+
+**证据**：`QpackDynamicTableTest` 打真服务器。这里有个意外发现——**能用上动态表的服务器很少**：
+Cloudflare 和 Scrapfly 的 QPACK encoder 都把 capacity 设成 0，每个 field line 都只查静态表，
+这条路一点都碰不到。nghttp2.org 会设 capacity 4096、插入、然后**引用自己插入的条目**
+（实测 4 个请求 references=20），引用这件事伪造不了：服务端只会引用它已经被告知收到了的条目，
+也就是说 decoder stream 上的 Section Acknowledgment / Insert Count Increment 也一并验证了。
+
+所以测试是打真服务器而不是手写字节向量：照着 RFC 手写的字节只能证明「解码器和我读 RFC 的方式一致」，
+能反驳这一点的是一个自己选编码方式的服务端。
+
+### 顺带发现：Chrome profile 连不上 Google 的 h3
+
+`www.google.com` / `www.youtube.com` 用 Chrome profile 走 h3 会
+`BadCertificateAlert: unable to find valid certification path`，不带 profile 则正常（302），
+同机 curl `--http3-only` 也正常。把 `trust_anchors`（51764，draft-ietf-tls-trust-anchor-ids）
+从 QUIC 的 ClientHello 里去掉，报错会变成另一种（`StreamClosedException: Connection closed`），
+**所以 trust_anchors 有份，但去掉也还是连不上，另有原因。**
+这是 QPACK 之前就有的问题，没有在这次一起改。

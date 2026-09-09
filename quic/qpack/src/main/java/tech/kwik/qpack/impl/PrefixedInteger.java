@@ -21,6 +21,7 @@ package tech.kwik.qpack.impl;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 
 /**
@@ -29,6 +30,10 @@ import java.nio.ByteBuffer;
  *  [RFC7541] is used unmodified. Note, however, that QPACK uses some prefix sizes not actually used in HPACK.
  *  QPACK implementations MUST be able to decode integers up to and including 62 bits long."
  * See also https://tools.ietf.org/html/rfc7541#section-5.1
+ */
+/*
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator): added writePrefixedInteger,
+ * and fixed the continuation boundary and the 32 bit shift; see quic/qpack/UPSTREAM.md.
  */
 public class PrefixedInteger {
 
@@ -39,12 +44,33 @@ public class PrefixedInteger {
         } else {
             buffer.put((byte) (prefix | maxPrefix));
             int remainder = value - maxPrefix;
-            while (remainder > 128) {
+            while (remainder >= 128) {
                 byte next = (byte) ((remainder % 128) | 0x80);
                 buffer.put(next);
                 remainder = remainder / 128;
             }
             buffer.put((byte) remainder);
+        }
+    }
+
+    /**
+     * Writes a prefixed integer, the high bits of the first byte being the instruction it belongs to.
+     *
+     * @param prefixBits the instruction pattern, in the bits above the prefix
+     */
+    static void writePrefixedInteger(int prefixLength, byte prefixBits, long value, OutputStream output) throws IOException {
+        int maxPrefix = (1 << prefixLength) - 1;
+        if (value < maxPrefix) {
+            output.write((prefixBits & 0xff) | (int) value);
+        }
+        else {
+            output.write((prefixBits & 0xff) | maxPrefix);
+            long remainder = value - maxPrefix;
+            while (remainder >= 128) {
+                output.write((int) ((remainder % 128) | 0x80));
+                remainder /= 128;
+            }
+            output.write((int) remainder);
         }
     }
 
@@ -60,7 +86,7 @@ public class PrefixedInteger {
         byte next;
         do {
             next = read(input);
-            value += ((next & 0x7f) << factor);
+            value += ((long) (next & 0x7f)) << factor;
             factor += 7;
         }
         while ((next & 0x80) == 0x80);

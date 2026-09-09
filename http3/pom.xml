@@ -62,13 +62,22 @@
                     <groupId>tech.kwik</groupId>
                     <artifactId>kwik</artifactId>
                 </exclusion>
+                <exclusion>
+                    <!-- Vendored too; see ../quic/qpack/UPSTREAM.md. -->
+                    <groupId>tech.kwik</groupId>
+                    <artifactId>qpack</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
-            <!-- flupke needs it and no longer gets it through kwik. -->
-            <groupId>tech.kwik</groupId>
-            <artifactId>qpack</artifactId>
-            <version>2.0.1</version>
+            <!--
+                flupke needs it and no longer gets it through kwik. This module vendors it, because
+                honestly advertising Chrome's QPACK settings means implementing the dynamic table
+                upstream does not have; see ../quic/qpack/UPSTREAM.md.
+            -->
+            <groupId>com.github.zhkl0228</groupId>
+            <artifactId>impersonator-qpack</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>

@@ -58,6 +58,8 @@ Files changed relative to `edb3155f`:
 | `impl/QuicClientConnectionImpl.java` | carries them to the TLS engine and to the connection id manager and transport parameters |
 | `cid/ConnectionIdManager.java` | the initial Destination Connection ID length is a parameter instead of a hardcoded 8 |
 | `tls/QuicTransportParametersExtension.java` | a transport parameter can be left out instead of sent, and parameters this implementation has no model of can be appended |
+| `stream/StreamInputStream.java` | a stream's input stream can say which stream id it reads; not answered by default, so that a subclass which reads no stream says so rather than inventing an id |
+| `stream/StreamInputStreamImpl.java` | answers it |
 
 `maxUdpPayloadSize` was already on `ExtendedBuilder` returning void; it moved onto `Builder` and
 `ExtendedBuilder`'s copy became the override, so there is one of it rather than two.

@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) so that QPACK can name the
+ * stream a field section arrived on; see quic/kwik/UPSTREAM.md.
  */
 package tech.kwik.core.stream;
 
@@ -71,6 +74,11 @@ class StreamInputStreamImpl extends StreamInputStream {
         receiverFlowControlLimit = receiveBufferSize;
         lastCommunicatedMaxData = receiverFlowControlLimit;
         receiverMaxDataIncrement = (long) (receiverFlowControlLimit * receiverMaxDataIncrementFactor);
+    }
+
+    @Override
+    public long getStreamId() {
+        return quicStream.getStreamId();
     }
 
     /**

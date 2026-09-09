@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to carry a message;
+ * see quic/qpack/UPSTREAM.md.
  */
 package tech.kwik.qpack.impl;
 
@@ -24,4 +27,15 @@ package tech.kwik.qpack.impl;
 //   block instruction it MUST treat this as a stream error of type
 //   "HTTP_QPACK_DECOMPRESSION_FAILED"."
 public class HttpQPackDecompressionFailedException extends RuntimeException {
+
+    public HttpQPackDecompressionFailedException() {
+    }
+
+    public HttpQPackDecompressionFailedException(String message) {
+        super(message);
+    }
+
+    public HttpQPackDecompressionFailedException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

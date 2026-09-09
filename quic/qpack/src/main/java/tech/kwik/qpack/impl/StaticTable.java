@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) so that a rejected index says
+ * which one it was; see quic/qpack/UPSTREAM.md.
  */
 package tech.kwik.qpack.impl;
 
@@ -135,11 +138,12 @@ public class StaticTable {
 
     public String lookupName(int index) {
         if (index < 0 || index >= MAX_TABLE_SIZE) {
-            throw new HttpQPackDecompressionFailedException();
+            throw new HttpQPackDecompressionFailedException("static table index " + index
+                    + " is outside [0, " + MAX_TABLE_SIZE + ")");
         }
         TableEntry result = entriesByIndex[index];
         if (result == null) {
-            throw new HttpQPackDecompressionFailedException();
+            throw new HttpQPackDecompressionFailedException("static table index " + index + " is unassigned");
         }
         return result.getKey();
     }
@@ -159,13 +163,14 @@ public class StaticTable {
 
     public Map.Entry<String, String> lookupNameValue(int index) {
         if (index < 0 || index >= MAX_TABLE_SIZE) {
-            throw new HttpQPackDecompressionFailedException();
+            throw new HttpQPackDecompressionFailedException("static table index " + index
+                    + " is outside [0, " + MAX_TABLE_SIZE + ")");
         }
         if (entriesByIndex[index] != null) {
             return entriesByIndex[index];
         }
         else {
-            throw new HttpQPackDecompressionFailedException();
+            throw new HttpQPackDecompressionFailedException("static table index " + index + " is unassigned");
         }
     }
 }

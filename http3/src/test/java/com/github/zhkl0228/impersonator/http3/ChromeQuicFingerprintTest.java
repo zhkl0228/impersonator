@@ -27,6 +27,7 @@ public class ChromeQuicFingerprintTest extends TestCase {
     private static final String CHROME_JA4_R = "q13d0312h3_1301,1302,1303"
             + "_000a,000d,001b,002b,002d,0033,0039,44cd,ca34,fe0d"
             + "_0201,0401,0403,0501,0503,0601,0804,0805,0806";
+    private static final String CHROME_H3_HASH = "049704d97f9b";
 
     public void testTheClientHelloIsChromes() throws Exception {
         JSONObject fingerprint = fingerprint();
@@ -147,19 +148,23 @@ public class ChromeQuicFingerprintTest extends TestCase {
     }
 
     /**
-     * The HTTP/3 SETTINGS frame: five settings in Chrome's order, ending in a GREASE one.
+     * The HTTP/3 SETTINGS frame: all five of Chrome's settings, with Chrome's values, in Chrome's
+     * order, ending in a GREASE one. The hash is over the whole set, so it only matches when every
+     * value does - four out of five leaves it as far from Chrome's as one out of five would.
      * <p>
-     * Two values are deliberately not Chrome's. QPACK_MAX_TABLE_CAPACITY and QPACK_BLOCKED_STREAMS
-     * invite the peer to use a dynamic table and to block streams on it, and the QPACK decoder
-     * underneath implements only part of the encoder stream. Sending 65536 and 100 would advertise a
-     * capability that is not there, which breaks the connection rather than the fingerprint.
+     * Two of the values are promises about this end rather than descriptions of it.
+     * QPACK_MAX_TABLE_CAPACITY and QPACK_BLOCKED_STREAMS invite the peer's encoder to keep a 64 KiB
+     * dynamic table and to let a hundred streams block on entries it has not delivered yet; until the
+     * decoder underneath implemented that, these two were deliberately sent as zero, because
+     * advertising a capability that is not there breaks the connection rather than the fingerprint.
+     * They are Chrome's now because the capability is there; {@link QpackDynamicTableTest#testTheDynamicTableIsReallyUsed}
+     * is the evidence, and this test alone would not be.
      */
-    public void testTheSettingsFrameIsChromesExceptWhereItWouldBeALie() throws Exception {
-        String settings = fingerprint().getString("h3_text");
+    public void testTheSettingsFrameIsChromes() throws Exception {
+        JSONObject fingerprint = fingerprint();
 
-        assertEquals("1:0;6:262144;7:0;51:1;GREASE", settings);
-        assertEquals("Chrome, for reference", "1:65536;6:262144;7:100;51:1;GREASE",
-                "1:65536;6:262144;7:100;51:1;GREASE");
+        assertEquals("1:65536;6:262144;7:100;51:1;GREASE", fingerprint.getString("h3_text"));
+        assertEquals(CHROME_H3_HASH, fingerprint.getString("h3_hash"));
     }
 
     /** The GREASE setting has to be drawn per connection, or it is a stable identifier instead. */
