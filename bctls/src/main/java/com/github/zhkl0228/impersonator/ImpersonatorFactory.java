@@ -285,6 +285,13 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         }
     }
 
+    /**
+     * The token that stands for "every extension this order does not name, in a fresh random order".
+     * Firefox permutes its ClientHello and pins only its last two extensions, which is neither a
+     * fixed order nor Chrome's shuffle of everything; see {@link ExtensionOrder}.
+     */
+    public static final String SHUFFLE_THE_REST = "*";
+
     public static void sortExtensions(Map<Integer,byte[]> clientExtensions, Map<Integer,byte[]> copy, String order) {
         if (copy == null) {
             copy = new HashMap<>(clientExtensions);
@@ -292,12 +299,36 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
         }
         String[] tokens = order.split("-");
         for(String token : tokens) {
+            if (SHUFFLE_THE_REST.equals(token)) {
+                List<Integer> rest = new ArrayList<>(copy.keySet());
+                rest.removeAll(namedTypes(tokens));
+                Collections.shuffle(rest);
+                for (Integer type : rest) {
+                    clientExtensions.put(type, copy.remove(type));
+                }
+                continue;
+            }
             int type = Integer.parseInt(token);
             byte[] data = copy.remove(type);
             if (data != null) {
                 clientExtensions.put(type, data);
             }
         }
+    }
+
+    /**
+     * The extension types an order names outright, which is what {@link #SHUFFLE_THE_REST} means by
+     * "the rest": a type named after the wildcard keeps the place it was named in and does not also
+     * turn up inside the shuffled block.
+     */
+    private static List<Integer> namedTypes(String[] tokens) {
+        List<Integer> named = new ArrayList<>(tokens.length);
+        for (String token : tokens) {
+            if (!SHUFFLE_THE_REST.equals(token)) {
+                named.add(Integer.parseInt(token));
+            }
+        }
+        return named;
     }
 
     @Override

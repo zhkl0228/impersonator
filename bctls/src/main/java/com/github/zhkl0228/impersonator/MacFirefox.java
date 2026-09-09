@@ -157,9 +157,40 @@ class MacFirefox extends ImpersonatorFactory {
                 // A host that publishes an ECHConfig gets a real Encrypted Client Hello in this slot;
                 // the capture is of one that did, and the endpoint reported ech_success.
                 addGreaseEncryptedClientHelloExtension(clientExtensions);
-                return new ExtensionOrder("28-10-23-34-5-13-65281-16-51-27-45-43-0-57-65037", false);
+                /*
+                 * Firefox permutes its ClientHello extensions, so there is no order to hardcode.
+                 * Four captured ClientHellos gave four different orders:
+                 * <pre>
+                 *   28,10,23,34,5,13,65281,16,51,27,45,43,0,     57,65037
+                 *   65281,16,34,28,0,27,43,23,13,45,5,51,10,     57,65037
+                 *   51,43,28,34,5,0,45,65281,13,23,10,27,16,     57,65037
+                 *   5,10,23,0,51,27,34,13,28,65281,45,42,16,43,  57,65037,41
+                 * </pre>
+                 * Every extension moves except the last two, and the odds of those two landing there
+                 * four times running are about one in ten thousand, so they are pinned rather than
+                 * lucky. That is NSS: it permutes the extensions it builds from its own table, then
+                 * the QUIC transport parameters go on as a custom extension and the Encrypted Client
+                 * Hello last of all, because it has to cover everything before it.
+                 * <p>
+                 * The fourth line is a resumed handshake, and it is the reason early_data is not
+                 * pinned either - it came up twelfth of seventeen, inside the permuted block. That
+                 * rests on one capture rather than four. pre_shared_key is last by RFC 8446 section
+                 * 4.2.11 and QuicClientHelloSpec puts it there whatever this asks for.
+                 */
+                return new ExtensionOrder(ImpersonatorFactory.SHUFFLE_THE_REST + "-57-65037", false);
             }
         };
+    }
+
+    /**
+     * Both of Firefox's ClientHellos are captured - docs/captures/firefox-155-quic.json and
+     * firefox-155-quic-resumed.json - so a resumed handshake can be described rather than guessed at.
+     * The resumed one adds early_data and pre_shared_key to the same fifteen extensions, and the
+     * endpoint reported 0-rtt for it where it reported none for Safari's.
+     */
+    @Override
+    public boolean isQuicSessionResumptionSupported() {
+        return true;
     }
 
     /**
