@@ -192,6 +192,16 @@ abstract class Chrome extends ImpersonatorFactory {
     }
 
     /**
+     * Both of this browser's ClientHellos are captured - docs/captures/chrome-152-quic.json and
+     * chrome-152-quic-resumed.json - so a resumed handshake can be described rather than guessed at.
+     * Its extension order is a per-connection shuffle anyway, which the two extra extensions join.
+     */
+    @Override
+    public boolean isQuicSessionResumptionSupported() {
+        return true;
+    }
+
+    /**
      * The QUIC layer of the same capture.
      * <p>
      * Chrome shuffles the transport parameters - the capture has them in the order 15, 7, 5, 9, 1, 6,
@@ -205,16 +215,6 @@ abstract class Chrome extends ImpersonatorFactory {
      * turn on experiments in Google's servers; Chrome sends {@code ORIG}, which Chromium's
      * {@code crypto_protocol.h} documents as "Experiment for sending new ORIGIN frame".
      */
-    /**
-     * Both of this browser's ClientHellos are captured - docs/captures/chrome-152-quic.json and
-     * chrome-152-quic-resumed.json - so a resumed handshake can be described rather than guessed at.
-     * Its extension order is a per-connection shuffle anyway, which the two extra extensions join.
-     */
-    @Override
-    public boolean isQuicSessionResumptionSupported() {
-        return true;
-    }
-
     @Override
     public QuicTransport getQuicTransport() {
         return QuicTransport.newBuilder()

@@ -100,12 +100,9 @@ public class QuicTransport {
     }
 
     /**
-     * Length of the unpredictable Destination Connection ID in the first Initial packet, or null to
-     * keep the implementation's own. RFC 9000 only requires at least 8, so what a client picks above
-     * that identifies it.
-     */
-    /**
-     * How long the Destination Connection ID of the first Initial is, asked once per connection.
+     * How long the unpredictable Destination Connection ID of the first Initial packet is, asked once
+     * per connection, or null to keep the implementation's own. RFC 9000 only requires at least 8, so
+     * what a client picks above that identifies it.
      * <p>
      * A supplier and not a number because it is not always a constant: Chrome and Safari send eight
      * bytes every time, and Firefox draws a fresh length for every connection.

@@ -192,8 +192,7 @@ class Http3Client extends HttpClient {
          * one: the ClientHello carries "pre_shared_key" and "early_data" and is a different message
          * with a different JA4, which is what a browser's second visit to a host looks like. Without
          * this every connection is a full handshake for ever, which no browser's history contains.
-         */
-        /*
+         * <p>
          * Only for a profile that can describe a resumed ClientHello; see
          * Impersonator.isQuicSessionResumptionSupported. Without a profile at all there is no
          * dictated ClientHello to accommodate, and the engine builds its own.

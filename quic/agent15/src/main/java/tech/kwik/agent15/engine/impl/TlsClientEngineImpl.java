@@ -1106,12 +1106,9 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     }
 
     /**
-     * Asks the spec for the key shares and then for the whole extension list. The engine keeps no
-     * private key of its own on this path: the spec generated the ephemerals and is the only thing
-     * that can turn the server's value back into a shared secret.
-     */
-    /**
-     * Generates one ephemeral per group the spec offers and builds the key_share from them.
+     * Generates one ephemeral per group the spec offers and builds the key_share from them. The
+     * engine keeps no private key of its own on this path: the spec generated the ephemerals and is
+     * the only thing that can turn the server's value back into a shared secret.
      * <p>
      * Called once per connection even when ECH builds two ClientHellos, because both carry the same
      * key_share: generating a second set would leave the engine holding the private half of only one
