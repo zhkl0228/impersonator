@@ -41,6 +41,7 @@ import java.nio.ByteBuffer;
 
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
+import com.github.zhkl0228.impersonator.CertificateChains;
 import javax.security.auth.x500.X500Principal;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -809,18 +810,23 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     }
 
     protected void checkCertificateValidity(List<X509Certificate> certificates) throws BadCertificateAlert {
+        X509Certificate[] chain = certificates.toArray(new X509Certificate[certificates.size()]);
         try {
-            if (customTrustManager != null) {
-                customTrustManager.checkServerTrusted(certificates.toArray(new X509Certificate[certificates.size()]), "RSA");
-            }
-            else {
-                // https://docs.oracle.com/en/java/javase/11/docs/specs/security/standard-names.html#trustmanagerfactory-algorithms
-                // "...that validate certificate chains according to the rules defined by the IETF PKIX working group in RFC 5280 or its successor"
-                TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("PKIX");
-                trustManagerFactory.init((KeyStore) null);
-                X509TrustManager trustMgr = (X509TrustManager) trustManagerFactory.getTrustManagers()[0];
-                trustMgr.checkServerTrusted(certificates.toArray(new X509Certificate[certificates.size()]), "UNKNOWN");
+            X509TrustManager trustManager = trustManager();
+            try {
+                trustManager.checkServerTrusted(chain, customTrustManager != null ? "RSA" : "UNKNOWN");
                 // If it gets here, the certificates are ok.
+            }
+            catch (CertificateException incomplete) {
+                // The server is allowed to leave out certificates it can assume this end already has,
+                // and a ClientHello carrying "trust_anchors" is what tells it so - Google answers one
+                // with the leaf alone. Fetch what it left out and ask again; if that does not help,
+                // the failure to report is the original one and not anything about the fetching.
+                X509Certificate[] completed = CertificateChains.completeFromAuthorityInformationAccess(chain);
+                if (completed.length == chain.length) {
+                    throw incomplete;
+                }
+                trustManager.checkServerTrusted(completed, customTrustManager != null ? "RSA" : "UNKNOWN");
             }
         } catch (NoSuchAlgorithmException e) {
             // Impossible, as we're using the trust managers default algorithm
@@ -831,6 +837,17 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         } catch (CertificateException e) {
             throw new BadCertificateAlert(extractReason(e).orElse("certificate validation failed"));
         }
+    }
+
+    private X509TrustManager trustManager() throws NoSuchAlgorithmException, KeyStoreException {
+        if (customTrustManager != null) {
+            return customTrustManager;
+        }
+        // https://docs.oracle.com/en/java/javase/11/docs/specs/security/standard-names.html#trustmanagerfactory-algorithms
+        // "...that validate certificate chains according to the rules defined by the IETF PKIX working group in RFC 5280 or its successor"
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("PKIX");
+        trustManagerFactory.init((KeyStore) null);
+        return (X509TrustManager) trustManagerFactory.getTrustManagers()[0];
     }
 
     private void sendClientAuth() throws IOException, ErrorAlert {

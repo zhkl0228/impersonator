@@ -477,11 +477,58 @@ Cloudflare 和 Scrapfly 的 QPACK encoder 都把 capacity 设成 0，每个 fiel
 所以测试是打真服务器而不是手写字节向量：照着 RFC 手写的字节只能证明「解码器和我读 RFC 的方式一致」，
 能反驳这一点的是一个自己选编码方式的服务端。
 
-### 顺带发现：Chrome profile 连不上 Google 的 h3
+### Chrome profile 连不上 Google：两个互相独立的问题
 
-`www.google.com` / `www.youtube.com` 用 Chrome profile 走 h3 会
-`BadCertificateAlert: unable to find valid certification path`，不带 profile 则正常（302），
-同机 curl `--http3-only` 也正常。把 `trust_anchors`（51764，draft-ietf-tls-trust-anchor-ids）
-从 QUIC 的 ClientHello 里去掉，报错会变成另一种（`StreamClosedException: Connection closed`），
-**所以 trust_anchors 有份，但去掉也还是连不上，另有原因。**
-这是 QPACK 之前就有的问题，没有在这次一起改。
+`www.google.com` / `www.youtube.com` 用 Chrome profile 走 h3 连不上，不带 profile 正常（302），
+同机 curl `--http3-only` 也正常。查下来是**两件不相干的事**，第一件已经修了，第二件没有。
+
+#### 一、trust_anchors 换来一条被裁短的证书链（已修）
+
+profile 里发的 `trust_anchors`（51764，draft-ietf-tls-trust-anchor-ids）**不是装饰**：
+它告诉服务端「这些根我有」，服务端就可以把它认为你已经有的证书**省掉不发**。Google 照做了：
+
+| | Google 发回来的链 | PKIX |
+|---|---|---|
+| 带 Chrome profile | **1 张**——只有叶子 `*.google.com` | 失败：`unable to find valid certification path` |
+| 不带 profile | 3 张——叶子 → `WE2` → `GTS Root R4` | 通过 |
+
+被省掉的 `WE2` 中间证书是 Chrome 自带、而 JDK 信任库里没有的。**发了这个扩展就得兑现**：
+Chrome 靠内置根库兑现，我们按 RFC 5280 4.2.2.1 走叶子证书里的 AIA `caIssuers` 指针把缺的补回来
+（`http://i.pki.goog/we2.crt`，657 字节，补上后 PKIX 立刻通过）——浏览器和系统验证器对付
+「服务端漏发中间证书」用的也是这一套。
+
+实现在 `bctls` 的 `CertificateChains`，只在**正常校验失败之后**才走，补不上就把原来的失败原样抛出。
+停止条件是「链已经够到信任库」——这里 JDK 8 和 21 的 cacerts 不一样正好把 bug 抓出来了：
+只判断「签发者是不是锚点」不够，还得判断「这张证书自己是不是锚点」，
+因为 Google 的根是交叉签名的，`GTS Root R4` 自己是锚点、但它的签发者 `GlobalSign Root CA`
+在 JDK 21 的库里没有。走明文 HTTP 取证书不是弱点：取回来的证书不因为「取回来了」就被信任，
+它只是补上一条链路，签名照样要被路径校验一路验到本来就在的锚点。
+
+#### 二、ALPS 只发不认（**没修**）
+
+修完第一件，Google 的报错变成握手末尾被关连接。打开 kwik 日志拿到 BoringSSL 的原话：
+
+```
+CRYPTO_ERROR (unexpected_message)
+UNEXPECTED_MESSAGE (got type 20, wanted type 8)
+```
+
+类型 20 是 `Finished`，类型 8 是 `EncryptedExtensions`。**客户端**会发类型 8 只有一种情况：
+ALPS（`application_settings`，17613）。profile 发了这个扩展，Google 支持并接受了它，
+于是等我们在 Finished 之前发一条客户端的 `EncryptedExtensions`——而 agent15 没实现，直接发了 Finished。
+
+把 `addApplicationSettingsExtension(clientExtensions, "h3")` 去掉再试：google 302、youtube 200、
+nghttp2 200，全通。**所以这一条就是它。**
+
+**TCP 那条路一样中招**：Chrome profile 走 okhttp 请求 `www.google.com` 报
+`TlsFatalAlertReceived: unexpected_message(10)`，不带 profile 正常——同一个原因，
+只是 BouncyCastle 那边也没实现 ALPS。也就是说**这个 profile 现在连不上 Google，TCP 和 QUIC 都连不上**。
+
+两条路可选，都不便宜：
+
+- **实现 ALPS**：在服务端 EncryptedExtensions 里认出 `application_settings`，然后在 Finished 之前
+  发一条客户端 `EncryptedExtensions`（要进握手 transcript）。指纹一个字节不用改。
+  代价是 agent15 和 BouncyCastle 两套都要动，而且**载荷没有抓包支撑**——
+  抓包只记录了扩展存在，载荷是加密的。只能照 draft 写，再拿 Google 的接受与否当验证。
+- **不发 `application_settings`**：五分钟的事，但 Chrome 的扩展列表里少一个，JA4 跟着变——
+  正是这个项目一直避免的「指纹说是 Chrome、字节不是」。
