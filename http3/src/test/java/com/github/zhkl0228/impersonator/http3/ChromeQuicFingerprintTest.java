@@ -5,6 +5,8 @@ import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 import junit.framework.TestCase;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -33,19 +35,42 @@ public class ChromeQuicFingerprintTest extends TestCase {
         assertEquals(CHROME_JA4_R, fingerprint.getString("ja4_r"));
     }
 
-    /**
-     * JA4 sorts the extension types before hashing them, so a matching JA4 says nothing about the
-     * order they went out in - and the order is exactly the kind of thing a fingerprint is built on.
-     */
-    public void testTheExtensionOrderAndTheKeySharesAreChromes() throws Exception {
+    /** The extensions Chrome sends on a full handshake, from the first capture. */
+    private static final List<Integer> CHROME_EXTENSIONS =
+            List.of(0, 10, 13, 16, 27, 43, 45, 51, 57, 17613, 51764, 65037);
+
+    public void testTheExtensionsAndTheKeySharesAreChromes() throws Exception {
         JSONObject tls = fingerprint().getJSONObject("tls");
 
-        assertEquals(List.of(43, 45, 57, 16, 13, 51, 0, 51764, 27, 65037, 17613, 10), ids(tls, "extensions"));
+        List<Integer> sent = new ArrayList<>(ids(tls, "extensions"));
+        Collections.sort(sent);
+        assertEquals(CHROME_EXTENSIONS, sent);
+
         assertEquals(List.of(4865, 4866, 4867), ids(tls, "cipher_suites"));
         assertEquals("X25519MLKEM768, X25519, secp256r1, secp384r1",
                 List.of(4588, 29, 23, 24), idsOf(tls, 10));
         assertEquals("X25519MLKEM768 and X25519, two real key shares",
                 List.of(4588, 29), idsOf(tls, 51));
+    }
+
+    /**
+     * Chrome shuffles the extension order on every connection - BoringSSL permutes them - so a fixed
+     * order would be the one thing here no real Chrome ever sends twice. The two captures show it:
+     * the same twelve extensions arrive as 43, 45, 57, 16, 13, 51, 0, 51764, 27, 65037, 17613, 10 and
+     * then, after a refresh, as 17613, 51764, 0, 13, 16, 65037, 43, 27, 42, 57, 51, 10, 45, 41.
+     * <p>
+     * This is also why the JA4 above is stable while the order is not: JA4 sorts the extension types
+     * before hashing them.
+     */
+    public void testTheExtensionOrderIsShuffledPerConnection() throws Exception {
+        List<Integer> first = ids(fingerprint().getJSONObject("tls"), "extensions");
+        List<Integer> second = ids(fingerprint().getJSONObject("tls"), "extensions");
+
+        assertEquals("the same extensions either way", new HashSet<>(first), new HashSet<>(second));
+        assertFalse("two connections sent the extensions in the same order: " + first
+                        + "; with twelve extensions that is a one in 479001600 coincidence, so it is far"
+                        + " more likely the order is fixed",
+                first.equals(second));
     }
 
     /**

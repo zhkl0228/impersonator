@@ -113,7 +113,8 @@ abstract class Chrome extends ImpersonatorFactory {
     /**
      * The ClientHello Chrome sends over QUIC, from a capture of Chrome 152.0.7977.84 against
      * {@code quic.tools.scrapfly.io/api/fp/quic}; the capture is kept verbatim in
-     * {@code docs/captures/chrome-152-quic.json}.
+     * {@code docs/captures/chrome-152-quic.json}, with a second capture of a resumed connection in
+     * {@code chrome-152-quic-resumed.json}.
      * <p>
      * A different message from the TCP one above, which is why it is a separate capture and not
      * derived: no "renegotiation_info", no "session_ticket", no "status_request", no ML-DSA among the
@@ -121,7 +122,10 @@ abstract class Chrome extends ImpersonatorFactory {
      * "supported_versions" where the TCP one also offers 1.2, and a "quic_transport_parameters" that
      * has no counterpart at all.
      * <p>
-     * One thing the capture could not settle: whether this ClientHello carries GREASE cipher suites
+     * The extension order is shuffled per connection, which is what the second capture in that
+     * directory shows when read against the first: same extensions, different order.
+     * <p>
+     * One thing the captures could not settle: whether this ClientHello carries GREASE cipher suites
      * and extensions the way the TCP one does. The endpoint flags GREASE explicitly in the transport
      * parameters and in the HTTP/3 settings but shows none in the TLS lists, which reads either as
      * "there is none" or as "they are stripped there". So this sends what was observed and no more.
@@ -172,7 +176,15 @@ abstract class Chrome extends ImpersonatorFactory {
                 // silently sending one of the two.
                 addGreaseEncryptedClientHelloExtension(clientExtensions);
                 addApplicationSettingsExtension(clientExtensions, "h3");
-                return new ExtensionOrder("43-45-57-16-13-51-0-51764-27-65037-17613-10", false);
+                /*
+                 * Shuffled, not ordered. Two captures of the same Chrome against the same host give the
+                 * same twelve extensions in completely different orders - 43, 45, 57, 16, 13, 51, 0,
+                 * 51764, 27, 65037, 17613, 10 and then 17613, 51764, 0, 13, 16, 65037, 43, 27, 42, 57,
+                 * 51, 10, 45, 41 - which is BoringSSL permuting them per connection, the same thing the
+                 * TCP ClientHello above does. A fixed order would be the one thing here that no real
+                 * Chrome ever sends twice.
+                 */
+                return new ExtensionOrder(null, false);
             }
         };
     }
