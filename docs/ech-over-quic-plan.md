@@ -191,9 +191,10 @@ QUIC 侧的 ECH 一旦走 `EchConfigProvider`，proxy-transport 的
 
 ## 执行结果
 
-`quic` 模块（artifactId `impersonator-quic`）已实现并验证。vendored 的 agent15 之外：
-新增 `tech.kwik.agent15.ech` 包 6 个类 + 胶水层 2 个类共 937 行，
-往 7 个 vendored 文件里加了 246 行，测试 3 个类共 24 条 582 行。
+`quic` 模块（artifactId `impersonator-quic`）已实现并验证：**ECH 做完了，第 2 步的 TLS 那一层
+也做完了**（JA4 与 curl 完全一致，见下面「第 2 步」）。vendored 的 agent15 之外：
+新增 `tech.kwik.agent15.ech` 包 6 个类 + `RawExtension` + `ClientHelloSpec` 共 1009 行，
+胶水层 3 个类 261 行，往 8 个 vendored 文件里加了 510 行，测试 5 个类共 27 条 811 行。
 
 ### 计划里说错的地方
 
@@ -261,13 +262,167 @@ TCP 基线（okhttp `EchTest` 8 条）照旧通过。JDK 8（3 个模块）和 J
 
 ### 第 2 步（QUIC/h3 指纹）接手时要知道的
 
-- **现在的 ClientHello 是 agent15 的，不是浏览器的。** 密码套件只有一个、只offer secp256r1
-  （`QuicClientConnectionImpl.startHandshake` 里写死的）、扩展的顺序和内容都跟 Chrome 不一样。
+QUIC 上**完全没有做指纹伪装**，而且暴露面比 TCP 那条路多两层。下面是实测出来的，不是推测。
+
+#### 靶场：`https://quic.tools.scrapfly.io/api/fp/quic`
+
+先找靶子。现有测试里的五个指纹站，只有 `tls.peet.ws` 在 alt-svc 里广播 `h3=":443"`，
+但它的 h3 从本机连不上——我们的客户端和 curl 8.21（ngtcp2）都超时，走 fake-IP 和 `--resolve`
+直连真实 IP 一样，而同一台机器上 `quic.nginx.org`、`cloudflare-ech.com` 的 h3 两个客户端都能通。
+是它的 h3 挂了还是这条链路挡 UDP，分不出来，换个网络值得再试一次。
+`tls.browserleaks.com` 不支持 h3，但它发布了 ECHConfig（public_name `tls-outer.browserleaks.com`），
+可以当 **TCP 路径**的 ECH 对照靶子，现在的测试没用上。
+
+scrapfly 另开了一个子域，`tools.scrapfly.io` 上没有 alt-svc，但 **`quic.tools.scrapfly.io` 有**，
+而且它一次量五层，是目前找到的唯一能用的 QUIC 指纹靶场：
+
+| 它测什么 | 归谁管 |
+|---|---|
+| `ja4` / `ja4_r`（TLS ClientHello） | agent15 的 `ClientHello` |
+| `dcid_length` / `scid_length` | kwik 的 `ConnectionIdManager` |
+| Initial 包的 `frames` / `padding_length` | kwik 的包组装 |
+| `transport_parameters` 的取值 | kwik 的 `initTransportParameters` |
+| `h3_hash` / `h3_text`（HTTP/3 SETTINGS） | flupke |
+
+后四样都在 TLS ClientHello 之外，`Chrome.java` 那套东西**一个都够不着**。
+
+#### 现在的实测值
+
+同一个 endpoint、同一台机器，我们的模块 vs curl 8.21/ngtcp2：
+
+| | 本模块 | curl / ngtcp2 |
+|---|---|---|
+| `ja4` | `q13d0108h3_0f2cb44170f4_276fd97ef477` | `q13d0312h3_55b375c5d22e_f5ac3e2d82fc` |
+| `h3_hash` | `e05363953b1f`（`1:0;7:0`） | `c71fbd791d8b`（`1:0;6:…;7:0`） |
+| DCID 长度 | 8 | 20 |
+| Initial padding | 889 字节 | 12 字节 |
+| transport params | idle 60000ms、max_udp 1500、bidi 0 / uni 3 | idle 0、max_udp 2^62-1、bidi/uni 262144 |
+
+`ja4_r` 把明细摊开，缺什么一目了然：
+
+```
+ours: q13d0108h3_1301_000a,000d,002b,002d,0033,0039_0403,0503,0603,0804,0805,0806
+curl: q13d0312h3_1301,1302,1303_000a,000b,000d,0016,0017,002b,002d,0031,0033,0039_（19 个签名算法）
+```
+
+`q13d` 后的四位是「cipher 数 + 扩展数」，我们是 `01 08`。把 kwik 交给 agent15 的那份
+ClientHello 原样重建出来是：
+
+```
+ClientHello size     255 bytes
+cipher_suites        [TLS_AES_128_GCM_SHA256]
+extensions (order)   0 43 10 13 51 45 57 16
+  10  supported_groups     = [secp256r1]
+  51  key_share            = secp256r1
+  13  signature_algorithms = 6 个
+```
+
+对比 `Chrome.java` 在 TCP 上已经在发的：16 个 cipher（含 GREASE）、约 17 个扩展
+（GREASE×2、ALPS、compress_certificate、trust_anchors、session_ticket、SCT、padding）、
+supported_groups `GREASE, X25519MLKEM768, x25519, secp256r1, secp384r1`、
+key_share `GREASE + X25519MLKEM768`、12 个签名算法（含 ML-DSA）。
+
+注意 `padding_length: 889`——kwik 把 Initial 填到 1200 字节，我们的 CH 才 255，
+所以 **padding 的大小反过来泄露了 ClientHello 的大小**。这一项会随着 CH 做像了自动对上，
+但也说明只改 TLS 层不够。
+
+#### 四个硬拦路虎，前三个已经拆掉
+
+1. ~~`SupportedGroupsExtension` 只收一个组，`KeyShareExtension` 只发一份 key share~~ —— 解决了。
+   `ClientHelloSpec` 口述整个扩展列表，key_share 由它自己拼，agent15 只负责写出去。
+2. ~~X25519MLKEM768 生成不出来~~ —— 解决了，而且**没有在 agent15 里实现 ML-KEM**：
+   bctls 加了一个 `TlsKeyShare` 门面，把 BouncyCastle 本来就有、但 package-private 的
+   `TlsUtils.createKeyShare` 开出来。混合组哪一半在前、peer value 在哪切、两个 secret 怎么拼，
+   全是 BC 在 TCP 路径上跑了很久的代码。agent15 只多了 `TlsState.setSharedSecret`，
+   `KeyShareExtension` 多保留一份服务端 key share 的原始字节（私钥这次不在 agent15 手里）。
+3. ~~`ClientHello` 的 `defaultExtensions` 顺序写死~~ —— 解决了。新增一个构造器，给什么写什么。
+4. **kwik 和 flupke 那几层还没动**，见下面「下一步」。
+
+#### 结果：JA4 与 curl 完全一致
+
+同一个 endpoint 实测：
+
+| | 本模块 | curl 8.21/ngtcp2 |
+|---|---|---|
+| `ja4` | `q13d0312h3_55b375c5d22e_f5ac3e2d82fc` | **一致** |
+| `ja4_hash` | `16fc307196e6` | **一致** |
+| `ja4_r` 全串 | | **一致** |
+| cipher 列表 / 扩展顺序 / supported_groups | | **一致** |
+| key_share `X25519MLKEM768 + X25519` | | **一致** |
+| `h3_hash` | `e05363953b1f` | `c71fbd791d8b` |
+| `dcid_length` / transport params | 8 / max_udp 1500 | 20 / 2^62-1 |
+
+改造前是 `q13d0108h3_`。副作用一则：CH 变大后 Initial 包的 `padding_length` 字段直接消失，
+包被真实内容填满了，跟 curl 一样。
+
+curl 的那份 profile 在 **test 源码**里（`Curl8QuicClientHello`），不是 main——没人要伪装成 curl，
+它的价值只是证明机制。`Impersonator.getQuicClientHello()` 默认抛异常，**不从 TCP 那份推导**。
+
+#### 下一步：vendor kwik，模块拆成四个
+
+剩下的差异全在 agent15 够不着的地方，而这几层归谁、能不能不 vendor 就改，查清楚了：
+
+| 层 | 归谁 | 现在能不能配 |
+|---|---|---|
+| **TLS 引擎的创建** | kwik | **不能**——`QuicClientConnectionImpl` 构造器里静态调 `TlsClientEngineFactory.createClientEngine`，没有参数能把 profile 传进去 |
+| transport parameters | kwik | 不能 |
+| DCID 长度 | kwik | **不能**——`ConnectionIdManager` 里写死 `new byte[8]`；builder 的 `connectionIdLength()` 只管 source CID |
+| Initial 包 padding / frames | kwik | 不能 |
+| h3 SETTINGS | flupke | 快能了——`settingsParameters` 是 protected `Map` 且有 add 方法，但它是 `HashMap`，参数顺序未定义 |
+
+第一行是最要紧的：**`ImpersonatorQuic` 现在那两个进程级静态入口（ECH provider 和 profile）
+不是设计偏好，是这一个事实逼出来的。** 构造器跑在调用方线程上，所以 ThreadLocal 对
+`Http3Client.send()` 能用，但 `sendAsync` 走 executor 线程就失效——「大部分时候对」的东西不要。
+
+所以顺序是：
+
+1. **vendor kwik**（照 agent15 的规矩：先提一次一字未改的拷贝）。
+   flupke 引用 kwik 只用了 `tech.kwik.core` / `.generic` / `.server` / `.log` / `.concurrent`，
+   **一处都没碰 `tech.kwik.core.impl`**——所以 agent15 那个招数原样再用一次：vendor kwik，
+   `tech.kwik:flupke` 继续当上游依赖并 exclude 掉它传递来的 `tech.kwik:kwik`，flupke 仍可跟上游升级。
+   代价：kwik 有 200 个 java 文件（agent15 才 82）。
+2. `QuicClientConnection.Builder` 上加 profile 参数传给引擎 →
+   干掉 `TlsClientEngineFactory` 的两个静态默认值，**ECH 和指纹一起变成 per-instance**。
+3. 新建 `http3` 模块和 `Http3ClientFactory`，形状照 `OkHttpClientFactory`。
+   **不需要 vendor flupke**：`Http3ClientConnectionImpl` 有一个 public 构造器直接收 `QuicConnection`，
+   我们自己建好 QUIC 连接交给它就行。
+4. 用同一个 endpoint 把 transport parameters、DCID 长度、Initial padding 逐项对上，
+   h3_hash 最后再说；真要动 SETTINGS 的顺序时再评估要不要 vendor flupke。
+
+模块结构跟着变成四个（`quic` 是聚合 pom，两份 vendored 各自一个 artifact，
+这样每个模块 1:1 顶替一个上游 artifact，各有各的 UPSTREAM.md 和基线 commit，
+而且「kwik 依赖 agent15、反过来不行」这条由编译器守着）：
+
+```
+impersonator/
+├── bctls/          impersonator-bctls     TLS + Impersonator/ImpersonatorApi
+├── okhttp/         impersonator-okhttp    OkHttpClientFactory
+├── quic/           聚合 pom
+│   ├── agent15/    impersonator-agent15   vendored agent15 + ECH + ClientHelloSpec
+│   └── kwik/       impersonator-kwik      vendored kwik + per-connection profile 接线
+└── http3/          impersonator-http3     flupke（上游依赖）+ Http3ClientFactory
+```
+
+#### 浏览器的抓包还是没有
+
+Chrome 在这个 endpoint 上的值还没拿到：浏览器自动化开了标签页刷三次，Chrome 始终走 HTTP/2
+（站点回 `http3_supported: false`），而同机的 curl 和本模块都能 h3 连上。浏览器当然能 h3，
+只是要单独的启动参数（`--enable-quic --origin-to-force-quic-on=quic.tools.scrapfly.io:443`
+这一路，具体的自己试）。
+
+**对上 curl 不等于反检测有效**，没人会把 curl 的指纹当正常流量；它证明的是机制。
+在拿到 Chrome 的真实抓包之前，**不要照记忆写 Chrome 的扩展列表**，这个仓库的做法一直是照抓包改。
+
+#### ECH 本身还欠的
+
 - **没有 GREASE ECH。** TCP 那条路对没有 ECHConfig 的主机会发 GREASE ECH（因为浏览器会），
   QUIC 这条路目前是发一个普通的 ClientHello。要对齐指纹的话这是必须补的。
 - **ECH 扩展目前放在扩展列表最后。** Chrome 放在哪要照抓包改，改的地方是
   `EchClient.create` 里往 `innerExtensions` / `outerExtensions` 里 add 的位置。
 - **一旦要压缩 `ech_outer_extensions`**，inner 和 outer 的扩展顺序就开始互相约束（§5.1），
   bctls 的 `EchClient.groupCompressibleExtensions` 有现成的实现可以搬。
-- 上层 proxy-transport 现在可以去掉 `ClashProxies.noteEchNotHonored` 那条 info，
-  改成 `ImpersonatorQuic.setEchConfigProvider(EchConfigs.shared(), EchConfigs.shared()::recordRejection)`。
+
+#### 上层
+
+proxy-transport 现在可以去掉 `ClashProxies.noteEchNotHonored` 那条 info，
+改成 `ImpersonatorQuic.setEchConfigProvider(EchConfigs.shared(), EchConfigs.shared()::recordRejection)`。
