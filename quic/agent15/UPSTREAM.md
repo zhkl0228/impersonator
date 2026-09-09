@@ -42,6 +42,8 @@ Files changed relative to `977b893`:
 | `extension/KeyShareExtension.java` | a server key_share entry keeps its key exchange value raw, so a `ClientHelloSpec` can own a group agent15 has no key exchange for |
 | `engine/TlsClientEngine.java` | added `setEchConfigProvider` and `setClientHelloSpec` |
 | `engine/impl/TlsClientEngineImpl.java` | matches the server's EncryptedExtensions against what was sent by extension type rather than by Java class. ECH: build both ClientHellos, pick the transcript on the accept confirmation, verify the certificate against the public name, send an empty client Certificate, throw `EchRejectedException` on rejection. Fingerprint: build the ClientHello from a `ClientHelloSpec` and let it own the key shares. RFC 8879: check the server compressed with an algorithm that was offered. Certificates: a chain the server abbreviated is completed through its `caIssuers` pointers and validated again, because a profile that sends "trust_anchors" has told the server it may leave certificates out |
+| `engine/impl/TranscriptHash.java` | the client's EncryptedExtensions of ALPS gets its own slot, handshake type 8 now being two messages with different places in the transcript |
+| `engine/ClientMessageSender.java` | one more message to send, the client's EncryptedExtensions |
 | `engine/impl/TlsState.java` | added `hkdfExtract` and widened `hkdfExpandLabel(byte[], String, byte[], short)` to public for the ECH accept confirmation; added `setSharedSecret` for a key exchange agent15 does not implement |
 
 RFC 8879 is implemented because every browser profile here advertises "compress_certificate", and
@@ -55,6 +57,13 @@ first version as an optimization; it is not one. A browser's ClientHello carries
 share of over a kilobyte, and repeating every extension put the ClientHelloOuter at 3422 bytes across
 three Initial packets, which Cloudflare acknowledged and then never answered. Compressed it is 1854
 bytes in two, and the handshake completes.
+
+`handshake/ClientEncryptedExtensions.java` is new: the client's EncryptedExtensions message of
+draft-vvv-tls-alps. A profile that advertises "application_settings" for the fingerprint has taken on
+an obligation with it - a server that accepts ALPS waits for this message before the Finished, and
+Google answers its absence with "got type 20, wanted type 8" and closes the connection. Its layout is
+BoringSSL's `do_send_client_encrypted_extensions` and its settings are empty, which is what QUICHE's
+client sends for HTTP/3.
 
 New with no upstream counterpart: everything under `tech/kwik/agent15/ech/`, plus
 `extension/RawExtension.java` (an extension carried as the bytes it was given, so that a ClientHello

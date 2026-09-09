@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to give the client's
+ * EncryptedExtensions its own place in the transcript; see quic/agent15/UPSTREAM.md.
  */
 package tech.kwik.agent15.engine.impl;
 
@@ -49,7 +52,11 @@ public class TranscriptHash {
         server_finished(251),
         client_certificate(252),
         client_certificate_verify(253),
-        client_finished(254)
+        client_finished(254),
+        // The client's EncryptedExtensions of draft-vvv-tls-alps, which is a second message with
+        // handshake type 8 and a different place in the transcript than the server's. Appended here
+        // like the other extras, because convert(HandshakeType) maps onto this enum by ordinal.
+        client_encrypted_extensions(248)
         ;
 
         public final byte value;
@@ -75,6 +82,10 @@ public class TranscriptHash {
             ExtendedHandshakeType.server_certificate,
             ExtendedHandshakeType.server_certificate_verify,
             ExtendedHandshakeType.server_finished,
+            // "the client's EncryptedExtensions ... is sent immediately before the client's
+            //  Certificate message, or Finished if no Certificate is sent" - and BoringSSL's client
+            //  writes it there, between EndOfEarlyData and Certificate.
+            ExtendedHandshakeType.client_encrypted_extensions,
             ExtendedHandshakeType.client_certificate,
             ExtendedHandshakeType.client_certificate_verify,
             ExtendedHandshakeType.client_finished
@@ -205,6 +216,9 @@ public class TranscriptHash {
         }
         else if (type == TlsConstants.HandshakeType.certificate_verify) {
             return client? ExtendedHandshakeType.client_certificate_verify: ExtendedHandshakeType.server_certificate_verify;
+        }
+        else if (client && type == TlsConstants.HandshakeType.encrypted_extensions) {
+            return ExtendedHandshakeType.client_encrypted_extensions;
         }
         return ExtendedHandshakeType.values()[type.ordinal()];
     }

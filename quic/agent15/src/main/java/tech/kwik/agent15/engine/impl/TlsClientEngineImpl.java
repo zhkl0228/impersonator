@@ -107,7 +107,22 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     private TlsConstants.NamedGroup ecCurve;
     private TlsConstants.CipherSuite selectedCipher;
     private List<Extension> requestedExtensions;
+    /**
+     * "application_settings", draft-vvv-tls-alps. Two codepoints are in use - BoringSSL calls 17613
+     * the new one and still writes 17513 on request - and which one a connection uses is the client's
+     * choice, so both are recognized and neither is assumed.
+     */
+    private static final int APPLICATION_SETTINGS = 17613;
+    private static final int APPLICATION_SETTINGS_OLD = 17513;
+
     private List<Extension> sentExtensions;
+
+    /**
+     * The "application_settings" codepoint both ends agreed on, or null when Application-Layer
+     * Protocol Settings were not negotiated - which is also what says whether the client owes the
+     * server a {@link ClientEncryptedExtensions}.
+     */
+    private Integer applicationSettingsType;
     private Status status = Status.Start;
     private ClientHello clientHello;
     private TranscriptHash transcriptHash;
@@ -522,6 +537,8 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             }
         }
 
+        applicationSettingsType = negotiatedApplicationSettings(encryptedExtensions);
+
         transcriptHash.record(encryptedExtensions);
         status = pskAccepted? Status.WaitFinished: Status.WaitCertificateRequest;
         statusHandler.extensionsReceived(encryptedExtensions.getExtensions());
@@ -634,6 +651,27 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         // "Recipients of Finished messages MUST verify that the contents are correct and if incorrect MUST terminate the connection with a "decrypt_error" alert."
         if (!MessageDigest.isEqual(finishedMessage.getVerifyData(), serverHmac)) {
             throw new DecryptErrorAlert("incorrect finished message");
+        }
+
+        if (applicationSettingsType != null) {
+            /*
+             * draft-vvv-tls-alps: the server accepted Application-Layer Protocol Settings, so it is
+             * waiting for the client's own before the Finished. Skipping it is not a degraded
+             * handshake but a failed one - Google answers the Finished that arrives instead with
+             * "unexpected_message ... got type 20, wanted type 8".
+             *
+             * Empty settings, which is what this end has to say: QUICHE's client enables ALPS for
+             * HTTP/3 with settings_len = 0, and on this protocol everything ALPS carries travels the
+             * other way, in the server's EncryptedExtensions.
+             *
+             * BoringSSL omits this message when early data was accepted, the settings being the ones
+             * already agreed on the earlier connection. That case cannot arise here: this engine has
+             * no 0-RTT at all, so there is no branch for it rather than an untested one.
+             */
+            ClientEncryptedExtensions applicationSettings =
+                    new ClientEncryptedExtensions(applicationSettingsType, new byte[0]);
+            sender.send(applicationSettings);
+            transcriptHash.recordClient(applicationSettings);
         }
 
         if (clientAuthRequested) {
@@ -848,6 +886,31 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("PKIX");
         trustManagerFactory.init((KeyStore) null);
         return (X509TrustManager) trustManagerFactory.getTrustManagers()[0];
+    }
+
+    /**
+     * The "application_settings" codepoint the server accepted, or null when it accepted none.
+     * <p>
+     * ALPS is negotiated by the server echoing, in its EncryptedExtensions, the extension the
+     * ClientHello offered. Which codepoint that is depends on the client: there are two in use, the
+     * draft's original and the one BoringSSL calls new, and the answer belongs in whichever the
+     * question was asked in. So the offered one is read back off the ClientHello rather than assumed,
+     * and a server echoing a codepoint that was never offered has already been rejected above as an
+     * "extension response to missing request".
+     */
+    private Integer negotiatedApplicationSettings(EncryptedExtensions encryptedExtensions) {
+        for (Extension sent : sentExtensions) {
+            int type = sent.getType() & 0xffff;
+            if (type != APPLICATION_SETTINGS && type != APPLICATION_SETTINGS_OLD) {
+                continue;
+            }
+            boolean accepted = encryptedExtensions.getExtensions().stream()
+                    .anyMatch(extension -> (extension.getType() & 0xffff) == type);
+            if (accepted) {
+                return type;
+            }
+        }
+        return null;
     }
 
     private void sendClientAuth() throws IOException, ErrorAlert {

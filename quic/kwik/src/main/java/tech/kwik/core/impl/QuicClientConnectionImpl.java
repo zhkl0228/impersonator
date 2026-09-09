@@ -35,6 +35,7 @@ import tech.kwik.agent15.extension.ApplicationLayerProtocolNegotiationExtension;
 import tech.kwik.agent15.extension.EarlyDataExtension;
 import tech.kwik.agent15.extension.Extension;
 import tech.kwik.agent15.handshake.CertificateMessage;
+import tech.kwik.agent15.handshake.ClientEncryptedExtensions;
 import tech.kwik.agent15.handshake.CertificateVerifyMessage;
 import tech.kwik.agent15.handshake.ClientHello;
 import tech.kwik.agent15.handshake.FinishedMessage;
@@ -251,6 +252,13 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             public void send(FinishedMessage finished) {
                 CryptoStream cryptoStream = getCryptoStream(Handshake);
                 cryptoStream.write(finished, true);
+                log.sentPacketInfo(cryptoStream.toStringSent());
+            }
+
+            @Override
+            public void send(ClientEncryptedExtensions clientEncryptedExtensions) {
+                CryptoStream cryptoStream = getCryptoStream(Handshake);
+                cryptoStream.write(clientEncryptedExtensions, true);
                 log.sentPacketInfo(cryptoStream.toStringSent());
             }
 

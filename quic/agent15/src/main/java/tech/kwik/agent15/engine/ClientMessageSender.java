@@ -20,6 +20,7 @@ package tech.kwik.agent15.engine;
 
 import tech.kwik.agent15.handshake.CertificateMessage;
 import tech.kwik.agent15.handshake.CertificateVerifyMessage;
+import tech.kwik.agent15.handshake.ClientEncryptedExtensions;
 import tech.kwik.agent15.handshake.ClientHello;
 import tech.kwik.agent15.handshake.FinishedMessage;
 
@@ -35,4 +36,10 @@ public interface ClientMessageSender {
     void send(CertificateMessage certificateMessage) throws IOException;
 
     void send(CertificateVerifyMessage certificateVerifyMessage);
+
+    /**
+     * Sends the client's EncryptedExtensions, which carries the client's Application-Layer Protocol
+     * Settings when the server has accepted them. See {@link ClientEncryptedExtensions}.
+     */
+    void send(ClientEncryptedExtensions clientEncryptedExtensions) throws IOException;
 }

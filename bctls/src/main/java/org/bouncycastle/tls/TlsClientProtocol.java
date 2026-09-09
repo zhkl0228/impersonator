@@ -9,6 +9,7 @@ import org.bouncycastle.util.Integers;
 import org.bouncycastle.util.Strings;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -152,6 +153,56 @@ public class TlsClientProtocol
         return tlsClient;
     }
 
+    /**
+     * "application_settings", draft-vvv-tls-alps. Two codepoints are in use - BoringSSL calls 17613
+     * the new one and still writes 17513 on request - and which one a connection uses is the
+     * client's choice, so both are recognized and neither is assumed.
+     */
+    private static final int application_settings = 17613;
+    private static final int application_settings_old = 17513;
+
+    /**
+     * The "application_settings" codepoint the server accepted, or -1 when it accepted none.
+     * <p>
+     * ALPS is negotiated by the server echoing, in its EncryptedExtensions, the extension the
+     * ClientHello offered - so the codepoint to answer in is read back off what was actually
+     * offered rather than assumed.
+     */
+    protected int negotiated13ApplicationSettings()
+    {
+        if (null == clientExtensions || null == serverExtensions)
+        {
+            return -1;
+        }
+        int[] codePoints = { application_settings, application_settings_old };
+        for (int i = 0; i != codePoints.length; ++i)
+        {
+            Integer codePoint = Integers.valueOf(codePoints[i]);
+            if (clientExtensions.containsKey(codePoint) && serverExtensions.containsKey(codePoint))
+            {
+                return codePoints[i];
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * The client's EncryptedExtensions, holding the one extension it exists for and nothing else.
+     * The settings are empty, which is what this end has to say: QUICHE's client enables ALPS with
+     * settings_len = 0, and what ALPS carries here travels the other way, in the server's
+     * EncryptedExtensions.
+     */
+    protected void send13ClientEncryptedExtensions(int extensionType) throws IOException
+    {
+        byte[] settings = TlsUtils.EMPTY_BYTES;
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        TlsUtils.writeUint16(2 + 2 + settings.length, body);
+        TlsUtils.writeUint16(extensionType, body);
+        TlsUtils.writeUint16(settings.length, body);
+        body.write(settings);
+        HandshakeMessageOutput.send(this, HandshakeType.encrypted_extensions, body.toByteArray());
+    }
+
     protected void handle13HandshakeMessage(short type, HandshakeMessageInput buf)
         throws IOException
     {
@@ -283,6 +334,23 @@ public class TlsClientProtocol
                  * data, an EndOfEarlyData message will be sent to indicate the key change. This message will
                  * be encrypted with the 0-RTT traffic keys.
                  */
+
+                /*
+                 * draft-vvv-tls-alps. A server that accepted Application-Layer Protocol Settings is
+                 * waiting for the client's own before the Finished, and TLS 1.3 otherwise never has
+                 * the client send an EncryptedExtensions at all. Not sending it is not a degraded
+                 * handshake but a failed one: Google answers the Finished that arrives in its place
+                 * with "unexpected_message ... got type 20, wanted type 8".
+                 *
+                 * It goes here, after the transcript hash the application secrets are derived from
+                 * has been taken and before the client's Certificate, which is where BoringSSL's
+                 * do_send_client_encrypted_extensions writes it.
+                 */
+                int applicationSettingsType = negotiated13ApplicationSettings();
+                if (applicationSettingsType >= 0)
+                {
+                    send13ClientEncryptedExtensions(applicationSettingsType);
+                }
 
                 if (null != certificateRequest)
                 {

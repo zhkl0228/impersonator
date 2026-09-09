@@ -14,6 +14,14 @@ import java.net.http.HttpResponse;
  */
 class Http3Get {
 
+    /** The status of one GET, for a test that is about reaching the host rather than what it said. */
+    static int status(Http3ClientFactory factory, String url) throws Exception {
+        try (HttpClient client = factory.newHttpClient()) {
+            return client.send(HttpRequest.newBuilder(URI.create(url)).build(),
+                    HttpResponse.BodyHandlers.discarding()).statusCode();
+        }
+    }
+
     static String body(Http3ClientFactory factory, String url) throws Exception {
         try (HttpClient client = factory.newHttpClient()) {
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create(url)).build(),

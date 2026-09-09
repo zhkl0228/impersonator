@@ -504,7 +504,7 @@ Chrome 靠内置根库兑现，我们按 RFC 5280 4.2.2.1 走叶子证书里的 
 在 JDK 21 的库里没有。走明文 HTTP 取证书不是弱点：取回来的证书不因为「取回来了」就被信任，
 它只是补上一条链路，签名照样要被路径校验一路验到本来就在的锚点。
 
-#### 二、ALPS 只发不认（**没修**）
+#### 二、ALPS 只发不认（已修）
 
 修完第一件，Google 的报错变成握手末尾被关连接。打开 kwik 日志拿到 BoringSSL 的原话：
 
@@ -515,20 +515,40 @@ UNEXPECTED_MESSAGE (got type 20, wanted type 8)
 
 类型 20 是 `Finished`，类型 8 是 `EncryptedExtensions`。**客户端**会发类型 8 只有一种情况：
 ALPS（`application_settings`，17613）。profile 发了这个扩展，Google 支持并接受了它，
-于是等我们在 Finished 之前发一条客户端的 `EncryptedExtensions`——而 agent15 没实现，直接发了 Finished。
+于是等我们在 Finished 之前发一条客户端的 `EncryptedExtensions`——而两边都没实现，直接发了 Finished。
 
-把 `addApplicationSettingsExtension(clientExtensions, "h3")` 去掉再试：google 302、youtube 200、
-nghttp2 200，全通。**所以这一条就是它。**
+**这类错误值得记一下**：为了指纹从抓包里抄来的扩展，可能是**带义务的**，
+而 ClientHello 的字节看不出区别——发了不兑现和发了兑现，抓包一模一样。
 
-**TCP 那条路一样中招**：Chrome profile 走 okhttp 请求 `www.google.com` 报
-`TlsFatalAlertReceived: unexpected_message(10)`，不带 profile 正常——同一个原因，
-只是 BouncyCastle 那边也没实现 ALPS。也就是说**这个 profile 现在连不上 Google，TCP 和 QUIC 都连不上**。
+实现照 BoringSSL 的 `do_send_client_encrypted_extensions` 写，报文是：
 
-两条路可选，都不便宜：
+```
+08                握手类型 = encrypted_extensions
+00 00 06          长度
+  00 04           扩展块长度
+    44 CD         扩展类型 = 17613
+    00 00         扩展数据长度 = 0
+```
 
-- **实现 ALPS**：在服务端 EncryptedExtensions 里认出 `application_settings`，然后在 Finished 之前
-  发一条客户端 `EncryptedExtensions`（要进握手 transcript）。指纹一个字节不用改。
-  代价是 agent15 和 BouncyCastle 两套都要动，而且**载荷没有抓包支撑**——
-  抓包只记录了扩展存在，载荷是加密的。只能照 draft 写，再拿 Google 的接受与否当验证。
-- **不发 `application_settings`**：五分钟的事，但 Chrome 的扩展列表里少一个，JA4 跟着变——
-  正是这个项目一直避免的「指纹说是 Chrome、字节不是」。
+载荷为空不是猜的：QUICHE 的客户端 `SSL_add_application_settings(..., nullptr, settings_len = 0)`，
+h3 上 ALPS 携带的东西全都是**反方向**的（服务端 EncryptedExtensions 里那份）。
+扩展类型也不写死：**你在 ClientHello 里问的是哪个 codepoint，就在哪个里答**
+（BoringSSL 至今还会按请求写 17513 那个旧的）。位置在服务端 Finished 之后、客户端 Certificate 之前，
+要进 transcript——agent15 的 `TranscriptHash` 因此多了一个 `client_encrypted_extensions` 槽位，
+因为类型 8 现在有两条报文、在 transcript 里位置不同。
+
+BoringSSL 在接受了 early data 时会省略这条报文（设置沿用上次连接）。这里不会发生：
+agent15 的客户端引擎根本没有 0-RTT，所以**没有写那个分支**，而不是写一个没测过的。
+
+#### 三、h2 的 header table 只说不认（已修，第二件牵出来的）
+
+TCP 那条路修完 ALPS，握手过了，错误变成 HTTP/2 层的
+`Invalid dynamic table size update 12288`。**同一类错误又来一次**：
+profile 通告 `SETTINGS_HEADER_TABLE_SIZE: 65536`，那是**允许对端 HPACK encoder 用这么大的表**
+（RFC 7541 4.2「初始最大值就是 SETTINGS_HEADER_TABLE_SIZE」），
+而 okhttp 的 decoder 还以为是它自己的 4096，于是把 Google 第一条 dynamic table size update 判成非法。
+修法是在**通告发出去的那一刻**同时告诉 decoder——`Http2Connection.start()` 里 `writer.settings()` 旁边。
+
+跟 QPACK 那两个数字是同一件事：从抓包抄来的数值是**对自己的承诺**。
+
+结果：Chrome profile 现在 Google/YouTube **两条路都通**——h3 是 302/200，TCP 是 200/200 h2。

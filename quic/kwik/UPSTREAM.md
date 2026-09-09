@@ -58,6 +58,7 @@ Files changed relative to `edb3155f`:
 | `impl/QuicClientConnectionImpl.java` | carries them to the TLS engine and to the connection id manager and transport parameters |
 | `cid/ConnectionIdManager.java` | the initial Destination Connection ID length is a parameter instead of a hardcoded 8 |
 | `tls/QuicTransportParametersExtension.java` | a transport parameter can be left out instead of sent, and parameters this implementation has no model of can be appended |
+| `impl/QuicClientConnectionImpl.java` (message sender) | sends the client's EncryptedExtensions that agent15's ALPS support produces |
 | `stream/StreamInputStream.java` | a stream's input stream can say which stream id it reads; not answered by default, so that a subclass which reads no stream says so rather than inventing an id |
 | `stream/StreamInputStreamImpl.java` | answers it |
 
