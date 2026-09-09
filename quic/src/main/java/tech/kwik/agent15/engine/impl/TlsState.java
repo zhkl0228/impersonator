@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.agent15.engine.impl;
 
@@ -239,7 +242,19 @@ public class TlsState implements BinderCalculator {
         return hkdfExpandLabel(secret, label, context.getBytes(ISO_8859_1), length);
     }
 
-    byte[] hkdfExpandLabel(byte[] secret, String label, byte[] context, short length) {
+    /**
+     * HKDF-Extract with an explicit salt, for a secret that is not part of the TLS 1.3 key schedule.
+     * The only such secret is the one RFC 9849 section 7.2 derives from the ClientHelloInner random
+     * for the Encrypted Client Hello accept confirmation. The MAC is the one of this state's cipher
+     * suite, which is the hash the confirmation is defined in terms of.
+     */
+    public byte[] hkdfExtract(byte[] salt, byte[] ikm) {
+        return hkdf.extract(salt, ikm);
+    }
+
+    // Public rather than package private because the Encrypted Client Hello accept confirmation of
+    // RFC 9849 section 7.2 is an HKDF-Expand-Label over a transcript hash, i.e. over a byte[] context.
+    public byte[] hkdfExpandLabel(byte[] secret, String label, byte[] context, short length) {
         // See https://tools.ietf.org/html/rfc8446#section-7.1 for definition of HKDF-Expand-Label.
         ByteBuffer hkdfLabel = ByteBuffer.allocate(2 + 1 + labelPrefix.length() + label.getBytes(ISO_8859_1).length + 1 + context.length);
         hkdfLabel.putShort(length);

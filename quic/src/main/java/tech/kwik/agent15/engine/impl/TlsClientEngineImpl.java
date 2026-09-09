@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.agent15.engine.impl;
 
@@ -23,6 +26,10 @@ import tech.kwik.agent15.ProtectionKeysType;
 import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.TlsProtocolException;
 import tech.kwik.agent15.alert.*;
+import tech.kwik.agent15.ech.EchClient;
+import tech.kwik.agent15.ech.EchConfigProvider;
+import tech.kwik.agent15.ech.EchRejectedException;
+import tech.kwik.agent15.ech.EncryptedClientHelloExtension;
 import tech.kwik.agent15.engine.*;
 import tech.kwik.agent15.extension.*;
 import tech.kwik.agent15.handshake.*;
@@ -108,6 +115,10 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     private List<X500Principal> clientCertificateAuthorities;
     private Function<List<X500Principal>, CertificateWithPrivateKey> clientCertificateSelector;
     private List<TlsConstants.SignatureScheme> serverSupportedSignatureSchemes;
+    private EchConfigProvider echConfigProvider;
+    private EchClient echClient;
+    private byte[] echRetryConfigs;
+    private boolean echPublicNameAuthenticated;
 
 
     public TlsClientEngineImpl(ClientMessageSender clientMessageSender, TlsStatusEventHandler tlsStatusHandler) {
@@ -185,8 +196,30 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             // Defer initialization of TlsState until selected cipher is known.
         }
 
-        clientHello = new ClientHello(serverName, publicKey, compatibilityMode, supportedCiphers, supportedSignatures,
-                ecCurve, extensions, state, ClientHello.PskKeyEstablishmentMode.PSKwithDHE);
+        byte[] echConfigList = echConfigProvider != null? echConfigProvider.getEchConfigList(serverName): null;
+        if (echConfigList != null) {
+            // Both are refused rather than approximated: with a PSK the two ClientHellos need their own binders over
+            // their own transcripts, which is the easiest part of RFC 9849 to get subtly wrong, and the compatibility
+            // mode would make the ClientHelloOuter echo a legacy_session_id the ClientHelloInner has to copy.
+            // https://www.rfc-editor.org/rfc/rfc9001.html#section-8.4 forbids the latter for QUIC anyway.
+            if (newSessionTicket != null) {
+                throw new IllegalStateException("Encrypted Client Hello combined with session resumption is not"
+                        + " implemented; offer no ECHConfigList for " + serverName + " or do a full handshake");
+            }
+            if (compatibilityMode) {
+                throw new IllegalStateException("Encrypted Client Hello combined with the TLS 1.3 compatibility mode"
+                        + " is not implemented; offer no ECHConfigList for " + serverName
+                        + " or turn the compatibility mode off");
+            }
+            echClient = EchClient.create(serverName, echConfigList, publicKey, supportedCiphers, supportedSignatures,
+                    ecCurve, extensions);
+            // The ClientHelloOuter is what goes on the wire; the transcript is decided when the ServerHello arrives.
+            clientHello = echClient.getOuterClientHello();
+        }
+        else {
+            clientHello = new ClientHello(serverName, publicKey, compatibilityMode, supportedCiphers, supportedSignatures,
+                    ecCurve, extensions, state, ClientHello.PskKeyEstablishmentMode.PSKwithDHE);
+        }
         sentExtensions = clientHello.getExtensions();
 
         if (state != null) {
@@ -313,6 +346,20 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         if (state == null) {
             transcriptHash = new TranscriptHash(hashLength(selectedCipher));
             state = new TlsState(transcriptHash, keyLength(selectedCipher), hashLength(selectedCipher));
+            if (echClient != null) {
+                // https://www.rfc-editor.org/rfc/rfc9849.html#section-6.1.4
+                // "If this value matches the last 8 bytes of ServerHello.random, the server has accepted ECH."
+                echClient.processAcceptConfirmation(state, serverHello);
+                if (echClient.isAccepted()) {
+                    // https://www.rfc-editor.org/rfc/rfc9849.html#section-6.1.5
+                    // "when computing the transcript hash (...), it uses ClientHelloInner as the first ClientHello."
+                    clientHello = echClient.getInnerClientHello();
+                    Logger.debug("Server has accepted Encrypted Client Hello");
+                }
+                else {
+                    Logger.debug("Server has rejected Encrypted Client Hello");
+                }
+            }
             transcriptHash.record(clientHello);
             state.computeEarlyTrafficSecret();
             statusHandler.earlySecretsKnown();
@@ -379,6 +426,26 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         // "There MUST NOT be more than one extension of the same type in a given extension block."
         HandshakeMessage.checkForDuplicateExtensions(encryptedExtensions.getExtensions());
 
+        Optional<EncryptedClientHelloExtension> echExtension = encryptedExtensions.getExtensions().stream()
+                .filter(ext -> ext instanceof EncryptedClientHelloExtension)
+                .map(ext -> (EncryptedClientHelloExtension) ext)
+                .findFirst();
+        if (echExtension.isPresent()) {
+            // Not reachable: an extension nothing requested was rejected by the check above, and an
+            // EncryptedClientHelloExtension can only be there when this ClientHello carried one too.
+            if (echClient == null) {
+                throw new UnsupportedExtensionAlert("encrypted_client_hello in EncryptedExtensions, but none was offered");
+            }
+            // https://www.rfc-editor.org/rfc/rfc9849.html#section-5
+            // "The response is valid only when the server used the ClientHelloOuter. If the server sent this extension
+            //  in response to the inner variant, then the client MUST abort with an "unsupported_extension" alert."
+            if (echClient.isAccepted()) {
+                throw new UnsupportedExtensionAlert("encrypted_client_hello in EncryptedExtensions, but the server"
+                        + " accepted the ClientHelloInner, so it cannot be answering the ClientHelloOuter");
+            }
+            echRetryConfigs = echExtension.get().getRetryConfigs();
+        }
+
         transcriptHash.record(encryptedExtensions);
         status = pskAccepted? Status.WaitFinished: Status.WaitCertificateRequest;
         statusHandler.extensionsReceived(encryptedExtensions.getExtensions());
@@ -444,8 +511,18 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
 
         // Now the certificate signature has been validated, check the certificate validity
         checkCertificateValidity(serverCertificateChain);
-        if (!hostnameVerifier.verify(serverName, serverCertificate)) {
+        // https://www.rfc-editor.org/rfc/rfc9849.html#section-6.1.7
+        // "The client MUST verify that the certificate is valid for ECHConfig.contents.public_name."
+        // The connection was handshaken against the ClientHelloOuter, which named the public name, so that and not the
+        // real server name is what this certificate can attest to. It is the one place ECH changes an existing check.
+        boolean echRejected = echClient != null && !echClient.isAccepted();
+        String verifiedName = echRejected? echClient.getPublicName(): serverName;
+        if (!hostnameVerifier.verify(verifiedName, serverCertificate)) {
             throw new CertificateUnknownAlert("servername does not match");
+        }
+        if (echRejected) {
+            // Only now are the retry_configs the server's own; see EchRejectedException.
+            echPublicNameAuthenticated = true;
         }
 
         transcriptHash.recordServer(certificateVerifyMessage);
@@ -500,6 +577,17 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
         transcriptHash.recordClient(clientFinished);
         state.computeApplicationSecrets();
         state.computeResumptionMasterSecret();
+
+        if (echClient != null && !echClient.isAccepted()) {
+            // https://www.rfc-editor.org/rfc/rfc9849.html#section-6.1.6
+            // "If both authentication and the handshake complete successfully, the client MUST perform the processing
+            //  described below and then abort the connection with an "ech_required" alert before sending any
+            //  application data to the server."
+            // Hence here and not at CertificateVerify: the server is to see a handshake that ran to the end, which is
+            // what a browser does, and walking away earlier is something a server could tell apart.
+            throw createEchRejected();
+        }
+
         status = Status.Connected;
         statusHandler.handshakeFinished();
     }
@@ -668,7 +756,13 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     }
 
     private void sendClientAuth() throws IOException, ErrorAlert {
-        CertificateWithPrivateKey certificateWithKey = clientCertificateSelector.apply(clientCertificateAuthorities);
+        // https://www.rfc-editor.org/rfc/rfc9849.html#section-6.1.7
+        // "If the server requests a client certificate, the client MUST respond with an empty Certificate message,
+        //  denoting no client certificate."
+        // The connection is authenticated for the public name and not for the origin, so a client identity presented
+        // here would be presented to a server the caller never asked to talk to.
+        CertificateWithPrivateKey certificateWithKey = echClient != null && !echClient.isAccepted()? null:
+                clientCertificateSelector.apply(clientCertificateAuthorities);
 
         // Send certificate message (with possible null value for client certificate)
         CertificateMessage certificateMessage =
@@ -789,5 +883,55 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
     @Override
     public void setClientCertificateCallback(Function<List<X500Principal>, CertificateWithPrivateKey> callback) {
         clientCertificateSelector = callback;
+    }
+
+    @Override
+    public void setEchConfigProvider(EchConfigProvider echConfigProvider) {
+        this.echConfigProvider = echConfigProvider;
+    }
+
+    /**
+     * RFC 9849 section 6.1.6 and 6.1.7. The server rejected Encrypted Client Hello, so the real server name went out in
+     * the clear; report that, with the retry_configs the server published, and tell the provider that supplied the
+     * ECHConfigList about it.
+     */
+    private EchRejectedException createEchRejected() throws ErrorAlert {
+        String publicName = echClient.getPublicName();
+
+        if (!echPublicNameAuthenticated) {
+            // Reaching Finished with nothing authenticated means no server certificate was sent, which on this path
+            // cannot happen: a PSK is refused when ECH is offered, so the handshake cannot skip Certificate. Report it
+            // in full rather than hand over retry_configs nobody vouched for.
+            throw new CertificateUnknownAlert("Encrypted Client Hello was rejected on a handshake that sent no server"
+                    + " certificate, so the retry_configs could not be authenticated for " + publicName
+                    + ". retry_configs=" + (echRetryConfigs == null? "<none>": hex(echRetryConfigs))
+                    + "; the ClientHelloOuter offered " + echClient.describeConfig());
+        }
+
+        EchRejectedException rejection;
+        if (echRetryConfigs == null) {
+            // https://www.rfc-editor.org/rfc/rfc9849.html#section-6.1.6
+            // "the client can regard ECH as securely disabled by the server"
+            rejection = new EchRejectedException(echClient.getServerName(), publicName, null,
+                    "Encrypted Client Hello was rejected by the server and no retry_configs were sent, so it should be"
+                            + " disabled for this server. The ClientHelloOuter offered " + echClient.describeConfig());
+        }
+        else {
+            rejection = new EchRejectedException(echClient.getServerName(), publicName, echRetryConfigs,
+                    "Encrypted Client Hello was rejected by the server. The certificate presented for " + publicName
+                            + " was accepted, so these retry_configs are the server's own and can be offered on the"
+                            + " next connection. retry_configs=" + hex(echRetryConfigs));
+        }
+
+        echConfigProvider.echRejected(rejection);
+        return rejection;
+    }
+
+    private static String hex(byte[] data) {
+        StringBuilder sb = new StringBuilder(data.length * 2);
+        for (byte b : data) {
+            sb.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
+        }
+        return sb.toString();
     }
 }

@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.agent15.engine;
 
@@ -24,6 +27,7 @@ import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.TlsProtocolException;
 import tech.kwik.agent15.alert.ErrorAlert;
 import tech.kwik.agent15.alert.UnexpectedMessageAlert;
+import tech.kwik.agent15.ech.EchConfigProvider;
 import tech.kwik.agent15.extension.Extension;
 import tech.kwik.agent15.handshake.*;
 
@@ -67,6 +71,15 @@ public interface TlsClientEngine extends TlsEngine {
      * @param customTrustManager
      */
     void setTrustManager(X509TrustManager customTrustManager);
+
+    /**
+     * Sets the source of the ECHConfigList to offer, which turns on Encrypted Client Hello (RFC 9849)
+     * for every server name the provider answers for. Defaults to
+     * {@link TlsClientEngineFactory#getDefaultEchConfigProvider()}, which is where a QUIC
+     * implementation that creates its engines itself has to set it.
+     * @param echConfigProvider  the provider, or null to send a plain ClientHello with a visible SNI.
+     */
+    void setEchConfigProvider(EchConfigProvider echConfigProvider);
 
     /**
      * Sets the hostname verifier to use for verifying the server name against the server certificate.

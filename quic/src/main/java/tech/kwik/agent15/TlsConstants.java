@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.agent15;
 
@@ -84,6 +87,7 @@ public class TlsConstants {
         post_handshake_auth(49),                    /* RFC 8446 */
         signature_algorithms_cert(50),              /* RFC 8446 */
         key_share(51),
+        encrypted_client_hello(0xfe0d),             /* RFC 9849 */
         ;
 
         public final short value;
@@ -221,7 +225,8 @@ public class TlsConstants {
         bad_certificate_status_response(113),
         unknown_psk_identity(115),
         certificate_required(116),
-        no_application_protocol(120);
+        no_application_protocol(120),
+        ech_required(121);                          /* RFC 9849 */
 
         public final byte value;
 

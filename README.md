@@ -10,6 +10,7 @@ website for no obvious reason, you can give `impersonator` a try.
 - Supports TLS/JA3/JA4 fingerprints impersonation.
 - Supports HTTP/2 fingerprints impersonation.
 - Supports Encrypted Client Hello (ECH, RFC 9849), enabled automatically for the browsers that use it.
+- Supports Encrypted Client Hello over QUIC / HTTP-3, through [kwik](https://github.com/ptrd/kwik).
 
 ## Usage
 
@@ -74,6 +75,47 @@ If a server rejects ECH, the handshake fails with `TlsEchRejectedException`, whi
 `public_name` and the `retry_configs` the server published. Retrying is left to the caller: those
 configs may only be trusted once the certificate presented for `public_name` has been verified.
 
+### Encrypted Client Hello over QUIC / HTTP-3
+
+```xml
+<dependency>
+    <groupId>com.github.zhkl0228</groupId>
+    <artifactId>impersonator-quic</artifactId>
+    <version>1.5.3</version>
+</dependency>
+```
+
+This module makes [kwik](https://github.com/ptrd/kwik)'s QUIC handshake send a real Encrypted
+Client Hello, using the same `EchConfigProvider` as the TCP path above. It requires Java 11, which
+is what kwik and agent15 are built for; the other two modules stay on Java 8.
+
+kwik creates its TLS engines itself and hands out no reference to them, so the provider is
+installed once for the process. That costs nothing, because an ECHConfigList belongs to a host and
+not to a connection:
+
+```java
+// The same DNS-over-HTTPS lookup the TCP path uses.
+ImpersonatorQuic.setEchConfigProvider(DnsOverHttpsEchConfigProvider.getInstance());
+
+HttpClient client = Http3Client.newBuilder().build();
+HttpResponse<String> response = client.send(
+        HttpRequest.newBuilder(URI.create("https://cloudflare-ech.com/cdn-cgi/trace")).build(),
+        HttpResponse.BodyHandlers.ofString());
+// the body says sni=encrypted
+```
+
+A rejected ECH fails the connection, as RFC 9849 6.1.6 requires, after the handshake has run to the
+end and the certificate for the `public_name` has been verified. kwik reports handshake failures as
+a message rather than an exception, so the `retry_configs` are handed to a callback instead:
+
+```java
+ImpersonatorQuic.setEchConfigProvider(echConfigProvider,
+        (serverName, publicName, retryConfigs) -> ...);   // remember, and offer next time
+```
+
+Not implemented yet: a QUIC/HTTP-3 fingerprint. The ClientHello is agent15's, not a browser's, and
+a host with no ECHConfig gets a plain ClientHello rather than the GREASE ECH the TCP path sends.
+
 ### Timeouts
 
 ```java
@@ -99,3 +141,10 @@ Dns dns = new StaticDns.Builder()
 
 OkHttpClient client = factory.newHttpClient(dns);
 ```
+
+## License
+
+impersonator is licensed under the [GNU Lesser General Public License v3](LICENSE-LESSER.txt),
+because the `quic` module links kwik and vendors agent15, both of which are LGPL-3. The
+BouncyCastle (MIT) and okhttp (Apache-2.0) code the other modules are forked from may be combined
+into an LGPL-3 work.

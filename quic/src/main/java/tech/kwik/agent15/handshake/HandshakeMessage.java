@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.agent15.handshake;
 
@@ -22,6 +25,7 @@ import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.TlsProtocolException;
 import tech.kwik.agent15.alert.DecodeErrorException;
 import tech.kwik.agent15.alert.IllegalParameterAlert;
+import tech.kwik.agent15.ech.EncryptedClientHelloExtension;
 import tech.kwik.agent15.extension.*;
 import tech.kwik.agent15.log.Logger;
 
@@ -151,6 +155,13 @@ public abstract class HandshakeMessage {
                 // "| key_share (RFC 8446)                             | CH, SH, HRR |"
                 check(context, client_hello, server_hello);
                 extensions.add(new KeyShareExtension(buffer, context));
+            }
+            else if (extensionType == EncryptedClientHelloExtension.TYPE) {
+                // https://www.rfc-editor.org/rfc/rfc9849.html#section-5
+                // The client sends it in the ClientHello (inner and outer variant); the server answers
+                // with its retry_configs in EncryptedExtensions.
+                check(context, client_hello, encrypted_extensions);
+                extensions.add(new EncryptedClientHelloExtension(buffer, context));
             }
             else {
                 Extension extension = null;

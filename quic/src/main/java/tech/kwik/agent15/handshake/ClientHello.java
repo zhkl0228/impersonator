@@ -15,6 +15,9 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator) to support
+ * Encrypted Client Hello (RFC 9849); see quic/UPSTREAM.md.
  */
 package tech.kwik.agent15.handshake;
 
@@ -23,6 +26,8 @@ import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.TlsProtocolException;
 import tech.kwik.agent15.alert.DecodeErrorException;
 import tech.kwik.agent15.alert.IllegalParameterAlert;
+import tech.kwik.agent15.ech.EchPayloadCalculator;
+import tech.kwik.agent15.ech.EncryptedClientHelloExtension;
 import tech.kwik.agent15.extension.*;
 
 import java.nio.ByteBuffer;
@@ -176,6 +181,20 @@ public class ClientHello extends HandshakeMessage {
     public ClientHello(String serverName, PublicKey publicKey, boolean compatibilityMode, List<TlsConstants.CipherSuite> supportedCiphers,
                        List<TlsConstants.SignatureScheme> supportedSignatures, TlsConstants.NamedGroup ecCurve,
                        List<Extension> extraExtensions, BinderCalculator binderCalculator, PskKeyEstablishmentMode pskKeyEstablishmentMode) {
+        this(serverName, publicKey, compatibilityMode, supportedCiphers, supportedSignatures, ecCurve, extraExtensions,
+                binderCalculator, pskKeyEstablishmentMode, null);
+    }
+
+    /**
+     * @param echPayloadCalculator  seals the EncodedClientHelloInner into the "encrypted_client_hello" extension of
+     *                              this message, which makes it the ClientHelloOuter of RFC 9849. Must be null unless
+     *                              <code>extraExtensions</code> holds an outer EncryptedClientHelloExtension, and must
+     *                              be non-null when it does: the extension goes out with a zeroed payload otherwise.
+     */
+    public ClientHello(String serverName, PublicKey publicKey, boolean compatibilityMode, List<TlsConstants.CipherSuite> supportedCiphers,
+                       List<TlsConstants.SignatureScheme> supportedSignatures, TlsConstants.NamedGroup ecCurve,
+                       List<Extension> extraExtensions, BinderCalculator binderCalculator, PskKeyEstablishmentMode pskKeyEstablishmentMode,
+                       EchPayloadCalculator echPayloadCalculator) {
         this.cipherSuites = supportedCiphers;
 
         ByteBuffer buffer = ByteBuffer.allocate(MAX_CLIENT_HELLO_SIZE);
@@ -235,6 +254,8 @@ public class ClientHello extends HandshakeMessage {
         extensions.addAll(extraExtensions);
 
         ClientHelloPreSharedKeyExtension pskExtension = null;
+        EncryptedClientHelloExtension echExtension = null;
+        int echExtensionStartPosition = -1;
         int extensionsLength = extensions.stream().mapToInt(ext -> ext.getBytes().length).sum();
         buffer.putShort((short) extensionsLength);
         int pskExtensionStartPosition = -1;
@@ -242,6 +263,11 @@ public class ClientHello extends HandshakeMessage {
             if (extension instanceof ClientHelloPreSharedKeyExtension) {
                 pskExtension = (ClientHelloPreSharedKeyExtension) extension;
                 pskExtensionStartPosition = buffer.position();
+            }
+            if (extension instanceof EncryptedClientHelloExtension
+                    && ((EncryptedClientHelloExtension) extension).getVariant() == EncryptedClientHelloExtension.Variant.outer) {
+                echExtension = (EncryptedClientHelloExtension) extension;
+                echExtensionStartPosition = buffer.position();
             }
             buffer.put(extension.getBytes());
         }
@@ -264,6 +290,20 @@ public class ClientHello extends HandshakeMessage {
             buffer.put(pskExtension.getBytes());
             buffer.rewind();
             buffer.get(data);
+        }
+
+        if ((echPayloadCalculator != null) != (echExtension != null)) {
+            throw new IllegalArgumentException("EchPayloadCalculator and an outer EncryptedClientHelloExtension must"
+                    + " be given together; calculator=" + (echPayloadCalculator != null)
+                    + " extension=" + (echExtension != null));
+        }
+        if (echExtension != null) {
+            // https://www.rfc-editor.org/rfc/rfc9849.html#section-5.2
+            // "This value does not include the Handshake structure's four-byte header in TLS"
+            byte[] clientHelloOuterAad = Arrays.copyOfRange(data, 4, data.length);
+            echExtension.setPayload(echPayloadCalculator.calculatePayload(clientHelloOuterAad));
+            byte[] withPayload = echExtension.getBytes();
+            System.arraycopy(withPayload, 0, data, echExtensionStartPosition, withPayload.length);
         }
     }
 
