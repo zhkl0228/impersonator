@@ -84,7 +84,7 @@ public class EchEndpointIdentificationTest extends TestCase {
 
         final CountDownLatch completed = new CountDownLatch(1);
         CountingSocket plain = new CountingSocket(HOST, 443);
-        try (Socket owned = plain;
+        try (Socket ignored = plain;
              SSLSocket socket = (SSLSocket) context.getSocketFactory().createSocket(plain, HOST, 443, true)) {
             socket.addHandshakeCompletedListener(event -> completed.countDown());
 
