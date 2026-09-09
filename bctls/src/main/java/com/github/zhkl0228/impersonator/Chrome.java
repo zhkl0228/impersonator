@@ -18,9 +18,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Vector;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Chrome v152, which is the same browser on every platform. Captures from macOS and Android produce
@@ -216,6 +218,30 @@ abstract class Chrome extends ImpersonatorFactory {
                 .omit(QuicTransport.ACK_DELAY_EXPONENT, QuicTransport.MAX_ACK_DELAY,
                         QuicTransport.ACTIVE_CONNECTION_ID_LIMIT)
                 .build();
+    }
+
+    /**
+     * The HTTP/3 SETTINGS of the same capture: {@code 1:65536, 6:262144, 7:100, 51:1} and a GREASE
+     * one, in that order.
+     * <p>
+     * Two of the five are deliberately not Chrome's. QPACK_MAX_TABLE_CAPACITY and
+     * QPACK_BLOCKED_STREAMS tell the peer it may use a dynamic table and block streams on it, and the
+     * QPACK decoder underneath implements only part of the encoder stream - it throws on instructions
+     * it does not know. Claiming 65536 and 100 would be advertising a capability that is not there,
+     * which breaks the connection rather than the fingerprint, so they stay at what the
+     * implementation can actually do. The others are safe: MAX_FIELD_SECTION_SIZE is a limit on what
+     * this end accepts, H3_DATAGRAM matches the max_datagram_frame_size the transport parameters
+     * already advertise, and a GREASE setting is ignored by definition.
+     */
+    @Override
+    public Map<Long, Long> getHttp3Settings() {
+        Map<Long, Long> settings = new LinkedHashMap<>();
+        settings.put(Http3Settings.QPACK_MAX_TABLE_CAPACITY, 0L);   // Chrome sends 65536
+        settings.put(Http3Settings.MAX_FIELD_SECTION_SIZE, 262144L);
+        settings.put(Http3Settings.QPACK_BLOCKED_STREAMS, 0L);      // Chrome sends 100
+        settings.put(Http3Settings.H3_DATAGRAM, 1L);
+        settings.put(Http3Settings.randomGrease(), (long) ThreadLocalRandom.current().nextInt(Integer.MAX_VALUE));
+        return settings;
     }
 
     private static void addApplicationSettingsExtension(Map<Integer, byte[]> clientExtensions) throws IOException {

@@ -44,4 +44,19 @@ public interface Impersonator {
         return null;
     }
 
+    /**
+     * The HTTP/3 SETTINGS this profile sends, in the order they go in the frame. A fresh map per
+     * connection, because a GREASE setting has to be drawn per connection to be GREASE at all.
+     * <p>
+     * Which settings an endpoint sends, and with what values, is read as readily as a ClientHello.
+     * But a setting is also a promise about what this end can do - QPACK_MAX_TABLE_CAPACITY invites
+     * the peer to use a dynamic table - so a profile may only claim what the HTTP/3 implementation
+     * underneath actually honours.
+     *
+     * @return the settings, or null to keep the implementation's own.
+     */
+    default Map<Long, Long> getHttp3Settings() {
+        return null;
+    }
+
 }

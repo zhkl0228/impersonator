@@ -96,13 +96,37 @@ public class ChromeQuicFingerprintTest extends TestCase {
     }
 
     /**
-     * The HTTP/3 SETTINGS frame is flupke's and is the last thing that still says so. Chrome sends
-     * four settings and a GREASE one; flupke sends two, and there is no public way to change that -
-     * its settings map is protected and a HashMap, so even the order is not ours to pick. Asserted so
-     * that it is noticed rather than assumed.
+     * The HTTP/3 SETTINGS frame: five settings in Chrome's order, ending in a GREASE one.
+     * <p>
+     * Two values are deliberately not Chrome's. QPACK_MAX_TABLE_CAPACITY and QPACK_BLOCKED_STREAMS
+     * invite the peer to use a dynamic table and to block streams on it, and the QPACK decoder
+     * underneath implements only part of the encoder stream. Sending 65536 and 100 would advertise a
+     * capability that is not there, which breaks the connection rather than the fingerprint.
      */
-    public void testTheSettingsFrameIsStillFlupkes() throws Exception {
-        assertEquals("1:0;7:0", fingerprint().getString("h3_text"));
+    public void testTheSettingsFrameIsChromesExceptWhereItWouldBeALie() throws Exception {
+        String settings = fingerprint().getString("h3_text");
+
+        assertEquals("1:0;6:262144;7:0;51:1;GREASE", settings);
+        assertEquals("Chrome, for reference", "1:65536;6:262144;7:100;51:1;GREASE",
+                "1:65536;6:262144;7:100;51:1;GREASE");
+    }
+
+    /** The GREASE setting has to be drawn per connection, or it is a stable identifier instead. */
+    public void testTheGreaseSettingChangesPerConnection() throws Exception {
+        assertFalse("the same GREASE setting twice is not GREASE",
+                greaseSetting().equals(greaseSetting()));
+    }
+
+    private static String greaseSetting() throws Exception {
+        for (Object frame : fingerprint().getJSONArray("http3")) {
+            for (Object setting : ((JSONObject) frame).getJSONArray("settings")) {
+                JSONObject entry = (JSONObject) setting;
+                if ("GREASE".equals(entry.getString("name"))) {
+                    return entry.getString("id") + ":" + entry.getString("value");
+                }
+            }
+        }
+        throw new AssertionError("no GREASE setting was sent");
     }
 
     private static JSONObject fingerprint() throws Exception {
