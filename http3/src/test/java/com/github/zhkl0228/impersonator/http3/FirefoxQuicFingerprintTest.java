@@ -7,6 +7,12 @@ import com.github.zhkl0228.impersonator.ImpersonatorFactory;
 
 import junit.framework.TestCase;
 
+import tech.kwik.core.impl.QuicClientConnectionImpl;
+
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -189,6 +195,43 @@ public class FirefoxQuicFingerprintTest extends TestCase {
         assertEquals(FIREFOX_RESUMED_JA4, ja4(factory));
         assertEquals("a ticket is used once, so the third connection needs one of its own",
                 FIREFOX_RESUMED_JA4, ja4(factory));
+    }
+
+    /**
+     * The capture reports {@code 0-rtt true}, so Firefox does not merely offer "early_data" on a
+     * resumed connection - it sends 0-RTT data. This asserts the same of the profile.
+     * <p>
+     * What it asserts is that the early data was written, not that the server took it. Those are two
+     * different facts and only the first is this end's: over eight resumed connections to the
+     * fingerprint endpoint the early data status came back Accepted three times and Requested five,
+     * and the endpoint's {@code 0-rtt} field tracked it exactly - so that field reports the server's
+     * decision, and a server refusing 0-RTT for replay reasons is telling us about itself.
+     * <p>
+     * Requested rather than Accepted still means the 0-RTT packets went out; kwik then sends the same
+     * bytes again after the handshake. Offering the extension and writing nothing would be the same
+     * mistake as advertising a QPACK dynamic table with no decoder behind it.
+     * <p>
+     * There is deliberately no assertion that the connection resumed. Whether the server accepts the
+     * ticket is its decision too, and this endpoint refuses its own about half the time - asserting it
+     * here failed one run in three. Early data is written on the strength of a ticket this end holds,
+     * which is why that assertion is the stable one; acceptance is asserted in SessionResumptionTest
+     * against a host that reliably accepts.
+     */
+    public void testTheResumedConnectionReallySendsZeroRttData() throws Exception {
+        Http3ClientFactory factory = Http3ClientFactory.create(ImpersonatorFactory.macFirefox());
+        Http3Get.body(factory, FINGERPRINT_URL);
+
+        try (Http3Client client = (Http3Client) factory.newHttpClient()) {
+            URI uri = URI.create(FINGERPRINT_URL);
+            client.send(HttpRequest.newBuilder(uri).build(), HttpResponse.BodyHandlers.discarding());
+
+            QuicClientConnectionImpl connection =
+                    (QuicClientConnectionImpl) client.quicConnectionFor(uri.getHost() + ":443");
+            assertNotNull("no connection to " + uri.getHost() + " is open", connection);
+            assertTrue("the resumed connection wrote no early data, so its \"early_data\" was a claim"
+                            + " about this client that is not true",
+                    connection.getEarlyDataStatus() != QuicClientConnectionImpl.EarlyDataStatus.None);
+        }
     }
 
     private static String ja4(Http3ClientFactory factory) throws Exception {
