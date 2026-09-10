@@ -145,6 +145,14 @@ public class SafariQuicFingerprintTest extends TestCase {
      * One CRYPTO frame and the padding length, rather than the whole frame list: the endpoint reports
      * the padding twice over, once as a length and once as a run of PADDING frames, and the capture
      * files here have only the length. What both agree on is the number this is about.
+     * <p>
+     * And either of the two packets, because the endpoint reports one Initial packet and does not say
+     * which datagram it is. Usually the first; under load, when the two are processed out of order,
+     * the second. Both numbers come from the same cut and from nothing else: 162 is what a 999 byte
+     * CRYPTO frame and its 4 byte header leave of the 1165 bytes a 1200 byte Initial datagram carries,
+     * and 675 is what the 485 bytes that follow them and their 5 byte header leave. A different
+     * division shows up as a third number, and a ClientHello of a different length as a different
+     * second one - so the message carries what was actually seen.
      */
     public void testTheFirstInitialCarriesSafarisNineHundredAndNinetyNineBytes() throws Exception {
         JSONObject initial = fingerprint().getJSONObject("quic")
@@ -157,8 +165,10 @@ public class SafariQuicFingerprintTest extends TestCase {
             }
         }
         assertEquals("one CRYPTO frame, as in every capture", 1, crypto);
-        assertEquals("999 bytes of ClientHello in a 1200 byte datagram leaves exactly this much",
-                162, initial.getIntValue("padding_length"));
+        int padding = initial.getIntValue("padding_length");
+        assertTrue("999 bytes of ClientHello in a 1200 byte datagram leave 162, and the 485 that"
+                        + " follow them leave 675; this packet left " + padding,
+                padding == 162 || padding == 675);
     }
 
     /**
