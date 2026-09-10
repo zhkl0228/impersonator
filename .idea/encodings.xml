@@ -3,8 +3,18 @@
   <component name="Encoding">
     <file url="file://$PROJECT_DIR$/bctls/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/bctls/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/http3/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/http3/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/okhttp/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/okhttp/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/agent15/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/agent15/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/kwik/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/kwik/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/qpack/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/qpack/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/quic/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
   </component>

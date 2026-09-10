@@ -28,8 +28,15 @@
 
 
     <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <!--
+            release rather than source and target, which is not only tidier: with source/target the
+            compiler builds against the JDK it is running on, so on a JDK 21 an API added after Java 8
+            compiles happily into a class file that says Java 8 and fails on one with NoSuchMethodError.
+            "bootstrap class path is not set in conjunction with -source 8" is javac saying exactly
+            that. release compiles against the release's own API, so what the modules claim to run on
+            is checked rather than asserted.
+        -->
+        <maven.compiler.release>8</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.test.skip>false</maven.test.skip>
     </properties>
