@@ -214,6 +214,10 @@ public class QuicClientFactory {
         if (quicTransport.isSniSlicing()) {
             builder.initialCryptoDivision(new InitialCryptoDivision.NeqoSniSlicing());
         }
+        if (quicTransport.getInitialCryptoChunkSize() != null) {
+            builder.initialCryptoDivision(
+                    new InitialCryptoDivision.FixedChunks(quicTransport.getInitialCryptoChunkSize()));
+        }
         if (quicTransport.isPaddingOutsidePacket()) {
             builder.paddingMode(PaddingMode.OUTSIDE);
         }

@@ -238,6 +238,7 @@ class MacSafari extends ImpersonatorFactory {
         return QuicTransport.newBuilder()
                 .destinationConnectionIdLength(8)
                 .sourceConnectionIdLength(0)
+                .initialCryptoChunkSize(999)
                 .initialDatagramSize(1200)
                 .initialMaxData(16777216L)
                 .initialMaxStreamDataBidirectional(2097152L)

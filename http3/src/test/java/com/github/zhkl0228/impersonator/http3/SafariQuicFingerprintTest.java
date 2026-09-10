@@ -127,6 +127,41 @@ public class SafariQuicFingerprintTest extends TestCase {
 
 
     /**
+     * Safari's first Initial packet: one CRYPTO frame of 999 bytes and 162 bytes of PADDING behind
+     * it, where filling the packet would leave none.
+     * <p>
+     * Safari sends its ClientHello in order and simply stops early, which is neither Chrome's
+     * scrambling nor Firefox's cut at the server name, and neither is it kwik's "fill each packet
+     * until the data runs out" - that produces a first Initial with no padding at all, which is what
+     * this client sent until now. All three Safari captures report the same 162, the resumed one
+     * included, and a packet capture shows the frames themselves: CRYPTO[0,999) then PADDING x162,
+     * and CRYPTO[999,1485) after it. See docs/captures/safari-26-quic-initial-2.pcapng and
+     * {@link tech.kwik.core.crypto.InitialCryptoDivision.FixedChunks}.
+     * <p>
+     * The padding is asserted rather than the 999 because the endpoint reports the padding and not
+     * the frame length - but with an 8 byte connection id and a 1200 byte datagram the two are the
+     * same statement, 162 being exactly what a 999 byte frame leaves.
+     * <p>
+     * One CRYPTO frame and the padding length, rather than the whole frame list: the endpoint reports
+     * the padding twice over, once as a length and once as a run of PADDING frames, and the capture
+     * files here have only the length. What both agree on is the number this is about.
+     */
+    public void testTheFirstInitialCarriesSafarisNineHundredAndNinetyNineBytes() throws Exception {
+        JSONObject initial = fingerprint().getJSONObject("quic")
+                .getJSONArray("initial_packets").getJSONObject(0);
+
+        int crypto = 0;
+        for (Object frame : initial.getJSONArray("frames")) {
+            if (((Number) frame).intValue() == 6) {
+                crypto++;
+            }
+        }
+        assertEquals("one CRYPTO frame, as in every capture", 1, crypto);
+        assertEquals("999 bytes of ClientHello in a 1200 byte datagram leaves exactly this much",
+                162, initial.getIntValue("padding_length"));
+    }
+
+    /**
      * The request itself, not only the handshake. A connection whose QUIC, TLS and HTTP/3
      * fingerprints match this browser byte for byte, carrying a request with no User-Agent at all,
      * is a plainer tell than any mismatch would be - and that is what this client sent until the

@@ -118,6 +118,54 @@ public class InitialCryptoDivisionTest extends TestCase {
                 pieces.get(1).length);
     }
 
+    /**
+     * Safari's, from docs/captures/safari-26-quic-initial-2.pcapng: a 1485 byte ClientHello sent as
+     * 999 bytes and then 486, in order.
+     * <p>
+     * The packet capacity is deliberately far above 999 here, because that is the point - Safari
+     * stops at 999 with 162 bytes of the packet still free, where filling it would take 1161.
+     */
+    public void testItReproducesSafarisCapturedChunks() {
+        List<InitialCryptoDivision.Piece> pieces =
+                new InitialCryptoDivision.FixedChunks(999).divide(new byte[1485], 1161);
+
+        assertEquals(2, pieces.size());
+        assertPiece("the first packet stops at 999", 0, 999, pieces.get(0));
+        assertPiece("and the rest follows in order", 999, 486, pieces.get(1));
+    }
+
+    /**
+     * The limit is a constant and not a share of the message, which is what the resumed capture
+     * settles: a longer ClientHello still puts 999 in the first packet.
+     */
+    public void testTheLimitDoesNotMoveWithTheMessage() {
+        InitialCryptoDivision division = new InitialCryptoDivision.FixedChunks(999);
+
+        assertEquals(999, division.divide(new byte[1485], 1161).get(0).length);
+        assertEquals(999, division.divide(new byte[1600], 1161).get(0).length);
+    }
+
+    /**
+     * A ClientHello that fits in one packet is left alone. Safari's never does - its post-quantum key
+     * share alone is over 1200 bytes - so no capture says whether it would send 999 and then the rest
+     * or the whole thing at once, and this does not guess.
+     */
+    public void testAFlightThatFitsIsNotChunked() {
+        assertTrue(new InitialCryptoDivision.FixedChunks(999)
+                .divide(new byte[1100], 1161).isEmpty());
+    }
+
+    /** A limit of zero would divide nothing into infinitely many pieces, so it is refused. */
+    public void testANonPositiveLimitIsRefused() {
+        try {
+            new InitialCryptoDivision.FixedChunks(0);
+            fail("a chunk limit of zero must be refused");
+        }
+        catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("positive"));
+        }
+    }
+
     /** No server name, so nothing to cut through: neqo writes the flight whole and so does this. */
     public void testAFlightWithNoServerNameIsLeftAlone() {
         assertTrue(new InitialCryptoDivision.NeqoSniSlicing()

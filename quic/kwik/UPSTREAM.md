@@ -97,6 +97,12 @@ packet from the front, as kwik does, left the scrambler no padding to spend, so 
 went out as one CRYPTO frame between a couple of PINGs. The rule is read off four captured Chrome 152
 connections that agree to the byte and is asserted against them in `InitialCryptoDivisionTest`.
 
+The same file also carries Safari's, which is neither: it sends the ClientHello in order and stops
+at 999 bytes, leaving 162 bytes of the first packet to padding where filling it would leave none.
+That the 999 is a constant rather than a share of the message took four connections to establish -
+the resumed ClientHello is longer than the fresh one and still sends 999 - and one of them is a
+packet capture, so the frames are read off the wire rather than inferred.
+
 The same file carries neqo's, which is what Firefox does: it cuts the ClientHello through the middle
 of the server name and sends the halves in the wrong order, so that no datagram holds a whole host
 name. That rule comes from `neqo-transport/src/crypto.rs` - `limit_chunks` and the

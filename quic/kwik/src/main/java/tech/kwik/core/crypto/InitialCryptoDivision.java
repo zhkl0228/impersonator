@@ -127,6 +127,69 @@ public interface InitialCryptoDivision {
     }
 
     /**
+     * A fixed limit on how much of the ClientHello one Initial packet carries, which is what Safari
+     * does.
+     * <p>
+     * Where Chrome moves the message about and Firefox cuts it at the server name, Safari sends it in
+     * order and simply stops early: its first Initial carries 999 bytes of CRYPTO and leaves the rest
+     * of the packet empty, and the remainder follows in the next one. The packet is still padded to
+     * the full datagram - Safari pads from the inside like Chrome - so what a server sees is a first
+     * Initial with one CRYPTO frame and 162 bytes of PADDING behind it, where filling the packet would
+     * leave none.
+     * <p>
+     * 999 is a constant and not a share of the message, which took four connections to establish:
+     * <pre>
+     *   capture                          ClientHello  first packet  padding
+     *   safari-26-quic.json              fresh, 11 extensions   999      162
+     *   safari-26-quic-resumed.json      resumed, 13 extensions 999      162
+     *   safari-26-ios-quic.json          iOS, fresh             999      162
+     *   safari-26-quic-initial-2.pcapng  1485 bytes             999      162
+     * </pre>
+     * The resumed ClientHello is longer than the fresh one - it carries a pre_shared_key and its
+     * binder - and the first packet is the same 999 bytes all the same, which is what rules out every
+     * rule that divides the message in proportion. The last row is a full packet capture, so its
+     * numbers are read off the wire rather than inferred: CRYPTO[0,999) then PADDING x162, and
+     * CRYPTO[999,1485) then PADDING x674 in the packet after it.
+     * <p>
+     * What 999 is derived from is not known. With the 8 byte Destination Connection ID and one byte
+     * packet number Safari always sends, a 1200 byte datagram leaves 1165 bytes of payload, so the
+     * 999 byte frame and its 4 byte header leave exactly the 162 that is observed - but why Safari
+     * stops there rather than at 1161 is a question no capture here answers, so this reproduces the
+     * number rather than a reason for it.
+     * <p>
+     * Only the first packet's limit is evidenced. The second packet of every capture is well under it
+     * - 486 bytes - so whether a third would start at 1998 is not something these samples say; they
+     * say the remainder follows in order, and that is what this does.
+     */
+    final class FixedChunks implements InitialCryptoDivision {
+
+        private final int limit;
+
+        public FixedChunks(int limit) {
+            if (limit <= 0) {
+                throw new IllegalArgumentException("a chunk limit must be positive, got " + limit);
+            }
+            this.limit = limit;
+        }
+
+        @Override
+        public List<Piece> divide(byte[] clientHello, int packetCapacity) {
+            List<Piece> pieces = new ArrayList<>(2);
+            if (clientHello.length <= packetCapacity) {
+                // One packet holds it, so there is nothing to divide. Safari's ClientHello never fits -
+                // its post-quantum key share alone is over 1200 bytes - so there is no capture of what
+                // it would do with a small one, and a division invented for that case would put a
+                // layout on the wire that nothing supports.
+                return pieces;
+            }
+            for (int offset = 0; offset < clientHello.length; offset += limit) {
+                pieces.add(new Piece(offset, Math.min(limit, clientHello.length - offset)));
+            }
+            return pieces;
+        }
+    }
+
+    /**
      * neqo's SNI slicing, which is what Firefox does.
      * <p>
      * Where QUICHE moves the ClientHello about to keep middleboxes from assuming a shape, neqo aims at

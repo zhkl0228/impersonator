@@ -60,6 +60,7 @@ public class QuicTransport {
     private final boolean chaosProtection;
     private final boolean sniSlicing;
     private final boolean paddingOutsidePacket;
+    private final Integer initialCryptoChunkSize;
     private final Integer activeConnectionIdLimit;
     private final Integer initialDatagramSize;
     private final Long initialMaxData;
@@ -82,6 +83,7 @@ public class QuicTransport {
         this.chaosProtection = builder.chaosProtection;
         this.sniSlicing = builder.sniSlicing;
         this.paddingOutsidePacket = builder.paddingOutsidePacket;
+        this.initialCryptoChunkSize = builder.initialCryptoChunkSize;
         this.activeConnectionIdLimit = builder.activeConnectionIdLimit;
         this.initialDatagramSize = builder.initialDatagramSize;
         this.initialMaxData = builder.initialMaxData;
@@ -123,6 +125,11 @@ public class QuicTransport {
     /** See {@link Builder#sniSlicing()}. */
     public boolean isSniSlicing() {
         return sniSlicing;
+    }
+
+    /** See {@link Builder#initialCryptoChunkSize(int)}. */
+    public Integer getInitialCryptoChunkSize() {
+        return initialCryptoChunkSize;
     }
 
     /** See {@link Builder#paddingOutsidePacket()}. */
@@ -222,6 +229,7 @@ public class QuicTransport {
         private boolean chaosProtection;
         private boolean sniSlicing;
         private boolean paddingOutsidePacket;
+        private Integer initialCryptoChunkSize;
         private Integer activeConnectionIdLimit;
         private Integer initialDatagramSize;
         private Long initialMaxData;
@@ -276,6 +284,20 @@ public class QuicTransport {
          * whose browser does it rather than done for all of them. A capture of the browser is the only
          * way to know which: see docs/captures/chrome-152-quic-initial.pcapng.
          */
+        /**
+         * The most of the ClientHello one Initial packet carries, the rest following in order, which
+         * is what Safari does: it sends 999 bytes and stops, leaving 162 bytes of the packet to
+         * padding where filling it would leave none.
+         * <p>
+         * A constant rather than a share of the message - Safari's resumed ClientHello is longer than
+         * its fresh one and still sends 999 - which is what four captures settle; see
+         * {@link tech.kwik.core.crypto.InitialCryptoDivision.FixedChunks}, where they are listed.
+         */
+        public Builder initialCryptoChunkSize(int bytes) {
+            this.initialCryptoChunkSize = bytes;
+            return this;
+        }
+
         /**
          * Pads an Initial datagram after the QUIC packet rather than inside it, which is what Firefox
          * does: its packet ends where its CRYPTO frames end and the rest of the 1252 bytes is zeroes
