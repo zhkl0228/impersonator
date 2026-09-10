@@ -45,6 +45,21 @@ public interface Impersonator {
     default void fillRequestHeaders(Map<String, String> headers) {
     }
 
+    /**
+     * The four request pseudo headers in the order this browser sends them, as the comma joined
+     * tokens {@code m}, {@code a}, {@code s} and {@code p} for ":method", ":authority", ":scheme"
+     * and ":path". Null when no capture of this profile says.
+     * <p>
+     * All three browsers here differ - Chrome sends {@code m,a,s,p}, Safari {@code m,s,a,p} and
+     * Firefox {@code m,p,a,s} - so the order identifies the browser on its own, and both HTTP/2 and
+     * HTTP/3 need it. It is declared here rather than inside each profile's HTTP/2 connection hook so
+     * that the two protocols cannot drift apart: the same browser builds the same field section
+     * either way, and the hook now passes this on rather than repeating it.
+     */
+    default String getPseudoHeaderOrder() {
+        return null;
+    }
+
     int[] getCipherSuites();
 
     int[] getKeyShareGroups();

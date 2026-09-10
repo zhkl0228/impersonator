@@ -75,7 +75,13 @@ class MacSafari extends ImpersonatorFactory {
         // SETTINGS_NO_RFC7540_PRIORITIES of RFC 9218, which BouncyCastle has no constant for.
         http2Connection.setSetting(9, 1);
         http2Connection.setWindowSizeIncrement(10420225L);
-        http2Connection.setHeaderOrder("m,s,a,p");
+        http2Connection.setHeaderOrder(getPseudoHeaderOrder());
+    }
+
+    /** ":method", ":scheme", ":authority", ":path" - asserted against a capture in MacSafariTest. */
+    @Override
+    public String getPseudoHeaderOrder() {
+        return "m,s,a,p";
     }
 
     @Override

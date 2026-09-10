@@ -46,6 +46,19 @@ class MacFirefox extends ImpersonatorFactory {
         http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 131072);
         http2Connection.setSetting(Settings.MAX_FRAME_SIZE, 16384);
         http2Connection.setWindowSizeIncrement(12517377L);
+        http2Connection.setHeaderOrder(getPseudoHeaderOrder());
+    }
+
+    /**
+     * ":method", ":path", ":authority", ":scheme" - asserted against a capture in MacFirefoxTest.
+     * <p>
+     * Set explicitly although it is also okhttp's own order, which is why this profile sent the right
+     * one while saying nothing. Relying on that left the browser's order resting on a library default
+     * that no test names and any upstream release could change.
+     */
+    @Override
+    public String getPseudoHeaderOrder() {
+        return "m,p,a,s";
     }
 
     @Override

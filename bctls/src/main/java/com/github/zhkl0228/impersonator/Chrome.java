@@ -101,7 +101,13 @@ abstract class Chrome extends ImpersonatorFactory {
         http2Connection.setSetting(Settings.INITIAL_WINDOW_SIZE, 6291456);
         http2Connection.setSetting(Settings.MAX_HEADER_LIST_SIZE, 262144);
         http2Connection.setWindowSizeIncrement(15663105L);
-        http2Connection.setHeaderOrder("m,a,s,p");
+        http2Connection.setHeaderOrder(getPseudoHeaderOrder());
+    }
+
+    /** ":method", ":authority", ":scheme", ":path" - asserted against a capture in MacChromeTest. */
+    @Override
+    public String getPseudoHeaderOrder() {
+        return "m,a,s,p";
     }
 
     @Override
