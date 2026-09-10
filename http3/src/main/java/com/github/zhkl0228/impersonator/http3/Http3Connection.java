@@ -51,20 +51,35 @@ class Http3Connection extends Http3ClientConnectionImpl {
 
     private final ExecutorService executorService;
     private final DecoderImpl qpack;
+    private final FieldSectionOrder ordering;
 
     /** Set when the control stream has already gone out in 0-RTT, so flupke must not open a second. */
     private volatile boolean controlStreamSentAsEarlyData;
 
-    Http3Connection(QuicConnection quicConnection, ExecutorService executorService, Map<Long, Long> settings) {
+    Http3Connection(QuicConnection quicConnection, ExecutorService executorService, Map<Long, Long> settings,
+                    java.util.List<String> fieldOrder) {
         super(quicConnection, executorService);
         this.executorService = executorService;
         if (settings != null) {
             settingsParameters.clear();
             settingsParameters.putAll(settings);
         }
+        FieldSectionOrder ordering = null;
+        if (fieldOrder != null) {
+            // Wrapping rather than replacing: flupke's encoder still does the encoding, it just gets
+            // the field lines in the browser's order. See FieldSectionOrder for why this is the only
+            // point at which that order still exists.
+            qpackEncoder = ordering = new FieldSectionOrder(qpackEncoder, fieldOrder);
+        }
+        this.ordering = ordering;
         qpack = (DecoderImpl) qpackDecoder;
         qpack.setMaxTableCapacity(advertised(Http3Settings.QPACK_MAX_TABLE_CAPACITY));
         qpack.setMaxBlockedStreams((int) advertised(Http3Settings.QPACK_BLOCKED_STREAMS));
+    }
+
+    /** The field names of the last request written, in wire order; null when no order was declared. */
+    java.util.List<String> lastFieldSection() {
+        return ordering == null ? null : ordering.lastFieldSection();
     }
 
     /** QPACK's dynamic table, for a test that wants to see whether the peer's encoder used it. */

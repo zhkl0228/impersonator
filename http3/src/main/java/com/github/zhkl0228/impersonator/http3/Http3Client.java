@@ -57,12 +57,18 @@ class Http3Client extends HttpClient {
     /** The profile whose request headers every request through this client carries; null when none. */
     private final Impersonator impersonator;
 
+    /** The order that profile's field lines go on the wire; null when it declares none. */
+    private final List<String> fieldOrder;
+
     Http3Client(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings, Duration connectTimeout,
                 Impersonator impersonator) {
         this.quicClientFactory = quicClientFactory;
         this.http3Settings = http3Settings;
         this.connectTimeout = connectTimeout;
         this.impersonator = impersonator;
+        this.fieldOrder = impersonator == null ? null
+                : FieldSectionOrder.of(impersonator.getPseudoHeaderOrder(),
+                        profileHeaders(impersonator).keySet());
     }
 
     @Override
@@ -130,13 +136,7 @@ class Http3Client extends HttpClient {
         if (impersonator == null) {
             return request;
         }
-        Map<String, String> headers = new LinkedHashMap<>();
-        // Seeded first, because a profile moves the User-Agent rather than supplying it.
-        String userAgent = impersonator.getUserAgent();
-        if (userAgent != null) {
-            headers.put("User-Agent", userAgent);
-        }
-        impersonator.fillRequestHeaders(headers);
+        Map<String, String> headers = profileHeaders(impersonator);
         if (headers.isEmpty()) {
             return request;
         }
@@ -152,6 +152,24 @@ class Http3Client extends HttpClient {
             }
         }
         return builder.build();
+    }
+
+    /**
+     * The headers a profile adds to every request, in the order it adds them.
+     * <p>
+     * The User-Agent is seeded first because a profile moves that header rather than supplying it:
+     * Chrome takes it back out and puts it after Upgrade-Insecure-Requests, which it can only do to a
+     * header already in the map. So this map's iteration order is the browser's field order, and it
+     * is the only place that order exists.
+     */
+    private static Map<String, String> profileHeaders(Impersonator impersonator) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        String userAgent = impersonator.getUserAgent();
+        if (userAgent != null) {
+            headers.put("User-Agent", userAgent);
+        }
+        impersonator.fillRequestHeaders(headers);
+        return headers;
     }
 
     @Override
@@ -217,7 +235,8 @@ class Http3Client extends HttpClient {
         // encoder streams as soon as the handshake completes, so connecting first loses whichever of
         // them wins the race, and the QPACK one carries the dynamic table. Http3Connection.connect()
         // brings the QUIC connection up itself.
-        Http3Connection http3Connection = new Http3Connection(quicConnection, executorService, http3Settings);
+        Http3Connection http3Connection =
+                new Http3Connection(quicConnection, executorService, http3Settings, fieldOrder);
         if (ticket != null) {
             /*
              * Resuming, so this connection sends 0-RTT data, and what HTTP/3 has to send first is its
