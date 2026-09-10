@@ -86,6 +86,14 @@ public class DynamicTable {
     }
 
     /**
+     * How much of the capacity the entries take up, each of them costing its name, its value and the
+     * 32 bytes of RFC 9204 section 3.2.1.
+     */
+    public synchronized long size() {
+        return size;
+    }
+
+    /**
      * RFC 9204 section 3.2.3, the Set Dynamic Table Capacity instruction. "The encoder MUST NOT set a
      * dynamic table capacity that exceeds the maximum dynamic table capacity", which is the value
      * this end advertised.

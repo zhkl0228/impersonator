@@ -65,6 +65,7 @@ handed the section's bytes and nothing else. flupke's `readHeadersFrame` is priv
 | `impl/PrefixedInteger.java` | added `writePrefixedInteger`. Fixed two bugs found while relying on it: the continuation boundary was `> 128` where it has to be `>= 128`, so a remainder of exactly 128 was written as a single byte that reads back as a continuation worth zero; and the parser shifted an `int` by up to 63 bits, which wraps, where RFC 9204 section 4.1.1 requires 62 bit integers |
 | `impl/StaticTable.java` | a rejected index says which index it was |
 | `impl/HttpQPackDecompressionFailedException.java` | can carry a message and a cause |
+| `impl/Huffman.java` | a symbol is only decoded when its code fits the bits that are actually left, and what is left over must be the all ones EOS padding RFC 7541 section 5.2 requires rather than anything at all. And an empty string encodes to no bytes: the length was `(0 - 1) / 8 + 1`, which is 1, so an empty value went out as one byte of 0x00 |
 
 New with no upstream counterpart: `impl/DynamicTable.java` (the table itself, and the only shared
 state between the encoder stream's thread and the request threads) and
@@ -85,6 +86,22 @@ a branch nothing here reaches.
 
 ## Testing
 
+Three kinds, because they answer different questions.
+
+`Rfc9204ExamplesTest` decodes RFC 9204 appendix B byte for byte. It is the one set of QPACK vectors
+that was not written here: the hex and the field lines it decodes to are the RFC's, and between the
+five examples it reaches all four encoder stream instructions, the field section prefix, references
+to the dynamic table before and after the Base, eviction, and both decoder stream instructions.
+
+`PrefixedIntegerTest`, `HuffmanTest` and `DynamicTableTest` are round trips and edge cases rather than
+vectors, for the same reason the paragraph below gives. Between them they pin every bug found in this
+module - the two in the prefixed integer and the two in the Huffman coder - each with the value that
+broke it, because all four produced something that reads back as a different header rather than as an
+error.
+
+`EncoderDecoderTest` runs a field section through qpack's own encoder, which is not one of the files
+changed here, and back through the changed decoder.
+
 `QpackDynamicTableTest` in `impersonator-http3` runs against a server whose encoder actually uses the
 dynamic table. That turns out to be a short list: Cloudflare's QPACK encoder and Scrapfly's set a
 capacity of zero and encode every field line against the static table alone, so they exercise none of
@@ -92,9 +109,15 @@ this. nghttp2.org sets a capacity of 4096, inserts, and then references what it 
 the part that cannot be faked, because a server only keeps referencing entries it has been told
 arrived.
 
-The test is deliberately not a set of hand-written byte vectors. Bytes written from reading the RFC
+That test is deliberately not a set of hand-written byte vectors. Bytes written from reading the RFC
 would assert that the decoder agrees with how the RFC was read; a server choosing its own encoding is
-the thing that can disagree.
+the thing that can disagree - and so is the RFC's own appendix, which is why that one is here.
+
+It fails at nghttp2.org about one connection in a hundred, with the connection timing out during the
+handshake. That is the same symptom, at the same host, as the Retry failure the tools README goes into
+- 90 connections through a real ngtcp2 server and 60 through aioquic all complete, and curl loses 5 of
+150 there - but the two have not been shown to be one thing, and it has not been ruled out that this
+end is at fault. Still open.
 
 ## Re-syncing with upstream
 

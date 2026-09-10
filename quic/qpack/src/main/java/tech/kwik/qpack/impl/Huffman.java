@@ -24,6 +24,7 @@ import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,6 +33,11 @@ import java.util.stream.IntStream;
 
 /**
  * Encodes and decodes Huffman code as specified by https://www.rfc-editor.org/rfc/rfc7541.html#appendix-B
+ */
+/*
+ * Modified for impersonator (https://github.com/zhkl0228/impersonator): padding that is not the EOS
+ * prefix is a decoding error rather than something to consume quietly, and an empty string encodes to
+ * no bytes rather than to one zero byte; see quic/qpack/UPSTREAM.md.
  */
 public class Huffman {
 
@@ -153,7 +159,7 @@ public class Huffman {
             StringBuffer string = new StringBuffer(bytes.length);
             BitBuffer buffer = new BitBuffer(bytes);
             while (buffer.hasRemaining()) {
-                TableEntry symbol = lookup(lookupTable, buffer);
+                TableEntry symbol = lookup(lookupTable, buffer, bytes);
                 if (symbol != null) {
                     string.append(symbol.character);
                 }
@@ -168,26 +174,50 @@ public class Huffman {
          * @param buffer the buffer containing the bits that will be decoded.
          * @return the symbol represented by the code or null if there is no match
          */
-        private TableEntry lookup(TableEntry[] table, BitBuffer buffer) {
+        private TableEntry lookup(TableEntry[] table, BitBuffer buffer, byte[] bytes) {
             int key = (int) buffer.peek() & 0xff;
             TableEntry mappedSymbol = table[key];
-            if (mappedSymbol.isSymbol()) {
+            /*
+             * The code has to fit in the bits that are actually left. BitBuffer feeds ones once the
+             * data runs out, so the last few bits of a string peek as themselves followed by padding,
+             * and a symbol can appear to match on bits that were never sent - which is what turned one
+             * byte of 0x00 into "0a": five zero bits read as '0', and the three left over, padded with
+             * ones to 00011111, read as 'a'.
+             */
+            if (mappedSymbol.isSymbol() && mappedSymbol.codeLength <= buffer.remaining()) {
                 buffer.shift(mappedSymbol.codeLength);
                 return mappedSymbol;
             }
-            else if (buffer.remaining() >= KEY_SIZE) {
+            if (!mappedSymbol.isSymbol() && buffer.remaining() >= KEY_SIZE) {
                 if (mappedSymbol.subTable == null) {
                     throw new IllegalStateException("Missing subtable!");
                 }
                 buffer.shift(KEY_SIZE);
-                return lookup(mappedSymbol.subTable, buffer);
+                return lookup(mappedSymbol.subTable, buffer, bytes);
             }
-            else {
-                // End of buffer contains some non-character bits (probably just 1's), as total length of character encodings
-                // in the buffer is not a multiple of 8.
-                buffer.shift(buffer.remaining());
-                return null;
+            /*
+             * What is left is shorter than a symbol, so it can only be the padding that brings the
+             * last byte up to eight bits. RFC 7541 section 5.2 says what that may be: "A padding
+             * strictly longer than 7 bits MUST be treated as a decoding error. A padding not
+             * corresponding to the most significant bits of the code for the EOS symbol MUST be
+             * treated as a decoding error." The EOS code is all ones, and BitBuffer feeds ones once
+             * it runs out of data, so valid padding peeks as 0xff and nothing else does.
+             *
+             * This used to consume whatever was there and return null, with a comment guessing the
+             * bits were "probably just 1's". When they are not, the bits before them were decoded
+             * as symbols and the caller was handed a header field that was never sent: an empty
+             * value encoded as one zero byte came back as "0a". A header invented out of padding is
+             * worse than a failed request, because nothing downstream can tell.
+             */
+            if (buffer.peek() != (byte) 0xff) {
+                throw new HttpQPackDecompressionFailedException("Huffman coded string ends with "
+                        + buffer.remaining() + " bits that are neither a symbol nor the all ones EOS"
+                        + " padding RFC 7541 section 5.2 requires (peeked 0x"
+                        + String.format("%02x", buffer.peek() & 0xff) + "), base64 "
+                        + Base64.getEncoder().encodeToString(bytes));
             }
+            buffer.shift(buffer.remaining());
+            return null;
         }
 
         /**
@@ -282,7 +312,13 @@ public class Huffman {
                 elements[i] = huffmanCode[Byte.toUnsignedInt(string[i])];
             }
             int numberOfBits = Arrays.stream(elements).mapToInt(c -> c.length).sum();
-            int encodingLength = ((numberOfBits - 1) / 8) + 1;
+            /*
+             * No bits is no bytes. The expression below reads (0 - 1) / 8 + 1 = 1 for an empty string,
+             * so an empty value went out as a Huffman coded string one byte long holding 0x00 - which
+             * is not the encoding of anything, and which a decoder either rejects or, as this one used
+             * to, turns into characters nobody wrote.
+             */
+            int encodingLength = numberOfBits == 0 ? 0 : ((numberOfBits - 1) / 8) + 1;
 
             // Append the symbol codes to buffer, shifting codes to fill up empty (bit) places.
             ByteBuffer buffer = ByteBuffer.allocate(encodingLength);
