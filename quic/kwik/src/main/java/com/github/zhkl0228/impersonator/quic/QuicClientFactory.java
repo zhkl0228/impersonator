@@ -34,6 +34,7 @@ public class QuicClientFactory {
     private final QuicClientHello quicClientHello;
 
     private SessionTicketStore sessionTicketStore = new InMemorySessionTicketStore();
+    private NewTokenStore newTokenStore = new InMemoryNewTokenStore();
     private final QuicTransport quicTransport;
 
     private EchConfigProvider echConfigProvider;
@@ -126,6 +127,24 @@ public class QuicClientFactory {
      */
     public QuicClientFactory setSessionTicketStore(SessionTicketStore sessionTicketStore) {
         this.sessionTicketStore = sessionTicketStore;
+        return this;
+    }
+
+    /**
+     * Where the address validation tokens from NEW_TOKEN frames are kept between connections; see
+     * {@link NewTokenStore}. Same scope as the ticket store, and for the same reason: one profile,
+     * every host it has visited.
+     */
+    public NewTokenStore getNewTokenStore() {
+        return newTokenStore;
+    }
+
+    /**
+     * Replaces the token store, or removes it - passing null means no connection ever carries a
+     * token, and every one of them is a client whose address the server has not validated.
+     */
+    public QuicClientFactory setNewTokenStore(NewTokenStore newTokenStore) {
+        this.newTokenStore = newTokenStore;
         return this;
     }
 

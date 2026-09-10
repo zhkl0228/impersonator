@@ -162,6 +162,14 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private KeepAliveActor keepAliveActor;
     private String applicationProtocol;
     private final List<QuicSessionTicket> newSessionTickets = Collections.synchronizedList(new ArrayList<>());
+    /**
+     * The tokens received in NEW_TOKEN frames, oldest first; see {@link #getNewTokens()}. Separate
+     * from {@link #token}, which is what this connection puts in its Initial packets and which a
+     * Retry replaces - RFC 9000 section 8.1.3, "The client MUST NOT use the token provided in a
+     * Retry for future connections", so keeping the two in one place would be keeping one that must
+     * not be kept.
+     */
+    private final List<byte[]> newTokens = Collections.synchronizedList(new ArrayList<>());
     private boolean ignoreVersionNegotiation;
     private volatile EarlyDataStatus earlyDataStatus = None;
     private final List<TlsConstants.CipherSuite> cipherSuites;
@@ -459,6 +467,13 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
         receiver.start();
         sender.start(connectionSecrets);
+        // https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1.3
+        // "The client MUST include the token in all Initial packets it sends, unless a Retry replaces
+        //  the token with a newer one." Before the handshake starts, because the first Initial packet
+        //  is the one that has to carry it: a token arriving later validates nothing.
+        if (token != null) {
+            sender.setInitialToken(token);
+        }
         startReceiverLoop();
 
         startHandshake(applicationProtocol, earlyDataWriter != null);
@@ -911,7 +926,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         //  a connection error of type FRAME_ENCODING_ERROR."
         if (newTokenFrame.getToken().length == 0) {
             immediateCloseWithError(FRAME_ENCODING_ERROR, "empty token in NEW_TOKEN frame");
+            return;
         }
+        // https://www.rfc-editor.org/rfc/rfc9000.html#section-8.1.3
+        // "Clients might receive multiple tokens on a single connection. Aside from preventing
+        //  linkability, any token can be used in any connection attempt."
+        newTokens.add(newTokenFrame.getToken());
     }
 
     @Override
@@ -1400,6 +1420,23 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         return newSessionTickets;
     }
 
+    @Override
+    public List<byte[]> getNewTokens() {
+        return newTokens;
+    }
+
+    /**
+     * The address validation token this connection puts in its Initial packets, or null if it has
+     * none.
+     * <p>
+     * Not the same thing as what it was built with: a Retry replaces it, which is RFC 9000 section
+     * 8.1.3's "unless a Retry replaces the token with a newer one". So a connection that was given a
+     * token and still has it is one that was not sent a Retry, which is the point of having had one.
+     */
+    public byte[] getInitialToken() {
+        return token;
+    }
+
     public EarlyDataStatus getEarlyDataStatus() {
         return earlyDataStatus;
     }
@@ -1500,6 +1537,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private int port;
         private InetTools.IPversionOption ipVersionOption;
         private QuicSessionTicket sessionTicket;
+        private byte[] initialToken;
         private QuicVersion quicVersion = QuicVersion.V1;
         private QuicVersion preferredVersion;
         private Logger log = new NullLogger();
@@ -1560,6 +1598,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                             echConfigProvider, clientHelloSpec, destinationConnectionIdLength,
                             omittedTransportParameters, addedTransportParameters, otherVersionIds);
 
+            quicConnection.token = initialToken;
             quicConnection.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
             quicConnection.maxAckDelay = maxAckDelay;
             quicConnection.sender.setChaosProtection(chaosProtection);
@@ -1712,6 +1751,17 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         @Override
         public Builder logger(Logger log) {
             this.log = Objects.requireNonNull(log);
+            return this;
+        }
+
+        @Override
+        public Builder initialToken(byte[] token) {
+            // https://www.rfc-editor.org/rfc/rfc9000.html#section-19.7
+            // "The token MUST NOT be empty", which is as true of one going out as of one coming in.
+            if (token != null && token.length == 0) {
+                throw new IllegalArgumentException("an address validation token must not be empty");
+            }
+            initialToken = token;
             return this;
         }
 

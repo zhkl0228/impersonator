@@ -66,6 +66,25 @@ not one:
 So the retried Initial appears not to be processed at all rather than processed and
 refused, which is a property of that deployment and not of either end's QUIC.
 
+It also settled what a server does with a NEW_TOKEN token, which is the other half
+of address validation and the one no public endpoint will report. Three connections
+in a row, the first with nothing to show and the two after it carrying what the
+server had issued:
+
+    Sending Retry packet to [..]:20681      <- first connection, no token
+    Verifying Retry token from [..]:20681
+    Token was successfully validated
+    Verifying token from [..]:20683         <- second, NEW_TOKEN token, no Retry
+    Token was successfully validated
+    Verifying token from [..]:20686         <- third
+    Token was successfully validated
+
+"Verifying token" rather than "Verifying Retry token" is the server naming which of
+the two kinds it got, and no Retry follows either of the last two: the round trip is
+gone, which is what keeping the token is for. Until then kwik parsed the NEW_TOKEN
+frame and dropped it, so every connection asked for a Retry where a browser asks for
+one only on its first.
+
 One claim that did not survive reading the source: this was for a while explained
 by the ClientHello needing two Initial packets. The condition in ngtcp2 is only
 `config.validate_addr || hd.tokenlen` and then `hd.tokenlen == 0` - nothing about

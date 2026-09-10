@@ -92,6 +92,23 @@ public interface QuicClientConnection extends QuicConnection {
     List<QuicSessionTicket> getNewSessionTickets();
 
     /**
+     * The address validation tokens this connection was given in NEW_TOKEN frames, oldest first, for
+     * a later connection to the same server to put in its Initial packets.
+     * <p>
+     * RFC 9000 section 8.1.3: "The server uses the NEW_TOKEN frame to provide the client with an
+     * address validation token that can be used to validate future connections. In a future
+     * connection, the client includes this token in Initial packets to provide address validation."
+     * A client that keeps none is a client that never gets its address validated in advance, so it
+     * is answered with a Retry where a browser is not - visibly, in the first datagram.
+     * <p>
+     * Only tokens from NEW_TOKEN frames: "The client MUST NOT use the token provided in a Retry for
+     * future connections", so the one a Retry installed on this connection is not among these.
+     *
+     * @see Builder#initialToken(byte[])
+     */
+    List<byte[]> getNewTokens();
+
+    /**
      * Whether this connection resumed an earlier session, the server having accepted the ticket it
      * was offered. See {@link tech.kwik.agent15.engine.TlsClientEngine#isSessionResumed()}: a
      * rejected ticket is not an error and not visible on the wire, it is just a full handshake.
@@ -171,6 +188,22 @@ public interface QuicClientConnection extends QuicConnection {
         Builder initialCryptoDivision(tech.kwik.core.crypto.InitialCryptoDivision division);
 
         Builder logger(Logger log);
+
+        /**
+         * An address validation token from a NEW_TOKEN frame on an earlier connection to this server,
+         * which this connection then carries in every Initial packet it sends.
+         * <p>
+         * RFC 9000 section 8.1.3: "When connecting to a server for which the client retains an
+         * applicable and unused token, it SHOULD include that token in the Token field of its Initial
+         * packet", and "The client MUST include the token in all Initial packets it sends, unless a
+         * Retry replaces the token with a newer one" - which is what receiving a Retry does here.
+         * <p>
+         * Null, the default, is a client with nothing to show, which is every kwik client until now
+         * and no browser past its first connection to a host.
+         *
+         * @see QuicClientConnection#getNewTokens()
+         */
+        Builder initialToken(byte[] token);
 
         Builder sessionTicket(QuicSessionTicket ticket);
 

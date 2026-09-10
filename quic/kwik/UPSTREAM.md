@@ -77,6 +77,8 @@ Files changed relative to `edb3155f`:
 | `QuicClientConnection.java` (initialCryptoDivision) | a profile can name a division of its own, for a browser whose layout is not Chrome's |
 | `stream/StreamInputStream.java` | a stream's input stream can say which stream id it reads; not answered by default, so that a subclass which reads no stream says so rather than inventing an id |
 | `stream/StreamInputStreamImpl.java` | answers it |
+| `QuicClientConnection.java` (getNewTokens, initialToken) | the address validation tokens from NEW_TOKEN frames can be read off a connection, and a later connection can be built with one. RFC 9000 section 8.1.3 is the whole feature: without it every connection is a client whose address the server has not validated, so it is answered with a Retry where a browser is not |
+| `impl/QuicClientConnectionImpl.java` (new tokens) | keeps them instead of dropping them - the frame was parsed, checked for the empty token the RFC forbids, and then discarded - and installs the one it was built with on the sender before the handshake starts. Kept apart from the token a Retry sets, which "MUST NOT" be used for a future connection |
 
 New with no upstream counterpart: `send/InitialPacketChaosProtector.java`, a port of QUICHE's
 `QuicChaosProtector`. Chrome cuts its ClientHello into pieces, sends them out of order, and scatters

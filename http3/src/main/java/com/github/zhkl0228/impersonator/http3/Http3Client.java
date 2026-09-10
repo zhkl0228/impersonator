@@ -2,6 +2,7 @@ package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.quic.QuicClientFactory;
 import com.github.zhkl0228.impersonator.Impersonator;
+import com.github.zhkl0228.impersonator.quic.NewTokenStore;
 import com.github.zhkl0228.impersonator.quic.SessionTicketStore;
 import tech.kwik.core.QuicClientConnection;
 import tech.kwik.core.QuicSessionTicket;
@@ -221,12 +222,23 @@ class Http3Client extends HttpClient {
                 ? null
                 : sessionTicketStore.take(uri.getHost());
 
+        /*
+         * And the address validation token from an earlier connection to this host, which is a
+         * separate thing from the ticket and answers a separate question: the ticket says who the
+         * client is to TLS, the token says the server has seen this address before. Without one a
+         * server under load answers with a Retry, so a client that keeps none takes an extra round
+         * trip on every connection where a browser takes one only on its first.
+         */
+        NewTokenStore newTokenStore = quicClientFactory.getNewTokenStore();
+        byte[] token = newTokenStore == null ? null : newTokenStore.take(uri.getHost());
+
         QuicClientConnection quicConnection = quicClientFactory.newBuilder()
                 .uri(uri)
                 .port(portOf(uri))
                 .applicationProtocol("h3")
                 .connectTimeout(connectTimeout)
                 .sessionTicket(ticket)
+                .initialToken(token)
                 .build();
 
         // Constructed before the QUIC connection is up, because the constructor is what registers
@@ -255,7 +267,7 @@ class Http3Client extends HttpClient {
         Connection raced = connections.putIfAbsent(authority, connection);
         if (raced != null) {
             // Another thread got there first; keep theirs and drop the connection just opened.
-            connection.close(sessionTicketStore);
+            connection.close(sessionTicketStore, newTokenStore);
             return raced.http3Connection;
         }
         return connection.http3Connection;
@@ -276,7 +288,7 @@ class Http3Client extends HttpClient {
             this.http3Connection = http3Connection;
         }
 
-        void close(SessionTicketStore sessionTicketStore) {
+        void close(SessionTicketStore sessionTicketStore, NewTokenStore newTokenStore) {
             /*
              * The tickets are collected here rather than after the handshake because that is not when
              * they arrive: a server sends its NewSessionTickets once the handshake is over, so asking
@@ -287,6 +299,13 @@ class Http3Client extends HttpClient {
                     sessionTicketStore.put(host, quicConnection.getNewSessionTickets());
                 } catch (RuntimeException ignored) {
                     // A ticket that cannot be kept costs the next connection a full handshake, nothing more.
+                }
+            }
+            if (newTokenStore != null) {
+                try {
+                    newTokenStore.put(host, quicConnection.getNewTokens());
+                } catch (RuntimeException ignored) {
+                    // A token that cannot be kept costs the next connection a Retry, nothing more.
                 }
             }
             try {
@@ -341,10 +360,11 @@ class Http3Client extends HttpClient {
     public void close() {
         closed = true;
         SessionTicketStore sessionTicketStore = quicClientFactory.getSessionTicketStore();
+        NewTokenStore newTokenStore = quicClientFactory.getNewTokenStore();
         for (String authority : connections.keySet()) {
             Connection connection = connections.remove(authority);
             if (connection != null) {
-                connection.close(sessionTicketStore);
+                connection.close(sessionTicketStore, newTokenStore);
             }
         }
         // After the connections, because collecting their session tickets is the last thing they are
