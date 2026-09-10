@@ -9,8 +9,13 @@ website for no obvious reason, you can give `impersonator` a try.
 ## Features
 - Supports TLS/JA3/JA4 fingerprints impersonation.
 - Supports HTTP/2 fingerprints impersonation.
-- Supports Encrypted Client Hello (ECH, RFC 9849), enabled automatically for the browsers that use it.
-- Supports Encrypted Client Hello over QUIC / HTTP-3, through [kwik](https://github.com/ptrd/kwik).
+- Supports QUIC and HTTP/3 fingerprints impersonation, through [kwik](https://github.com/ptrd/kwik):
+  the ClientHello and its JA4, the QUIC transport parameters, the layout of the first datagram, the
+  HTTP/3 SETTINGS frame and the order of a request's fields.
+- Supports Encrypted Client Hello (ECH, RFC 9849), enabled automatically for the browsers that use
+  it, over TCP and over QUIC alike.
+- Resumes the way a browser does: session tickets, address validation tokens, and 0-RTT with the
+  request itself in the first flight.
 
 ## Usage
 
@@ -19,7 +24,7 @@ TLS/JA3/JA4 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-bctls</artifactId>
-    <version>1.6.0</version>
+    <version>1.7.0</version>
 </dependency>
 ```
 
@@ -28,7 +33,7 @@ TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-okhttp</artifactId>
-    <version>1.6.0</version>
+    <version>1.7.0</version>
 </dependency>
 ```
 - [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/okhttp/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
@@ -81,7 +86,7 @@ configs may only be trusted once the certificate presented for `public_name` has
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-http3</artifactId>
-    <version>1.6.0</version>
+    <version>1.7.0</version>
 </dependency>
 ```
 
@@ -136,19 +141,28 @@ out owns QUIC connections: on 11 it had to be an abstract subclass of our own fo
 and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
 directly if you are on 11 and want QUIC without that.
 
-**Two things are left in the QUIC fingerprint.** `macChrome()` reproduces Chrome 152 over HTTP/3
-from the captures in `docs/captures/`: the same JA4, the same extensions shuffled per connection the
-way Chrome shuffles them, the same supported groups and both key shares, and every QUIC transport
-parameter - including the three that are not RFC 9000's, a reserved one, `version_information`, and
-Google's `google_connection_options` carrying the `ORIG` tag.
+**What the QUIC profiles reproduce.** `macChrome()`, `macFirefox()`, `macSafari()` and `ios()` are
+each written from a capture of that browser in `docs/captures/`, and none of them from another's:
 
-Still not Chrome's: the Initial packet's frame layout, where Chrome interleaves PADDING and PING
-frames with the CRYPTO and kwik sends one CRYPTO frame; and two of the HTTP/3 SETTINGS values,
-`QPACK_MAX_TABLE_CAPACITY` and `QPACK_BLOCKED_STREAMS`, which tell the peer it may use a QPACK
-dynamic table. The decoder underneath implements two of the encoder stream's instructions and throws
-on the rest, so claiming Chrome's values there would advertise a capability that is not present -
-a connection that dies on the first server that takes it up, in exchange for a fingerprint two
-numbers closer.
+- the ClientHello and its JA4, with the extension order each browser actually produces - BoringSSL
+  shuffles Chrome's per connection, NSS permutes Firefox's, and Safari's is a fixed list;
+- every QUIC transport parameter, including the ones that are not RFC 9000's: a reserved parameter
+  for RFC 9287 greasing, `version_information`, and Google's `google_connection_options`;
+- the first datagram. A ClientHello too large for one Initial packet is divided the way that browser
+  divides it - Chrome cuts it into pieces sent out of order with PING frames and runs of PADDING
+  scattered between them, Firefox cuts it through the middle of the server name and sends the halves
+  the wrong way round, Safari sends it in order and stops at 999 bytes - and the datagram is padded
+  where that browser pads it, inside the packet for Chrome and Safari and after it for Firefox;
+- the HTTP/3 SETTINGS frame, `QPACK_MAX_TABLE_CAPACITY` and `QPACK_BLOCKED_STREAMS` included. Those
+  two are an invitation to the peer's encoder rather than a description, so they are only sent
+  because the QPACK decoder underneath really does keep a dynamic table;
+- the order of a request's fields, pseudo headers included, which differs per browser;
+- resumption: the browser's resumed ClientHello, the address validation token a server hands out in
+  a NEW_TOKEN frame, and 0-RTT with the request in the first flight rather than only the connection
+  preamble.
+
+`android()` has no HTTP/3 profile, because no capture of it has been taken; asking for one is
+refused rather than answered with another browser's.
 
 ### Timeouts
 
