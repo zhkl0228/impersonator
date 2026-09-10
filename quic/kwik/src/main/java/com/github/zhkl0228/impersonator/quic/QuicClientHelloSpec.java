@@ -58,7 +58,16 @@ public class QuicClientHelloSpec implements ClientHelloSpec {
         }
         try {
             TlsKeyShare keyShare = TlsKeyShare.create(crypto, namedGroup);
-            keyShares.put(namedGroup, keyShare);
+            TlsKeyShare replaced = keyShares.put(namedGroup, keyShare);
+            if (replaced != null) {
+                // Silently keeping the second would leave the private half of the one that actually
+                // went out unreachable, and the handshake would fail later with nothing to point at:
+                // both ends would derive different secrets and every packet after the ServerHello
+                // would simply not decrypt.
+                throw new IllegalStateException("a second ephemeral was generated for named group 0x"
+                        + Integer.toHexString(namedGroup) + "; the ClientHello on the wire carries the"
+                        + " first and its private half would be lost");
+            }
             return keyShare.generateEphemeral();
         } catch (IOException e) {
             throw new IllegalStateException("generate a key share for named group 0x"

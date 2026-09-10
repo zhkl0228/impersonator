@@ -75,6 +75,19 @@ public class QuicFingerprintTest extends TestCase {
         return Http3ClientFactory.create(new Curl8QuicClientHello(), Curl8QuicTransport.create());
     }
 
+    /** QUIC frame type 0x06, RFC 9000 section 19.6. */
+    private static final int CRYPTO = 6;
+
+    private static int countFrames(JSONObject packet, int type) {
+        int count = 0;
+        for (Object frame : packet.getJSONArray("frames")) {
+            if (((Number) frame).intValue() == type) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     private static JSONObject fingerprint(Http3ClientFactory factory) throws Exception {
         String body = Http3Get.body(factory, FINGERPRINT_URL);
         JSONObject fingerprint = JSONObject.parseObject(body);
@@ -145,12 +158,18 @@ public class QuicFingerprintTest extends TestCase {
      * is, and Chrome's QUIC stack will lay its Initial out differently again. So this waits for a
      * capture of the browser rather than being built against curl.
      */
+    /**
+     * CRYPTO frames and not every frame, because the endpoint reports padding a byte at a time and how
+     * much of it there is depends on whether the ClientHello needed a second packet. curl's ClientHello
+     * sits near that boundary - the GREASE ECH payload moves its length - so this asserted 1 frame on
+     * one run and 827 on the next, all of them padding. The claim was always about the CRYPTO frames.
+     */
     public void testTheInitialPacketAndTheSettingsFrameAreStillNotMatched() throws Exception {
         JSONObject fingerprint = fingerprint(curl());
         JSONObject initial = fingerprint.getJSONObject("quic").getJSONArray("initial_packets").getJSONObject(0);
 
         assertEquals("kwik sends the ClientHello as one CRYPTO frame; curl sends eleven",
-                1, initial.getJSONArray("frames").size());
+                1, countFrames(initial, CRYPTO));
         assertEquals("flupke sends two SETTINGS parameters, curl sends three",
                 "1:0;7:0", fingerprint.getString("h3_text"));
     }

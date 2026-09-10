@@ -172,8 +172,16 @@ public class KeyShareExtension extends Extension {
                 else if (namedGroup == x25519 || namedGroup == x448) {
                     byte[] keyData = new byte[keyLength];
                     buffer.get(keyData);
+                    // Kept before the conversion, which reverses the array it is given in place: the
+                    // wire encoding is little endian and XECPublicKeySpec wants a big endian integer.
+                    // Upstream never notices, having no use for the bytes afterwards, but a
+                    // ClientHelloSpec owns the private half and needs the peer's value as it arrived -
+                    // handing it the reversed array produces a shared secret only this end agrees with,
+                    // and a handshake where every packet after the ServerHello silently fails to
+                    // decrypt.
+                    byte[] rawKey = keyData.clone();
                     PublicKey publicKey = rawToEncodedXDHPublicKey(namedGroup, keyData);
-                    keyShareEntries.add(new KeyShareEntry(namedGroup, publicKey, keyData));
+                    keyShareEntries.add(new KeyShareEntry(namedGroup, publicKey, rawKey));
                 }
             }
             else {

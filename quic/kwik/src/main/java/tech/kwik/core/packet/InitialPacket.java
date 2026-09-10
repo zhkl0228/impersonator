@@ -124,9 +124,20 @@ public class InitialPacket extends LongHeaderPacket {
         }
     }
 
+    /**
+     * The Token Length field and the token, RFC 9000 section 17.2.2.
+     * <p>
+     * The length is a variable length integer and needs two bytes from 64 up, which is every Retry
+     * token there is any point sending - the two servers this was found against use 90 and 256. The
+     * one byte assumed here before was short by exactly that, and the packet it under-measured was
+     * padded one byte past the datagram it had to fit: against a server whose token is small enough
+     * for the sender to notice, a BufferOverflowException from the sender thread, and against one
+     * where it is not, an oversized datagram that the peer discards without a word, so the connection
+     * simply stops. Both look like a Retry that never completes.
+     */
     @Override
     protected int estimateAdditionalFieldsLength() {
-        return token == null? 1: 1 + token.length;
+        return token == null ? 1 : VariableLengthInteger.bytesNeeded(token.length) + token.length;
     }
 
     @Override
