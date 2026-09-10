@@ -174,6 +174,9 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private volatile EarlyDataStatus earlyDataStatus = None;
     /** Whether the ClientHello offered "early_data"; see {@link #startConnect(boolean)}. */
     private volatile boolean offeredEarlyData;
+    /** See {@link #awaitConnected()}, which several threads may reach and which settles once. */
+    private final Object connectLock = new Object();
+    private volatile boolean connectCompleted;
     private final List<TlsConstants.CipherSuite> cipherSuites;
 
     private final GlobalAckGenerator ackGenerator;
@@ -533,6 +536,20 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      * @throws ConnectException if it does not finish in time or fails
      */
     public void awaitConnected() throws IOException {
+        synchronized (connectLock) {
+            awaitHandshake();
+        }
+    }
+
+    /**
+     * Called with {@link #connectLock} held, so that the several threads that may reach it - the one
+     * writing the request and the ones reading the peer's streams - settle the early data once
+     * between them rather than each in turn.
+     */
+    private void awaitHandshake() throws IOException {
+        if (connectCompleted) {
+            return;
+        }
         List<EarlyDataStream> earlyDataStreams = streamManager.closeEarlyDataWindow();
         if (offeredEarlyData && earlyDataStreams.isEmpty()) {
             // The ClientHello has already offered "early_data"; sending none would make it a claim
@@ -568,6 +585,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 }
             }
         }
+        connectCompleted = true;
     }
 
     /**
@@ -1489,6 +1507,15 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      */
     public byte[] getInitialToken() {
         return token;
+    }
+
+    /**
+     * How many bidirectional streams this connection opened in its 0-RTT window - on an HTTP/3
+     * connection, how many requests it put in the first flight. See
+     * {@link tech.kwik.core.stream.StreamManager#bidirectionalEarlyDataStreams()}.
+     */
+    public int getBidirectionalEarlyDataStreams() {
+        return streamManager.bidirectionalEarlyDataStreams();
     }
 
     public EarlyDataStatus getEarlyDataStatus() {

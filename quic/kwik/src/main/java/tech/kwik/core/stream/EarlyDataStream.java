@@ -25,6 +25,7 @@ import tech.kwik.core.impl.Version;
 import tech.kwik.core.log.Logger;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 
 
@@ -39,6 +40,20 @@ public class EarlyDataStream extends QuicStreamImpl {
     private boolean earlyDataIsFinalInStream;
     private byte[] earlyData = new byte[0];
     private byte[] remainingData = new byte[0];
+    /**
+     * Everything written to this stream while it was still writing 0-RTT data, kept because that is
+     * what has to be sent again when the server rejects it - RFC 9001 section 4.6.2, "the client MUST
+     * NOT ... rely on the server accepting 0-RTT data".
+     * <p>
+     * {@link #writeEarlyData} used to be the only way in, and it kept the flight it was handed. A
+     * stream opened in the connection's 0-RTT window is written to through its output stream instead,
+     * a piece at a time, and nothing was keeping those pieces: a rejected request was reset and then
+     * rewritten from an empty array, which is a request that never arrives and never fails either.
+     * <p>
+     * Bounded in practice by the server's remembered initial_max_data, which is what flow control
+     * lets out at this level.
+     */
+    private final ByteArrayOutputStream earlyDataWritten = new ByteArrayOutputStream();
     private boolean writingEarlyData = true;
     private volatile boolean earlyDataSent;
     private volatile boolean finalFrameSent;
@@ -75,6 +90,10 @@ public class EarlyDataStream extends QuicStreamImpl {
         remainingData = Arrays.copyOfRange(earlyData, earlyDataLength, earlyData.length);
     }
 
+    /**
+     * Settles this stream once the server has said whether it took the 0-RTT data: nothing more to do
+     * when it did, and everything again when it did not.
+     */
     public void writeRemaining(boolean earlyDataWasAccepted) throws IOException {
         writingEarlyData = false;
         if (earlyDataWasAccepted) {
@@ -93,7 +112,13 @@ public class EarlyDataStream extends QuicStreamImpl {
             // TODO reconsider creating new QuicStream object, or fix resetOutputStream to make it thread safe.
             // Also consider to pass encryption level in that constructor to get rit of getEncryptionLevel
             resetOutputStream();
-            getOutputStream().write(earlyData);
+            // What was written, whether through writeEarlyData or through the output stream, and then
+            // whatever writeEarlyData had to hold back. Together they are the whole of what this
+            // stream meant to send; writingEarlyData is already false, so this is not recorded again.
+            getOutputStream().write(earlyDataWritten.toByteArray());
+            if (remainingData.length > 0) {
+                getOutputStream().write(remainingData);
+            }
             earlyDataSent = true;
             if (earlyDataIsFinalInStream) {
                 getOutputStream().close();
@@ -109,6 +134,24 @@ public class EarlyDataStream extends QuicStreamImpl {
     protected class EarlyDataStreamOutputStreamImpl extends StreamOutputStreamImpl {
         protected EarlyDataStreamOutputStreamImpl(Integer sendBufferSize, FlowControl flowController) {
             super(EarlyDataStream.this, sendBufferSize, flowController, log);
+        }
+
+        @Override
+        public void write(byte[] data, int off, int len) throws IOException {
+            // The one funnel: write(byte[]) and write(int) both come through here.
+            if (writingEarlyData) {
+                earlyDataWritten.write(data, off, len);
+            }
+            super.write(data, off, len);
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (writingEarlyData) {
+                // Finishing the stream is part of what has to happen again if the server rejects it.
+                earlyDataIsFinalInStream = true;
+            }
+            super.close();
         }
 
         @Override

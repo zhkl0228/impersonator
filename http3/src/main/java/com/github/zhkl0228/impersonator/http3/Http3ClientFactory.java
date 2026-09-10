@@ -125,6 +125,15 @@ public class Http3ClientFactory {
     }
 
     /**
+     * The QUIC layer of this factory, which is where the session ticket and address validation token
+     * stores live. Not public: an application configures those through {@link QuicClientFactory}
+     * before building this, and the tests here need to reach in to make a server reject a ticket.
+     */
+    QuicClientFactory quicClientFactory() {
+        return quicClientFactory;
+    }
+
+    /**
      * @return a client whose connections carry this factory's profile. It owns QUIC connections, so
      *         close it when done; {@link HttpClient} is {@link AutoCloseable}, which is the reason
      *         this module is Java 21 while the ones below it are Java 11.

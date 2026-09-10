@@ -251,15 +251,20 @@ class Http3Client extends HttpClient {
                 new Http3Connection(quicConnection, executorService, http3Settings, fieldOrder);
         if (ticket != null) {
             /*
-             * Resuming, so this connection sends 0-RTT data, and what HTTP/3 has to send first is its
-             * control stream and SETTINGS. The QUIC connection is brought up here rather than by
-             * http3Connection.connect() because the early data has to be written between the
-             * ClientHello and the end of the handshake, which is a window only this call has.
-             * Offering "early_data" and sending nothing would be a claim about this client that is
-             * not true - the same mistake as advertising a QPACK dynamic table there is no decoder
-             * for, which is why kwik insists a writer writes something.
+             * Resuming, so the handshake is started and not waited for: what follows - this
+             * connection's control stream, its SETTINGS, its QPACK decoder stream, and then the
+             * request itself, which flupke writes on a stream it opens for itself - happens inside
+             * the 0-RTT window and goes out in the first flight. Nothing below this line knows that;
+             * see QuicClientConnection.startConnect.
+             *
+             * Waiting for the handshake is Http3Connection's, at the first moment anything is
+             * expected back from the peer. Offering "early_data" and sending nothing would be a claim
+             * about this client that is not true, and is refused there.
              */
-            quicConnection.connect(sender -> http3Connection.sendControlStreamAsEarlyData(sender));
+            quicConnection.startConnect(true);
+        }
+        else {
+            quicConnection.connect();
         }
         http3Connection.connect();
 

@@ -3,6 +3,8 @@ package com.github.zhkl0228.impersonator.http3;
 import com.alibaba.fastjson2.JSONObject;
 import com.github.zhkl0228.impersonator.DnsOverHttpsEchConfigProvider;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
+import com.github.zhkl0228.impersonator.quic.SessionTicketStore;
+import tech.kwik.core.QuicSessionTicket;
 
 import junit.framework.TestCase;
 import tech.kwik.core.impl.QuicClientConnectionImpl;
@@ -11,6 +13,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 
 /**
  * Session resumption and 0-RTT, which is a fingerprint matter before it is a performance one.
@@ -44,6 +47,12 @@ public class SessionResumptionTest extends TestCase {
      * place to ask what the ClientHello <em>looks</em> like, which is settled by this end alone.
      */
     private static final String ACCEPTING_URL = "https://www.google.com/";
+
+    /**
+     * The project's own endpoint, which takes each ticket it issues out of its store - so offering one
+     * twice is refused every time rather than sometimes. See docs/tools/h3_field_echo.py.
+     */
+    private static final String REFUSING_URL = "https://gzmtx.cn:8444/session-resumption";
 
     /**
      * The whole point in one: the first connection is Chrome's full handshake and every one after it
@@ -100,6 +109,102 @@ public class SessionResumptionTest extends TestCase {
             assertTrue("the resumed connection wrote no early data, so its \"early_data\" was a claim"
                             + " about this client that is not true",
                     connection.getEarlyDataStatus() != QuicClientConnectionImpl.EarlyDataStatus.None);
+        }
+    }
+
+    /**
+     * The request itself in the first flight, which is what 0-RTT is for.
+     * <p>
+     * Every earlier version of this sent its control stream and its SETTINGS as early data and then
+     * waited for the handshake before writing the request, so the connection reported "early data
+     * accepted" while the thing early data exists to speed up still cost a round trip. The difference
+     * is not visible in any fingerprint field: both connections offer "early_data", both have it
+     * accepted, and only the packet the request arrives in tells them apart.
+     * <p>
+     * So what is asserted is the count of bidirectional streams opened in the 0-RTT window - the
+     * control and QPACK streams are unidirectional, and a request is the only bidirectional stream an
+     * HTTP/3 client opens. From the wire, through ngtcp2's own server, which names the packet type
+     * each frame arrived in:
+     * <pre>
+     *   pkt rx pkn=0 ... type=0RTT len=47
+     *   frm rx 0 0RTT STREAM(0x0e) id=0x2 fin=0 offset=0 len=26  uni=1   &lt;- control stream, SETTINGS
+     *   frm rx 1 0RTT STREAM(0x0e) id=0x6 fin=0 offset=0 len=1   uni=1   &lt;- QPACK decoder stream
+     *   frm rx 1 0RTT STREAM(0x0f) id=0x0 fin=1 offset=0 len=572 uni=0   &lt;- the request, with its FIN
+     * </pre>
+     */
+    public void testTheResumedConnectionPutsTheRequestInTheFirstFlight() throws Exception {
+        Http3ClientFactory factory = Http3ClientFactory.create(ImpersonatorFactory.macChrome());
+        get(factory);
+
+        try (Http3Client client = (Http3Client) factory.newHttpClient()) {
+            URI uri = URI.create(FINGERPRINT_URL);
+            client.send(HttpRequest.newBuilder(uri).build(), HttpResponse.BodyHandlers.discarding());
+
+            QuicClientConnectionImpl connection =
+                    (QuicClientConnectionImpl) client.quicConnectionFor(uri.getHost() + ":443");
+            assertNotNull("no connection to " + uri.getHost() + " is open", connection);
+            assertEquals("the request was written after the handshake, so it was not 0-RTT data",
+                    1, connection.getBidirectionalEarlyDataStreams());
+        }
+    }
+
+    /**
+     * A request written as 0-RTT data that the server then refuses is sent again, and the caller sees
+     * a response rather than a connection that never answers.
+     * <p>
+     * This is the half of 0-RTT that has no fingerprint and every consequence. RFC 9001 section 4.6.2:
+     * a server may reject early data for any reason, and "the client MUST NOT rely on the server
+     * accepting 0-RTT data" - so a client that writes a request in the first flight has to be able to
+     * write it a second time. kwik could, for the flight a caller handed it; it could not for a stream
+     * written to a piece at a time, which is what a request is, because what it sent again was the
+     * array it had been given and there was none. The request went out at 0-RTT, was dropped, and the
+     * client waited for an answer to something the server had thrown away.
+     * <p>
+     * Refusal is arranged rather than waited for: the endpoint takes each ticket it issues out of its
+     * store, so offering the same one twice is a full handshake by construction. See
+     * docs/tools/h3_field_echo.py.
+     */
+    public void testARequestTheServerRefusesAsEarlyDataIsSentAgain() throws Exception {
+        Http3ClientFactory factory = Http3ClientFactory.create(ImpersonatorFactory.macChrome());
+        factory.quicClientFactory().setSessionTicketStore(new PinnedTicket());
+
+        assertEquals("the first connection has no ticket and is an ordinary handshake",
+                200, Http3Get.status(factory, REFUSING_URL));
+        assertEquals("the second offers the ticket the first was given, and it is accepted",
+                200, Http3Get.status(factory, REFUSING_URL));
+
+        try (Http3Client client = (Http3Client) factory.newHttpClient()) {
+            URI uri = URI.create(REFUSING_URL);
+            int status = client.send(HttpRequest.newBuilder(uri).build(),
+                    HttpResponse.BodyHandlers.discarding()).statusCode();
+            QuicClientConnectionImpl connection = (QuicClientConnectionImpl)
+                    client.quicConnectionFor(uri.getHost() + ":" + uri.getPort());
+
+            assertFalse("the endpoint took this ticket the first time and cannot take it again;"
+                    + " a resumed connection here would mean the refusal never happened and this"
+                    + " asserts nothing", connection.isSessionResumed());
+            assertEquals("the request was written as 0-RTT data, refused, and never sent again",
+                    200, status);
+        }
+    }
+
+    /**
+     * Hands every connection the first ticket it ever saw, so that the second use of it is one the
+     * endpoint has already taken out of its own store.
+     */
+    private static class PinnedTicket implements SessionTicketStore {
+        private volatile QuicSessionTicket pinned;
+
+        @Override
+        public QuicSessionTicket take(String host) {
+            return pinned;
+        }
+
+        @Override
+        public void put(String host, List<QuicSessionTicket> tickets) {
+            if (pinned == null && tickets != null && !tickets.isEmpty()) {
+                pinned = tickets.get(0);
+            }
         }
     }
 

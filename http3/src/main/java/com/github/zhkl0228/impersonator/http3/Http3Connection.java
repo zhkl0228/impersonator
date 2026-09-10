@@ -54,7 +54,6 @@ class Http3Connection extends Http3ClientConnectionImpl {
     private final FieldSectionOrder ordering;
 
     /** Set when the control stream has already gone out in 0-RTT, so flupke must not open a second. */
-    private volatile boolean controlStreamSentAsEarlyData;
 
     Http3Connection(QuicConnection quicConnection, ExecutorService executorService, Map<Long, Long> settings,
                     java.util.List<String> fieldOrder) {
@@ -104,6 +103,28 @@ class Http3Connection extends Http3ClientConnectionImpl {
     }
 
     /**
+     * Opens this connection's HTTP/3 streams, the QUIC connection having been brought up - or at least
+     * started - by {@link Http3Client}.
+     * <p>
+     * flupke's own connect() calls {@code quicConnection.connect()} when the connection does not
+     * report itself connected, which a connection in its 0-RTT window does not: it has sent its
+     * ClientHello and is waiting. Calling connect() on it then is an error, and waiting for it would
+     * close the window this connection exists to write in - the SETTINGS below go out as 0-RTT data
+     * for the same reason a request does.
+     */
+    @Override
+    public void connect() {
+        synchronized (this) {
+            if (!streamsStarted) {
+                startControlStream();
+                streamsStarted = true;
+            }
+        }
+    }
+
+    private boolean streamsStarted;
+
+    /**
      * Reads the peer's encoder stream, which flupke stores and never looks at. Registered in place of
      * flupke's handler, which is called from the superclass constructor - so this refers to nothing
      * of this class that is not there yet.
@@ -132,39 +153,20 @@ class Http3Connection extends Http3ClientConnectionImpl {
     }
 
     /**
-     * Writes the control stream and its SETTINGS frame as 0-RTT data, which is the first thing an
-     * HTTP/3 connection has to say and the only thing it can say before the handshake finishes.
-     * <p>
-     * This is why kwik needed an early data API of its own: {@code connect(List&lt;StreamEarlyData&gt;)}
-     * turns each element into a <em>bidirectional</em> stream, and the control stream is
-     * unidirectional. If the server rejects the early data, kwik sends the same bytes again on the
-     * same stream once the handshake completes, so there is nothing to undo here.
-     */
-    void sendControlStreamAsEarlyData(QuicClientConnection.EarlyDataSender sender) throws IOException {
-        SettingsFrame settingsFrame = new SettingsFrame();
-        settingsFrame.addParameters(settingsParameters);
-        ByteBuffer serializedSettings = settingsFrame.getBytes();
-        byte[] controlStream = new byte[1 + serializedSettings.limit()];
-        controlStream[0] = STREAM_TYPE_CONTROL_STREAM;
-        System.arraycopy(serializedSettings.array(), 0, controlStream, 1, serializedSettings.limit());
-        // https://www.rfc-editor.org/rfc/rfc9114.html#name-control-streams
-        // "The sender MUST NOT close the control stream"
-        sender.send(false, controlStream, false);
-        controlStreamSentAsEarlyData = true;
-    }
-
-    /**
      * Opens the QPACK decoder stream alongside flupke's control stream, which is where a connection's
-     * unidirectional streams are opened and the first point at which the QUIC connection is up.
+     * unidirectional streams are opened.
      * <p>
      * It cannot go through {@code createUnidirectionalStream}, which refuses the four stream types
      * RFC 9114 defines, so it is opened the way {@code startControlStream} opens its own.
+     * <p>
+     * Both of them are 0-RTT data on a connection that is resuming, and neither has to know it: they
+     * are opened while the connection is in its 0-RTT window, where every stream writes at that
+     * level. flupke's own startControlStream, called below, writes the SETTINGS frame in the first
+     * flight without a line of it being about early data.
      */
     @Override
     protected void startControlStream() {
-        if (!controlStreamSentAsEarlyData) {
-            super.startControlStream();
-        }
+        super.startControlStream();
         try {
             QuicStream decoderStream = quicConnection.createStream(false);
             OutputStream output = decoderStream.getOutputStream();
@@ -187,6 +189,17 @@ class Http3Connection extends Http3ClientConnectionImpl {
      */
     @Override
     protected Http3Frame readFrame(InputStream input, long maxHeadersSize, long maxDataSize) throws IOException, HttpError {
+        /*
+         * And waits for the handshake, which is where a connection started in its 0-RTT window
+         * finishes being made. Here rather than anywhere earlier because this is the first moment
+         * anything is expected back: flupke writes the whole request and then reads it, so the request
+         * has gone out - in 0-RTT packets, the window still being open - by the time this is reached.
+         *
+         * It is also what has to happen before the answer can be read at all when the server refuses
+         * the early data: awaitConnected sends the refused request again, and reading the response
+         * before that would be reading for an answer to something the server threw away.
+         */
+        ((QuicClientConnection) quicConnection).awaitConnected();
         qpack.setSectionStreamId(input instanceof StreamInputStream
                 ? ((StreamInputStream) input).getStreamId()
                 : null);

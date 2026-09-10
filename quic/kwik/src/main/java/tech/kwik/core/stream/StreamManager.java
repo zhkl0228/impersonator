@@ -64,6 +64,7 @@ public class StreamManager {
     /** See {@link #openEarlyDataWindow()}. */
     private volatile boolean earlyDataWindowOpen;
     private final List<EarlyDataStream> earlyDataStreams = Collections.synchronizedList(new ArrayList<>());
+    private int bidirectionalEarlyDataStreams;
     private volatile Long maxStreamsAcceptedByPeerBidi;
     private volatile Long maxStreamsAcceptedByPeerUni;
     private final Semaphore openBidirectionalStreams;
@@ -233,17 +234,43 @@ public class StreamManager {
      * handshake completes, which is {@link EarlyDataStream#writeRemaining(boolean)}.
      */
     public List<EarlyDataStream> closeEarlyDataWindow() {
-        earlyDataWindowOpen = false;
         synchronized (earlyDataStreams) {
-            return new ArrayList<>(earlyDataStreams);
+            // Inside the lock, so that a stream created while this runs is either registered before
+            // the window shuts - and settled here - or created after it and not an early data stream
+            // at all. A stream that fell between the two would write 0-RTT data that nothing ever
+            // sends again if the server refuses it.
+            earlyDataWindowOpen = false;
+            List<EarlyDataStream> opened = new ArrayList<>(earlyDataStreams);
+            earlyDataStreams.clear();
+            return opened;
         }
     }
 
     private QuicStream register(QuicStream stream) {
         if (stream instanceof EarlyDataStream) {
-            earlyDataStreams.add((EarlyDataStream) stream);
+            synchronized (earlyDataStreams) {
+                earlyDataStreams.add((EarlyDataStream) stream);
+                if (stream.isBidirectional()) {
+                    bidirectionalEarlyDataStreams++;
+                }
+            }
         }
         return stream;
+    }
+
+    /**
+     * How many bidirectional streams have been opened in the 0-RTT window, which on an HTTP/3
+     * connection is how many requests went out in the first flight.
+     * <p>
+     * Worth counting apart from the unidirectional ones, because those say much less: a resumed HTTP/3
+     * connection sends its control stream and its QPACK decoder stream as 0-RTT whether or not it
+     * manages to send a request that way, so "early data was accepted" is true either way and is not
+     * the question.
+     */
+    public int bidirectionalEarlyDataStreams() {
+        synchronized (earlyDataStreams) {
+            return bidirectionalEarlyDataStreams;
+        }
     }
 
     private QuicStreamImpl createStream(boolean bidirectional, long timeout, TimeUnit unit, QuicStreamSupplier streamFactory) throws TimeoutException {
