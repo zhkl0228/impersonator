@@ -28,15 +28,6 @@
 
 
     <properties>
-        <!--
-            release rather than source and target, which is not only tidier: with source/target the
-            compiler builds against the JDK it is running on, so on a JDK 21 an API added after Java 8
-            compiles happily into a class file that says Java 8 and fails on one with NoSuchMethodError.
-            "bootstrap class path is not set in conjunction with -source 8" is javac saying exactly
-            that. release compiles against the release's own API, so what the modules claim to run on
-            is checked rather than asserted.
-        -->
-        <maven.compiler.release>8</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.test.skip>false</maven.test.skip>
     </properties>
@@ -92,6 +83,28 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <!--
+                release rather than source and target, which is not only tidier: with source/target
+                the compiler builds against the API of the JDK it is running on, so on a JDK 21 an API
+                added after Java 8 compiles happily into a class file marked Java 8 and fails on a
+                Java 8 VM with NoSuchMethodError. "bootstrap class path is not set in conjunction with
+                -source 8" is javac saying exactly that. release compiles against the release's own
+                API, so what each module claims to run on is checked rather than asserted. Modules
+                that target something else say so in their own compiler configuration.
+
+                Configured on the plugin and not as the maven.compiler.release property, because the
+                javadoc plugin takes that property as its own release and then refuses to run
+                alongside -extdirs, which is how okhttp gets its vendored Kotlin classes onto the
+                javadoc classpath. The property would make the two mutually exclusive; this does not.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <release>8</release>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

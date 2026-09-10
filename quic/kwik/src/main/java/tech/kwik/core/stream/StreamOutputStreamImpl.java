@@ -393,7 +393,7 @@ class StreamOutputStreamImpl extends StreamOutputStream implements FlowControlUp
     }
 
     /**
-     * Resets the stream like {@link #resetReliable(long, long)}, guaranteeing delivery of all data written to the stream so far.
+     * Resets the stream like {@code resetReliable(long, long)}, guaranteeing delivery of all data written to the stream so far.
      *
      * @param errorCode
      */

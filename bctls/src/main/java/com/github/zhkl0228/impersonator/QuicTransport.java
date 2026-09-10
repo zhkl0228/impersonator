@@ -20,9 +20,9 @@ import java.util.concurrent.ThreadLocalRandom;
  * means honouring it - so these values are not written onto the wire and forgotten. They configure
  * the connection, and the wire follows.
  * <p>
- * Anything not set here keeps the QUIC implementation's own value. {@link #omit} is for the rest: an
- * absent parameter means its default to the peer, and which parameters an implementation bothers to
- * send is as much a giveaway as the values it sends.
+ * Anything not set here keeps the QUIC implementation's own value. {@link Builder#omit} is for the
+ * rest: an absent parameter means its default to the peer, and which parameters an implementation
+ * bothers to send is as much a giveaway as the values it sends.
  */
 public class QuicTransport {
 
@@ -290,8 +290,9 @@ public class QuicTransport {
          * padding where filling it would leave none.
          * <p>
          * A constant rather than a share of the message - Safari's resumed ClientHello is longer than
-         * its fresh one and still sends 999 - which is what four captures settle; see
-         * {@link tech.kwik.core.crypto.InitialCryptoDivision.FixedChunks}, where they are listed.
+         * its fresh one and still sends 999 - which is what four captures settle; they are listed in
+         * {@code InitialCryptoDivision.FixedChunks}, which is in the kwik module and so cannot be
+         * linked from here: it depends on this one, not the other way round.
          */
         public Builder initialCryptoChunkSize(int bytes) {
             this.initialCryptoChunkSize = bytes;

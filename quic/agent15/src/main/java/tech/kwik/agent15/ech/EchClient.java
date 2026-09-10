@@ -132,7 +132,8 @@ public class EchClient {
     }
 
     /**
-     * Build the two ClientHellos from a {@link ClientHelloSpec}, through a factory that knows how.
+     * Build the two ClientHellos from a {@link tech.kwik.agent15.engine.ClientHelloSpec}, through a
+     * factory that knows how.
      * <p>
      * The same as {@link #create} above, except that what the two messages look like is dictated
      * rather than assembled here: this decides only what makes them an inner and an outer - which

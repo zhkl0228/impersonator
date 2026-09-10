@@ -85,19 +85,19 @@ public interface TlsClientEngine extends TlsEngine {
 
     /**
      * Sets the source of the ECHConfigList to offer, which turns on Encrypted Client Hello (RFC 9849)
-     * for every server name the provider answers for. Defaults to
-     * {@link TlsClientEngineFactory#getDefaultEchConfigProvider()}, which is where a QUIC
-     * implementation that creates its engines itself has to set it.
+     * for every server name the provider answers for. None by default: a QUIC implementation creates
+     * its engines itself, so it is the one that calls this - kwik's QuicClientConnectionImpl does,
+     * from what its builder was given, which is what keeps the provider a property of one connection
+     * rather than of the process.
      * @param echConfigProvider  the provider, or null to send a plain ClientHello with a visible SNI.
      */
     void setEchConfigProvider(EchConfigProvider echConfigProvider);
 
     /**
      * Sets what the ClientHello should look like, so that it can be made to resemble some other
-     * client's rather than agent15's own. Defaults to
-     * {@link TlsClientEngineFactory#getDefaultClientHelloSpec()}, which is where a QUIC
-     * implementation that creates its engines itself has to set it. Null means agent15 builds the
-     * ClientHello it needs, which is the behaviour without this.
+     * client's rather than agent15's own. Set by whoever creates the engine, which for QUIC is the
+     * QUIC implementation - kwik's QuicClientConnectionImpl passes what its builder was given. Null
+     * means agent15 builds the ClientHello it needs, which is the behaviour without this.
      */
     void setClientHelloSpec(ClientHelloSpec clientHelloSpec);
 

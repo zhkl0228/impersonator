@@ -25,8 +25,9 @@ package tech.kwik.agent15.ech;
  * <p>
  * An ECHConfigList belongs to a host rather than to a connection, so this is normally one object
  * shared by every connection; install it with
- * {@link tech.kwik.agent15.engine.TlsClientEngineFactory#setDefaultEchConfigProvider}, because a
- * QUIC implementation creates its TLS engines itself.
+ * {@link tech.kwik.agent15.engine.TlsClientEngine#setEchConfigProvider}, which a QUIC implementation
+ * calls on the engine it creates - one provider per connection, so two connections can impersonate
+ * two browsers side by side.
  */
 public interface EchConfigProvider {
 
