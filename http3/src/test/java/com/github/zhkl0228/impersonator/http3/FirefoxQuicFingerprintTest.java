@@ -201,6 +201,14 @@ public class FirefoxQuicFingerprintTest extends TestCase {
      * The capture reports {@code 0-rtt true}, so Firefox does not merely offer "early_data" on a
      * resumed connection - it sends 0-RTT data. This asserts the same of the profile.
      * <p>
+     * It does not assert that the 0-RTT flight matches Firefox's, and it does not: what goes in it
+     * here is the HTTP/3 control stream and its SETTINGS, where a browser also puts the request. So
+     * the first flight carries the same kind of thing a browser's does and less of it, and the
+     * request still waits for the handshake. Closing that gap means writing the HEADERS frame during
+     * {@code connect}, which is a larger change than this test - flupke's {@code send} writes the
+     * request and reads the response as one private call, so there is no seam to write the request
+     * early through.
+     * <p>
      * What it asserts is that the early data was written, not that the server took it. Those are two
      * different facts and only the first is this end's: over eight resumed connections to the
      * fingerprint endpoint the early data status came back Accepted three times and Requested five,
