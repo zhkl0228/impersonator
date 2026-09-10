@@ -320,9 +320,14 @@ public class CryptoStream {
             // Asked here and not in write(), because only the sender knows how much of a packet a
             // CRYPTO frame can have, and where the first piece ends decides where the rest begin.
             plannedCapacity = maxSize - 10;
-            plan = initialCryptoDivision.divide(sendStreamSize, plannedCapacity);
+            byte[] flight = drainDataToSend();
+            plan = initialCryptoDivision.divide(flight, plannedCapacity);
             if (!plan.isEmpty()) {
-                plannedData = drainDataToSend();
+                plannedData = flight;
+            }
+            else {
+                // No division after all, so put it back for the sequential path to send.
+                dataToSend.add(java.nio.ByteBuffer.wrap(flight));
             }
         }
         if (plannedData != null) {

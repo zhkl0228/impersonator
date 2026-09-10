@@ -26,7 +26,7 @@ public class InitialCryptoDivisionTest extends TestCase {
      */
     public void testItReproducesTheCapturedDivision() {
         List<InitialCryptoDivision.Piece> pieces =
-                new InitialCryptoDivision.ChromeMultiPacket(fixedFirstFrame(68)).divide(1955, PACKET_CAPACITY);
+                new InitialCryptoDivision.ChromeMultiPacket(fixedFirstFrame(68)).divide(new byte[1955], PACKET_CAPACITY);
 
         assertEquals(3, pieces.size());
         assertPiece("the head", 0, 68, pieces.get(0));
@@ -37,7 +37,7 @@ public class InitialCryptoDivisionTest extends TestCase {
     /** Capture 24d06d79d2924cd1: 1947 bytes, 971 and 976, first frame 73, tail from 1049. */
     public void testItReproducesTheOtherCapturedDivision() {
         List<InitialCryptoDivision.Piece> pieces =
-                new InitialCryptoDivision.ChromeMultiPacket(fixedFirstFrame(73)).divide(1947, PACKET_CAPACITY);
+                new InitialCryptoDivision.ChromeMultiPacket(fixedFirstFrame(73)).divide(new byte[1947], PACKET_CAPACITY);
 
         assertPiece("the head", 0, 73, pieces.get(0));
         assertPiece("the tail, which the capture starts at 1049", 1049, 898, pieces.get(1));
@@ -60,7 +60,7 @@ public class InitialCryptoDivisionTest extends TestCase {
         Random random = new Random(1);
         InitialCryptoDivision division = new InitialCryptoDivision.ChromeMultiPacket(random);
         for (int i = 0; i < 200; i++) {
-            int firstFrame = division.divide(1955, PACKET_CAPACITY).get(0).length;
+            int firstFrame = division.divide(new byte[1955], PACKET_CAPACITY).get(0).length;
             assertTrue("first frame " + firstFrame + " is outside 55..86", firstFrame >= 55 && firstFrame <= 86);
         }
     }
@@ -72,12 +72,12 @@ public class InitialCryptoDivisionTest extends TestCase {
      */
     public void testAClientHelloThatFitsIsLeftAlone() {
         assertTrue(new InitialCryptoDivision.ChromeMultiPacket(new Random(1))
-                .divide(800, PACKET_CAPACITY).isEmpty());
+                .divide(new byte[800], PACKET_CAPACITY).isEmpty());
     }
 
     private static void assertHalves(int total, int first, int second) {
         List<InitialCryptoDivision.Piece> pieces =
-                new InitialCryptoDivision.ChromeMultiPacket(fixedFirstFrame(68)).divide(total, PACKET_CAPACITY);
+                new InitialCryptoDivision.ChromeMultiPacket(fixedFirstFrame(68)).divide(new byte[total], PACKET_CAPACITY);
         assertEquals("first packet of " + total, first, pieces.get(0).length + pieces.get(1).length);
         assertEquals("second packet of " + total, second, pieces.get(2).length);
     }

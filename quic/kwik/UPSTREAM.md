@@ -72,7 +72,8 @@ Files changed relative to `edb3155f`:
 | `send/GlobalPacketAssembler.java` | scrambles Initial packets when a profile asked for it, after the padding, which is what pays for the extra frame headers. Also pads an Initial datagram to a size the profile chooses rather than a hardcoded 1200, and keeps the version it was given, which it needs to build the split CRYPTO frames |
 | `crypto/CryptoStream.java` | can be handed a division saying which runs of the ClientHello go in which Initial packet, instead of filling each packet from the front until the data runs out. The pieces are registered at their own length rather than at a bare minimum, which is what puts the packet boundary where the division asked for it |
 | `impl/QuicConnectionImpl.java` (initialCryptoDivision) | asks for one when it builds the Initial crypto stream; answers null, so nothing changes for a server or for a client that asked for no division |
-| `impl/QuicClientConnectionImpl.java` (initialCryptoDivision) | answers Chrome's when a profile asked for chaos protection, since the two are one behaviour in QUICHE |
+| `impl/QuicClientConnectionImpl.java` (initialCryptoDivision) | answers the one the builder was given, or Chrome's when a profile asked for chaos protection, since the two are one behaviour in QUICHE |
+| `QuicClientConnection.java` (initialCryptoDivision) | a profile can name a division of its own, for a browser whose layout is not Chrome's |
 | `stream/StreamInputStream.java` | a stream's input stream can say which stream id it reads; not answered by default, so that a subclass which reads no stream says so rather than inventing an id |
 | `stream/StreamInputStreamImpl.java` | answers it |
 

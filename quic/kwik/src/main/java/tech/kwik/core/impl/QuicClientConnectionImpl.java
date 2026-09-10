@@ -1527,6 +1527,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private int destinationConnectionIdLength = ConnectionIdManager.MIN_INITIAL_DESTINATION_CONNECTION_ID_LENGTH;
         private Set<Integer> omittedTransportParameters = Set.of();
         private boolean chaosProtection;
+        private InitialCryptoDivision cryptoDivision;
         private Integer initialDatagramSize;
         private Long initialMaxStreamDataBidiRemote;
         private Integer maxAckDelay;
@@ -1562,9 +1563,10 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             quicConnection.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
             quicConnection.maxAckDelay = maxAckDelay;
             quicConnection.sender.setChaosProtection(chaosProtection);
-            if (chaosProtection) {
-                quicConnection.initialCryptoDivision = new InitialCryptoDivision.ChromeMultiPacket(new Random());
-            }
+            // QUICHE does both halves, so asking for the scrambler asks for its division too; anything
+            // else is named on its own.
+            quicConnection.initialCryptoDivision = cryptoDivision != null ? cryptoDivision
+                    : chaosProtection ? new InitialCryptoDivision.ChromeMultiPacket(new Random()) : null;
             if (initialDatagramSize != null) {
                 quicConnection.sender.setInitialDatagramSize(initialDatagramSize);
             }
@@ -1832,6 +1834,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 throw new IllegalArgumentException("Max UDP payload size cannot be larger than " + MAX_SUPPORTED_PACKET_SIZE + ".");
             }
             connectionProperties.setMaxUdpPayloadSize(maxUdpPayloadSize);
+            return this;
+        }
+
+        @Override
+        public Builder initialCryptoDivision(InitialCryptoDivision division) {
+            this.cryptoDivision = division;
             return this;
         }
 

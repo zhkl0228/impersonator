@@ -162,6 +162,14 @@ public interface QuicClientConnection extends QuicConnection {
 
         Builder preferredVersion(QuicVersion version);
 
+        /**
+         * How this client divides its ClientHello between Initial packets; see
+         * {@link tech.kwik.core.crypto.InitialCryptoDivision}. Null, the default, fills each packet
+         * from the front until the data runs out, which is what kwik has always done and what no
+         * browser does.
+         */
+        Builder initialCryptoDivision(tech.kwik.core.crypto.InitialCryptoDivision division);
+
         Builder logger(Logger log);
 
         Builder sessionTicket(QuicSessionTicket ticket);

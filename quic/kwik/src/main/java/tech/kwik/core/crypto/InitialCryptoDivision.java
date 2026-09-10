@@ -37,11 +37,12 @@ import java.util.Random;
 public interface InitialCryptoDivision {
 
     /**
-     * @param totalLength the whole ClientHello
+     * @param clientHello the whole first flight, which a division may read: a browser's may depend on
+     *                    what is in the message and not only on how long it is
      * @param packetCapacity how many bytes of CRYPTO frame payload one Initial packet can hold
      * @return the pieces in wire order, or an empty list to leave the division to the sender
      */
-    List<Piece> divide(int totalLength, int packetCapacity);
+    List<Piece> divide(byte[] clientHello, int packetCapacity);
 
     /** A run of the ClientHello, as it goes into one CRYPTO frame. */
     final class Piece {
@@ -104,7 +105,8 @@ public interface InitialCryptoDivision {
         }
 
         @Override
-        public List<Piece> divide(int totalLength, int packetCapacity) {
+        public List<Piece> divide(byte[] clientHello, int packetCapacity) {
+            int totalLength = clientHello.length;
             List<Piece> pieces = new ArrayList<>(3);
             int firstPacket = (totalLength - SECOND_FRAME_HEADER) / 2;
             int firstFrame = MIN_FIRST_FRAME_LENGTH + random.nextInt(FIRST_FRAME_LENGTH_RANDOM);
