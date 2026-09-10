@@ -573,9 +573,21 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
         // https://www.rfc-editor.org/rfc/rfc9000.html#section-19.6
         // "There is a separate flow of cryptographic handshake data in each encryption level"
         if (cryptoStreams.get(encryptionLevel.ordinal()) == null) {
-            cryptoStreams.set(encryptionLevel.ordinal(), new CryptoStream(quicVersion, encryptionLevel, role, getTlsEngine(), log, getSender()));
+            CryptoStream cryptoStream = new CryptoStream(quicVersion, encryptionLevel, role, getTlsEngine(), log, getSender());
+            if (encryptionLevel == EncryptionLevel.Initial) {
+                cryptoStream.setInitialCryptoDivision(initialCryptoDivision());
+            }
+            cryptoStreams.set(encryptionLevel.ordinal(), cryptoStream);
         }
         return cryptoStreams.get(encryptionLevel.ordinal());
+    }
+
+    /**
+     * How this endpoint divides its first flight between Initial packets, or null for kwik's own way.
+     * Only a client has a say in it; see {@link tech.kwik.core.crypto.InitialCryptoDivision}.
+     */
+    protected tech.kwik.core.crypto.InitialCryptoDivision initialCryptoDivision() {
+        return null;
     }
 
     protected void determineIdleTimeout(long maxIdleTimout, long peerMaxIdleTimeout) {

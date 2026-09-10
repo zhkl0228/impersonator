@@ -71,6 +71,29 @@ public class CryptoStream {
     private final List<ByteBuffer> dataToSend;
     private final int maxMessageSize;
     private volatile int dataToSendOffset;
+
+    /**
+     * How this client divides its ClientHello between Initial packets, or null for kwik's own way of
+     * filling each packet from the front until the data runs out. See {@link InitialCryptoDivision}:
+     * no browser fills them that way, and the shape of the first datagram is the first thing about a
+     * connection anyone sees.
+     */
+    private volatile InitialCryptoDivision initialCryptoDivision;
+
+    /** The pieces the division asked for, in wire order, or null while it has not been asked yet. */
+    private volatile List<InitialCryptoDivision.Piece> plan;
+    private volatile int planIndex;
+    /**
+     * The whole ClientHello, kept addressable because a division sends its pieces out of order and
+     * {@link #dataToSend} is drained from the front.
+     */
+    private volatile byte[] plannedData;
+    /** What one Initial packet holds, learned from the first frame request and used to place the rest. */
+    private volatile int plannedCapacity;
+
+    public void setInitialCryptoDivision(InitialCryptoDivision division) {
+        this.initialCryptoDivision = division;
+    }
     private volatile int sendStreamSize;
     private volatile boolean msgSizeRead = false;
     private volatile int msgSize;
@@ -293,6 +316,18 @@ public class CryptoStream {
     }
 
     private QuicFrame sendFrame(int maxSize) {
+        if (initialCryptoDivision != null && plan == null && dataToSendOffset == 0) {
+            // Asked here and not in write(), because only the sender knows how much of a packet a
+            // CRYPTO frame can have, and where the first piece ends decides where the rest begin.
+            plannedCapacity = maxSize - 10;
+            plan = initialCryptoDivision.divide(sendStreamSize, plannedCapacity);
+            if (!plan.isEmpty()) {
+                plannedData = drainDataToSend();
+            }
+        }
+        if (plannedData != null) {
+            return sendPlannedFrame(maxSize);
+        }
         int leftToSend = sendStreamSize - dataToSendOffset;
         int bytesToSend = Integer.min(leftToSend, maxSize - 10);
         if (bytesToSend == 0) {
@@ -319,12 +354,71 @@ public class CryptoStream {
         return frame;
     }
 
+    /**
+     * The next piece the division asked for, cut down to what is left of this packet.
+     * <p>
+     * A piece that does not fit is sent as far as it goes and the remainder stays at the head of the
+     * plan, so a division states where the runs of the ClientHello are and the sender still decides
+     * where the packet boundaries fall. That is the division kwik can honour: it cannot be told to put
+     * more in a packet than the packet holds.
+     */
+    private QuicFrame sendPlannedFrame(int maxSize) {
+        if (planIndex >= plan.size()) {
+            return null;
+        }
+        InitialCryptoDivision.Piece piece = plan.get(planIndex);
+        int bytesToSend = Integer.min(piece.length, maxSize - 10);
+        if (bytesToSend <= 0) {
+            // No room left in this packet for a frame worth sending; ask again for the next one.
+            sender.send(this::sendFrame, 10, encryptionLevel, this::retransmitCrypto);
+            return null;
+        }
+        if (bytesToSend < piece.length) {
+            plan.set(planIndex, new InitialCryptoDivision.Piece(piece.offset + bytesToSend, piece.length - bytesToSend));
+        }
+        else {
+            planIndex++;
+        }
+        if (planIndex < plan.size()) {
+            /*
+             * Registered at the length of the piece rather than at a bare minimum, which is what puts
+             * the packet boundary where the division asked for it: SendRequestQueue skips a request
+             * whose estimated size exceeds what is left of the packet, so a piece meant for the next
+             * packet is passed over here and taken up when a fresh one is being filled. Registering at
+             * 10, as the sequential path does, would let the next piece be pulled into this packet
+             * until it was full - which is what left Chrome's first Initial with no room to scramble.
+             */
+            int nextLength = plan.get(planIndex).length;
+            sender.send(this::sendFrame, Integer.min(nextLength, plannedCapacity), encryptionLevel, this::retransmitCrypto);
+        }
+        byte[] frameData = new byte[bytesToSend];
+        System.arraycopy(plannedData, piece.offset, frameData, 0, bytesToSend);
+        return new CryptoFrame(quicVersion.getVersion(), piece.offset, frameData);
+    }
+
+    /** Everything still queued, as one array, leaving {@link #dataToSend} empty. */
+    private byte[] drainDataToSend() {
+        byte[] all = new byte[sendStreamSize - dataToSendOffset];
+        int offset = 0;
+        while (!dataToSend.isEmpty()) {
+            ByteBuffer buffer = dataToSend.remove(0);
+            int remaining = buffer.remaining();
+            buffer.get(all, offset, remaining);
+            offset += remaining;
+        }
+        return all;
+    }
+
     private void retransmitCrypto(QuicFrame cryptoFrame) {
         log.recovery("Retransmitting " + cryptoFrame + " on level " + encryptionLevel);
         sender.send(cryptoFrame, encryptionLevel, this::retransmitCrypto);
     }
 
     public void reset() {
+        plan = null;
+        planIndex = 0;
+        plannedData = null;
+        plannedCapacity = 0;
         dataToSendOffset = 0;
         sendStreamSize = 0;
         dataToSend.clear();

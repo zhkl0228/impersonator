@@ -45,6 +45,7 @@ import tech.kwik.core.cid.ConnectionIdInfo;
 import tech.kwik.core.cid.ConnectionIdManager;
 import tech.kwik.core.client.CertificateSelector;
 import tech.kwik.core.common.PnSpace;
+import tech.kwik.core.crypto.InitialCryptoDivision;
 import tech.kwik.core.crypto.CryptoStream;
 import tech.kwik.core.crypto.MissingKeysException;
 import tech.kwik.core.frame.*;
@@ -494,6 +495,22 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
         return earlyDataStreams;
     }
+
+    /**
+     * Chrome's, when a profile asked for chaos protection, and none otherwise.
+     * <p>
+     * The two are one behaviour and come from one place in QUICHE: MultiPacketChaosProtect decides
+     * which runs of the ClientHello go in which packet, and QuicChaosProtector scrambles the frames
+     * within each. Doing only the second is what used to happen here, and it barely showed - kwik
+     * filled the first Initial with CRYPTO to the brim, leaving the scrambler no padding to spend, so
+     * Chrome's first packet went out as one CRYPTO frame between a couple of PINGs.
+     */
+    @Override
+    protected InitialCryptoDivision initialCryptoDivision() {
+        return initialCryptoDivision;
+    }
+
+    private volatile InitialCryptoDivision initialCryptoDivision;
 
     private List<QuicStream> sendEarlyData(EarlyDataWriter earlyDataWriter) throws IOException {
         if (earlyDataWriter == null) {
@@ -1545,6 +1562,9 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             quicConnection.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
             quicConnection.maxAckDelay = maxAckDelay;
             quicConnection.sender.setChaosProtection(chaosProtection);
+            if (chaosProtection) {
+                quicConnection.initialCryptoDivision = new InitialCryptoDivision.ChromeMultiPacket(new Random());
+            }
             if (initialDatagramSize != null) {
                 quicConnection.sender.setInitialDatagramSize(initialDatagramSize);
             }
