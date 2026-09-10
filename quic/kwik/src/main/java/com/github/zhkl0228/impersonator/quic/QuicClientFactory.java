@@ -108,9 +108,8 @@ public class QuicClientFactory {
      * error to a string and throws a fresh {@code ConnectException}, so the exception carrying the
      * retry configs never reaches the caller.
      */
-    public QuicClientFactory setEchRejectionHandler(EchRejectionHandler echRejectionHandler) {
+    public void setEchRejectionHandler(EchRejectionHandler echRejectionHandler) {
         this.echRejectionHandler = echRejectionHandler;
-        return this;
     }
 
     /**
@@ -126,9 +125,8 @@ public class QuicClientFactory {
      * Replaces the ticket store, or removes it - passing null turns resumption off, and every
      * connection is then a full handshake with the fingerprint that goes with it.
      */
-    public QuicClientFactory setSessionTicketStore(SessionTicketStore sessionTicketStore) {
+    public void setSessionTicketStore(SessionTicketStore sessionTicketStore) {
         this.sessionTicketStore = sessionTicketStore;
-        return this;
     }
 
     /**

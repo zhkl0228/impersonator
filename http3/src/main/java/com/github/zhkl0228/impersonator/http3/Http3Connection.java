@@ -10,7 +10,6 @@ import tech.kwik.flupke.HttpStream;
 import tech.kwik.flupke.HttpError;
 import tech.kwik.flupke.impl.Http3ClientConnectionImpl;
 import tech.kwik.flupke.impl.Http3Frame;
-import tech.kwik.flupke.impl.SettingsFrame;
 import tech.kwik.qpack.impl.DecoderImpl;
 import tech.kwik.qpack.impl.DynamicTable;
 
@@ -18,7 +17,6 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.io.UncheckedIOException;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;

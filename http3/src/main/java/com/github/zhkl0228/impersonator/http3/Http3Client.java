@@ -282,16 +282,8 @@ class Http3Client extends HttpClient {
      * The QUIC connection is kept alongside the HTTP/3 one because closing is the caller's business
      * and the HTTP/3 connection does not own the QUIC one it was handed.
      */
-    private static class Connection {
-        final String host;
-        final QuicClientConnection quicConnection;
-        final Http3ClientConnection http3Connection;
-
-        Connection(String host, QuicClientConnection quicConnection, Http3ClientConnection http3Connection) {
-            this.host = host;
-            this.quicConnection = quicConnection;
-            this.http3Connection = http3Connection;
-        }
+    private record Connection(String host, QuicClientConnection quicConnection,
+                              Http3ClientConnection http3Connection) {
 
         void close(SessionTicketStore sessionTicketStore, NewTokenStore newTokenStore) {
             /*
