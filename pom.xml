@@ -8,42 +8,24 @@
     <artifactId>impersonator</artifactId>
     <packaging>pom</packaging>
     <version>1.7.1</version>
+    <!--
+        All four, unconditionally. They used to be split across profiles activated by JDK version, so
+        that "mvn install" would work on a JDK 8 - and the cost of that was a release built on one
+        leaving out everything it did not activate, silently. Version 1.7.1 is entirely inside the
+        vendored QUIC layer, and a JDK 8 "mvn deploy" would have published it with no change in it at
+        all.
+
+        Building now needs a JDK 21, which is what http3 compiles for; see the enforcer below. Using
+        the artifacts does not: each module keeps the release it targets, so impersonator-bctls still
+        runs on Java 8 and impersonator-kwik on Java 11.
+    -->
     <modules>
         <module>bctls</module>
         <module>okhttp</module>
-        <!-- quic (agent15, kwik) and http3 are here too, in the profiles below; they need a JDK 11 resp. 21. -->
+        <module>quic</module>
+        <module>http3</module>
     </modules>
 
-    <profiles>
-        <!--
-            The quic modules vendor agent15 and kwik, both of which are compiled for Java 11, so
-            they cannot be built by the JDK 8 the other two modules target. Keeping them in a profile
-            means "mvn install" still works on a JDK 8, it just leaves them out.
-        -->
-        <profile>
-            <id>quic</id>
-            <activation>
-                <jdk>[11,)</jdk>
-            </activation>
-            <modules>
-                <module>quic</module>
-            </modules>
-        </profile>
-        <!--
-            http3 is Java 21, because that is where java.net.http.HttpClient became AutoCloseable and
-            the client it hands out owns QUIC connections. One step above the rest, so it gets its own
-            activation rather than failing every JDK 11 build.
-        -->
-        <profile>
-            <id>http3</id>
-            <activation>
-                <jdk>[21,)</jdk>
-            </activation>
-            <modules>
-                <module>http3</module>
-            </modules>
-        </profile>
-    </profiles>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -78,6 +60,32 @@
     </scm>
     <build>
         <plugins>
+            <!--
+                Says which JDK this needs, rather than letting it be found out: on a JDK 8 the first
+                sign used to be that half the modules were quietly not there, and on a JDK 11 it is
+                http3 failing with "invalid target release: 21" after everything else has been built.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>1.4.1</version>
+                <executions>
+                    <execution>
+                        <id>require-jdk-21</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,)</version>
+                                    <message>Building impersonator needs a JDK 21 or later, because the http3 module compiles for 21. The artifacts it produces do not: impersonator-bctls targets Java 8 and impersonator-kwik targets 11.</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>

@@ -141,6 +141,12 @@ out owns QUIC connections: on 11 it had to be an abstract subclass of our own fo
 and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
 directly if you are on 11 and want QUIC without that.
 
+Those are the versions each artifact *runs* on. Building the project needs a JDK 21, whatever you
+target: the four modules are built together and http3 compiles for 21. It used to be arranged the
+other way - the QUIC modules sat in profiles activated by JDK version, so a build on an older one
+still worked - and what that bought was a release built on a JDK 8 silently containing two modules
+out of four.
+
 **What the QUIC profiles reproduce.** All five - `macChrome()`, `macFirefox()`, `macSafari()`,
 `ios()` and `android()` - are written from a capture in `docs/captures/`:
 
