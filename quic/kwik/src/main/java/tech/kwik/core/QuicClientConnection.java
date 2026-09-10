@@ -67,6 +67,31 @@ public interface QuicClientConnection extends QuicConnection {
      */
     List<QuicStream> connect(EarlyDataWriter earlyDataWriter) throws IOException;
 
+    /**
+     * Sends the ClientHello and returns, leaving the handshake to finish in the background;
+     * {@link #awaitConnected()} waits for it.
+     * <p>
+     * Between the two, a connection that offered "early_data" is in its 0-RTT window: the streams
+     * {@link QuicConnection#createStream(boolean)} hands out write at the 0-RTT level, so a library
+     * that opens its own stream and writes a request to it - which is what HTTP/3 is - puts that
+     * request in the first flight without knowing anything about 0-RTT.
+     * <p>
+     * {@link #connect(EarlyDataWriter)} is these two with a writer in between, and is enough when the
+     * caller has the whole flight in hand. It is not enough for a request, because a writer runs
+     * while the handshake is held up and a request is not finished until its response arrives.
+     *
+     * @param withEarlyData whether to offer "early_data" and write some. Offering it and writing
+     *                      nothing is a claim about this client that is not true, so
+     *                      {@link #awaitConnected()} refuses a connection that did.
+     */
+    void startConnect(boolean withEarlyData) throws IOException;
+
+    /**
+     * Waits for the handshake this connection started, and settles the 0-RTT data written while it
+     * ran - which, when the server rejected it, means sending it again.
+     */
+    void awaitConnected() throws IOException;
+
     /** See {@link #connect(EarlyDataWriter)}. */
     interface EarlyDataWriter {
         void write(EarlyDataSender sender) throws IOException;

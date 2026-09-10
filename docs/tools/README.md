@@ -13,6 +13,12 @@ report field order only do it for HTTP/2. See the file for how to run it.
 `--retry` makes it answer every first flight with a Retry packet, so address
 validation happens on every connection instead of once in a hundred.
 
+It also keeps every session ticket it issues and takes each one back, which the
+public endpoints do not: they accept a ticket they issued about as often as not -
+several backends, no shared ticket key - and a client cannot tell that apart from a
+bug of its own. aioquic's server offers 0-RTT to every ticket it issues, so this is
+also where resumption and early data can be relied on to happen.
+
 ## An ngtcp2 server, for what a server does with the second and third key share
 
 nghttp2.org runs ngtcp2, and its behaviour under Retry could not be reproduced any
@@ -81,7 +87,16 @@ server had issued:
 
 "Verifying token" rather than "Verifying Retry token" is the server naming which of
 the two kinds it got, and no Retry follows either of the last two: the round trip is
-gone, which is what keeping the token is for. Until then kwik parsed the NEW_TOKEN
+gone, which is what keeping the token is for.
+
+The same log is what settled that 0-RTT data really leaves in 0-RTT packets, because
+it names the packet type each frame arrived in. A stream opened through the ordinary
+`createStream` while the handshake was still running:
+
+    pkt rx pkn=0 ... version=0x00000001 type=0RTT len=84
+    frm rx 0 0RTT STREAM(0x0e) id=0x0 fin=0 offset=0 len=63 uni=0
+
+A bidirectional stream, id 0, which is the stream an HTTP/3 request uses. Until then kwik parsed the NEW_TOKEN
 frame and dropped it, so every connection asked for a Retry where a browser asks for
 one only on its first.
 

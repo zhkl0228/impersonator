@@ -14,6 +14,11 @@ is worth running one of these:
   Retry packet, which is a path a client library is rarely made to walk - servers
   send Retry under load, so it shows up as a rare, unreproducible failure. Here it
   is every connection.
+* **Resumption and 0-RTT that always work.** The public endpoints accept a ticket
+  they issued about as often as not - several backends, no shared ticket key - so
+  a client cannot tell a bug of its own from the server changing its mind. This
+  keeps its tickets in memory and accepts every one of them, and aioquic's server
+  offers 0-RTT to every ticket it issues.
 
 Answers any path, so a URL can say which browser made the request::
 
@@ -116,11 +121,38 @@ class FieldSectionEcho(QuicConnectionProtocol):
         print(json.dumps({"order": names}), flush=True)
 
 
+class SessionTickets:
+    """The tickets this server issued, kept in memory for as long as it runs.
+
+    A server that issues a ticket and then cannot find it again does a full handshake
+    instead, which is what the public endpoints do to a client often enough to hide a
+    real resumption bug behind. Bounded, because nothing here ever expires one.
+    """
+
+    LIMIT = 256
+
+    def __init__(self):
+        self._tickets = {}
+
+    def add(self, ticket):
+        self._tickets[ticket.ticket] = ticket
+        while len(self._tickets) > self.LIMIT:
+            self._tickets.pop(next(iter(self._tickets)))
+
+    def pop(self, label):
+        # Taken out rather than looked up: a ticket is used once, and a client that
+        # offers the same one twice is doing something worth seeing rather than
+        # something to accommodate.
+        return self._tickets.pop(label, None)
+
+
 async def main(host, port, cert, key, retry):
     configuration = QuicConfiguration(is_client=False, alpn_protocols=H3_ALPN)
     configuration.load_cert_chain(cert, key)
+    tickets = SessionTickets()
     await serve(host, port, configuration=configuration, create_protocol=FieldSectionEcho,
-                retry=retry)
+                retry=retry,
+                session_ticket_fetcher=tickets.pop, session_ticket_handler=tickets.add)
     await asyncio.Future()
 
 

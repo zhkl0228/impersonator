@@ -26,6 +26,9 @@ import tech.kwik.core.frame.*;
 import tech.kwik.core.impl.*;
 import tech.kwik.core.log.Logger;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -57,6 +60,10 @@ public class StreamManager {
     private volatile int currentUnidirectionalStreamIdLimit;
     private volatile int currentBidirectionalStreamIdLimit;
     private volatile Consumer<QuicStream> peerInitiatedStreamCallback;
+
+    /** See {@link #openEarlyDataWindow()}. */
+    private volatile boolean earlyDataWindowOpen;
+    private final List<EarlyDataStream> earlyDataStreams = Collections.synchronizedList(new ArrayList<>());
     private volatile Long maxStreamsAcceptedByPeerBidi;
     private volatile Long maxStreamsAcceptedByPeerUni;
     private final Semaphore openBidirectionalStreams;
@@ -185,8 +192,58 @@ public class StreamManager {
     }
 
     public QuicStream createStream(boolean bidirectional, long timeout, TimeUnit timeoutUnit) throws TimeoutException {
+        if (earlyDataWindowOpen) {
+            // The handshake has not finished, so anything written now can go out in 0-RTT packets -
+            // which is what an ordinary caller asking for a stream in this window wants, and the only
+            // way it can have it: an EarlyDataStream is the only stream that writes at that level.
+            // See openEarlyDataWindow.
+            QuicStreamSupplier earlyDataCreator = (streamId) ->
+                    new EarlyDataStream(quicVersion, streamId, (QuicClientConnectionImpl) connection, this, flowController, log);
+            return register(createStream(bidirectional, timeout, timeoutUnit, earlyDataCreator));
+        }
         QuicStreamSupplier streamCreator = (streamId) -> new QuicStreamImpl(quicVersion, streamId, role, connection, this, flowController, log);
         return createStream(bidirectional, timeout, timeoutUnit, streamCreator);
+    }
+
+    /**
+     * Opens the window in which {@link #createStream(boolean)} produces streams that write 0-RTT data.
+     * <p>
+     * It is open from the moment the ClientHello offering "early_data" has gone out until the server
+     * has said whether it accepted it. Only a client resuming a session has one, and only a client:
+     * {@link EarlyDataStream} is a client stream and the cast below says so.
+     * <p>
+     * Without this, 0-RTT was reachable only through {@code connect(EarlyDataWriter)}, which hands the
+     * caller a sender that takes one complete flight per stream and blocks until the handshake is
+     * over. That is enough for a first flight written by the caller of connect, and not enough for a
+     * request written by a library that opens its own stream - which is what HTTP/3 is.
+     */
+    /** See {@link #openEarlyDataWindow()}. */
+    public boolean isEarlyDataWindowOpen() {
+        return earlyDataWindowOpen;
+    }
+
+    public void openEarlyDataWindow() {
+        assert role == Role.Client;
+        earlyDataWindowOpen = true;
+    }
+
+    /**
+     * Closes it, and answers the streams it produced so their owner can settle them: RFC 9001 section
+     * 4.6.2 leaves a client whose early data was rejected to send the same data again once the
+     * handshake completes, which is {@link EarlyDataStream#writeRemaining(boolean)}.
+     */
+    public List<EarlyDataStream> closeEarlyDataWindow() {
+        earlyDataWindowOpen = false;
+        synchronized (earlyDataStreams) {
+            return new ArrayList<>(earlyDataStreams);
+        }
+    }
+
+    private QuicStream register(QuicStream stream) {
+        if (stream instanceof EarlyDataStream) {
+            earlyDataStreams.add((EarlyDataStream) stream);
+        }
+        return stream;
     }
 
     private QuicStreamImpl createStream(boolean bidirectional, long timeout, TimeUnit unit, QuicStreamSupplier streamFactory) throws TimeoutException {
@@ -222,7 +279,9 @@ public class StreamManager {
         assert role == Role.Client;
         try {
             QuicStreamSupplier streamCreator = (streamId) -> new EarlyDataStream(quicVersion, streamId, (QuicClientConnectionImpl) connection, this, flowController, log);
-            return (EarlyDataStream) createStream(bidirectional, 0, TimeUnit.MILLISECONDS, streamCreator);
+            EarlyDataStream stream = (EarlyDataStream) createStream(bidirectional, 0, TimeUnit.MILLISECONDS, streamCreator);
+            register(stream);
+            return stream;
         }
         catch (TimeoutException e) {
             return null;

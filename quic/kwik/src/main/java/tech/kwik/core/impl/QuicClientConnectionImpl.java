@@ -172,6 +172,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private final List<byte[]> newTokens = Collections.synchronizedList(new ArrayList<>());
     private boolean ignoreVersionNegotiation;
     private volatile EarlyDataStatus earlyDataStatus = None;
+    /** Whether the ClientHello offered "early_data"; see {@link #startConnect(boolean)}. */
+    private volatile boolean offeredEarlyData;
     private final List<TlsConstants.CipherSuite> cipherSuites;
 
     private final GlobalAckGenerator ackGenerator;
@@ -452,10 +454,35 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
     @Override
     public synchronized List<QuicStream> connect(EarlyDataWriter earlyDataWriter) throws IOException {
+        startConnect(earlyDataWriter != null);
+        List<QuicStream> earlyDataStreams = sendEarlyData(earlyDataWriter);
+        awaitConnected();
+        return earlyDataStreams;
+    }
+
+    /**
+     * Sends the ClientHello and returns, leaving the connection to finish its handshake in the
+     * background. {@link #awaitConnected()} is what waits for it.
+     * <p>
+     * The point of the split is the window in between. {@link #connect(EarlyDataWriter)} blocks until
+     * the handshake is over, so the only place a caller can write 0-RTT data is inside the writer it
+     * passes - and a writer takes one complete flight per stream, which is enough for data the caller
+     * has in hand and not enough for a request written by a library that opens its own stream. HTTP/3
+     * is the second kind: flupke's send() takes a stream from createStream, writes the request to it
+     * and then waits for the response on the same thread, which inside a writer would wait for a
+     * handshake its own thread is holding up. With the window open as a period rather than a callback,
+     * the ordinary createStream produces a stream that writes at the 0-RTT level and nothing has to
+     * know it did.
+     *
+     * @param withEarlyData whether this connection offers "early_data" and will write some. Offering
+     *                      it and writing nothing is a claim about this client that is not true, so
+     *                      {@link #awaitConnected()} refuses a connection that did.
+     */
+    public synchronized void startConnect(boolean withEarlyData) throws IOException {
         if (connectionState != Status.Created) {
             throw new IllegalStateException("Cannot connect a connection that is in state " + connectionState);
         }
-        if (earlyDataWriter != null && sessionTicket == null) {
+        if (withEarlyData && sessionTicket == null) {
             throw new IllegalStateException("Cannot send early data without session ticket");
         }
         streamManager.initialize(connectionProperties);
@@ -476,9 +503,42 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
         startReceiverLoop();
 
-        startHandshake(applicationProtocol, earlyDataWriter != null);
+        startHandshake(applicationProtocol, withEarlyData);
+        offeredEarlyData = withEarlyData;
+        if (withEarlyData) {
+            // Said as soon as it is offered rather than once it is written, because the answer -
+            // Accepted or Rejected - arrives during the handshake and would otherwise be overwritten
+            // by this. That a connection which offered it really wrote some is checked when the window
+            // closes; see awaitConnected.
+            earlyDataStatus = Requested;
+        }
 
-        List<QuicStream> earlyDataStreams = sendEarlyData(earlyDataWriter);
+        if (withEarlyData) {
+            /*
+             * The limits the server gave last time, which is what 0-RTT data is written against: RFC
+             * 9001 section 4.6.1, "a client MUST NOT ... send more data than the server permitted in
+             * the previous connection". They were applied inside sendEarlyData before, which is too
+             * late for a stream the caller opens itself.
+             */
+            TransportParameters rememberedTransportParameters = new TransportParameters();
+            sessionTicket.copyTo(rememberedTransportParameters);
+            setZeroRttTransportParameters(rememberedTransportParameters);
+            streamManager.openEarlyDataWindow();
+        }
+    }
+
+    /**
+     * Waits for the handshake to finish, and settles whatever 0-RTT data was written while it ran.
+     *
+     * @throws ConnectException if it does not finish in time or fails
+     */
+    public void awaitConnected() throws IOException {
+        List<EarlyDataStream> earlyDataStreams = streamManager.closeEarlyDataWindow();
+        if (offeredEarlyData && earlyDataStreams.isEmpty()) {
+            // The ClientHello has already offered "early_data"; sending none would make it a claim
+            // about this client that is not true.
+            throw new IllegalStateException("a connection that offers early data must write some");
+        }
 
         try {
             boolean handshakeFinished = handshakeFinishedCondition.await(connectTimeout, TimeUnit.MILLISECONDS);
@@ -502,13 +562,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             if (earlyDataStatus != Accepted) {
                 log.info("Server did not accept early data; retransmitting all data.");
             }
-            for (QuicStream stream: earlyDataStreams) {
+            for (EarlyDataStream stream: earlyDataStreams) {
                 if (stream != null) {
-                    ((EarlyDataStream) stream).writeRemaining(earlyDataStatus == Accepted);
+                    stream.writeRemaining(earlyDataStatus == Accepted);
                 }
             }
         }
-        return earlyDataStreams;
     }
 
     /**
@@ -527,13 +586,15 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
     private volatile InitialCryptoDivision initialCryptoDivision;
 
+    /**
+     * Runs a caller's early data writer, which writes one complete flight per stream. The transport
+     * parameters it is written against, and the window that makes these streams 0-RTT streams, are
+     * {@link #startConnect(boolean)}'s doing.
+     */
     private List<QuicStream> sendEarlyData(EarlyDataWriter earlyDataWriter) throws IOException {
         if (earlyDataWriter == null) {
             return Collections.emptyList();
         }
-        TransportParameters rememberedTransportParameters = new TransportParameters();
-        sessionTicket.copyTo(rememberedTransportParameters);
-        setZeroRttTransportParameters(rememberedTransportParameters);
         // https://tools.ietf.org/html/draft-ietf-quic-tls-27#section-4.5
         // "the amount of data which the client can send in 0-RTT is controlled by the "initial_max_data"
         //   transport parameter supplied by the server"
@@ -547,18 +608,11 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 earlyDataSizeLeft[0] = Long.max(0, earlyDataSizeLeft[0] - data.length);
             }
             else {
-                log.info("Creating early data stream failed, max streams (bidi) = "
-                        + rememberedTransportParameters.getInitialMaxStreamsBidi());
+                log.info("Creating early data stream failed, no stream credit left");
             }
             earlyDataStreams.add(earlyDataStream);
             return earlyDataStream;
         });
-        if (earlyDataStreams.isEmpty()) {
-            // The ClientHello has already offered "early_data"; sending none would make it a claim
-            // about this client that is not true.
-            throw new IllegalStateException("an early data writer must write early data");
-        }
-        earlyDataStatus = Requested;
         return earlyDataStreams;
     }
 

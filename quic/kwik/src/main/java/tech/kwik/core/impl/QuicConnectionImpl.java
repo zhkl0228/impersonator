@@ -261,7 +261,13 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
 
     @Override
     public QuicStream createStream(boolean bidirectional) throws IOException {
-        if (connectionState != Status.Connected) {
+        /*
+         * A connection in its 0-RTT window is not connected yet and is exactly where a stream is
+         * wanted: what is written on one now goes out with the ClientHello rather than after the
+         * handshake. See StreamManager.openEarlyDataWindow, and QuicClientConnection.startConnect for
+         * why the window is a period rather than a callback.
+         */
+        if (connectionState != Status.Connected && !getStreamManager().isEarlyDataWindowOpen()) {
             throw new IOException("not connected");
         }
 
