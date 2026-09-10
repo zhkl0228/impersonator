@@ -379,6 +379,11 @@ public interface QuicClientConnection extends QuicConnection {
 
         Builder cipherSuite(TlsConstants.CipherSuite cipherSuite);
 
+        /**
+         * Accepts any server certificate and any host name, which is what it says: there is then
+         * nothing between this connection and whoever answers the address. Say it only where that is
+         * what you mean - a test server, a host pinned some other way, a proxy of your own.
+         */
         Builder noServerCertificateCheck();
 
         /**

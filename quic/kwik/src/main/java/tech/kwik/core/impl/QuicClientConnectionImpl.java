@@ -54,7 +54,6 @@ import tech.kwik.core.log.NullLogger;
 import tech.kwik.core.packet.*;
 import tech.kwik.core.receive.MultipleAddressReceiver;
 import tech.kwik.core.receive.RawPacket;
-import tech.kwik.core.receive.Receiver;
 import tech.kwik.core.send.SenderImpl;
 import tech.kwik.core.socket.ClientSocketManager;
 import tech.kwik.core.stream.EarlyDataStream;
@@ -99,7 +98,6 @@ import static tech.kwik.core.QuicConstants.TransportErrorCode.*;
 import static tech.kwik.core.common.EncryptionLevel.App;
 import static tech.kwik.core.common.EncryptionLevel.Handshake;
 import static tech.kwik.core.common.EncryptionLevel.Initial;
-import static tech.kwik.core.common.KwikConstants.MAX_SUPPORTED_PACKET_SIZE;
 import static tech.kwik.core.impl.QuicClientConnectionImpl.EarlyDataStatus.Accepted;
 import static tech.kwik.core.impl.QuicClientConnectionImpl.EarlyDataStatus.None;
 import static tech.kwik.core.impl.QuicClientConnectionImpl.EarlyDataStatus.Requested;
@@ -132,8 +130,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         None,
         Requested,
         Accepted,
-        Refused;
-    };
+        Refused
+    }
 
     private final String host;
     private final int serverPort;
@@ -153,14 +151,13 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private final ConnectionIdManager connectionIdManager;
     private final Version originalVersion;
     private final Version preferredVersion;
-    private final DatagramSocketFactory socketFactory;
     private final long connectTimeout;
     private final ClientConnectionConfig connectionProperties;
     private volatile byte[] token;
     private final CountDownLatch handshakeFinishedCondition = new CountDownLatch(1);
     private volatile TransportParameters peerTransportParams;
     private KeepAliveActor keepAliveActor;
-    private String applicationProtocol;
+    private final String applicationProtocol;
     private final List<QuicSessionTicket> newSessionTickets = Collections.synchronizedList(new ArrayList<>());
     /**
      * The tokens received in NEW_TOKEN frames, oldest first; see {@link #getNewTokens()}. Separate
@@ -230,13 +227,10 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         this.cipherSuites = cipherSuites;
         this.clientCertificate = clientCertificate;
         this.clientCertificateKey = clientCertificateKey;
-        this.socketFactory = socketFactory != null? socketFactory: (address) -> new DatagramSocket();
 
         idleTimer = new IdleTimer(this, log);
 
-        BiConsumer<Integer, String> closeWithErrorFunction = (error, reason) -> {
-            immediateCloseWithError(error, reason);
-        };
+        BiConsumer<Integer, String> closeWithErrorFunction = this::immediateCloseWithError;
         connectionIdManager = new ConnectionIdManager(cidLength, destinationConnectionIdLength, connectionProperties.getActiveConnectionIdLimit(), closeWithErrorFunction, log);
 
         receiver = new MultipleAddressReceiver(log, createPacketFilter(), this::abortConnection);
@@ -279,7 +273,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             }
 
             @Override
-            public void send(CertificateMessage certificateMessage) throws IOException {
+            public void send(CertificateMessage certificateMessage) {
                 CryptoStream cryptoStream = getCryptoStream(Handshake);
                 cryptoStream.write(certificateMessage, true);
                 log.sentPacketInfo(cryptoStream.toStringSent());
@@ -441,7 +435,6 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      * @return list of streams that was created for the early data; the size of the list will be equal
      * to the size of the list of the <code>earlyData</code> parameter, but may contain <code>null</code>s if a stream
      * could not be created due to reaching the max initial streams limit.
-     * @throws IOException
      */
     @Override
     public synchronized List<QuicStream> connect(List<StreamEarlyData> earlyData) throws IOException {
@@ -481,7 +474,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      *                      it and writing nothing is a claim about this client that is not true, so
      *                      {@link #awaitConnected()} refuses a connection that did.
      */
-    public synchronized void startConnect(boolean withEarlyData) throws IOException {
+    public synchronized void startConnect(boolean withEarlyData) {
         if (connectionState != Status.Created) {
             throw new IllegalStateException("Cannot connect a connection that is in state " + connectionState);
         }
@@ -814,7 +807,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         //  abandoning loss recovery state for the Initial encryption level and ignoring any outstanding Initial packets."
         // This is done as post-processing action to ensure ack on Initial level is sent.
         postProcessingActions.add(() -> {
-            discard(PnSpace.Initial, "first Handshake message is being sent");
+            discard();
             connectionSecrets.discardKeys(Initial);
         });
     }
@@ -864,8 +857,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         return false;
     }
 
-    private void discard(PnSpace pnSpace, String reason) {
-        sender.discard(pnSpace, reason);
+    private void discard() {
+        sender.discard(PnSpace.Initial, "first Handshake message is being sent");
     }
 
     @Override
@@ -913,7 +906,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     @Override
     public ProcessResult process(VersionNegotiationPacket vnPacket, PacketMetaData packetMetaData) {
         if (!ignoreVersionNegotiation && !vnPacket.getServerSupportedVersions().contains(quicVersion.getVersion())) {
-            log.info("Server doesn't support " + quicVersion + ", but only: " + ((VersionNegotiationPacket) vnPacket).getServerSupportedVersions().stream().map(v -> v.toString()).collect(Collectors.joining(", ")));
+            log.info("Server doesn't support " + quicVersion + ", but only: " + vnPacket.getServerSupportedVersions().stream().map(Version::toString).collect(Collectors.joining(", ")));
             throw new VersionNegotiationFailure();
         }
         else {
@@ -1341,8 +1334,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         byte[] tokenCandidate = new byte[16];
         data.position(data.limit() - 16);
         data.get(tokenCandidate);
-        boolean isStatelessReset = connectionIdManager.isStatelessResetToken(tokenCandidate);
-        return isStatelessReset;
+        return connectionIdManager.isStatelessResetToken(tokenCandidate);
     }
 
     public byte[][] newConnectionIds(int count, int retirePriorTo) {
@@ -1585,6 +1577,14 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         return connectionState == Status.Connected;
     }
 
+    /**
+     * Accepts any server certificate and any host name.
+     * <p>
+     * Upstream prints a security warning here, on stdout, once per connection. It is gone; see
+     * UPSTREAM.md. The warning is for a caller who did not mean this, and there is no such caller:
+     * {@link Builder#noServerCertificateCheck()} is a line in the application's own source and cannot
+     * be arrived at by accident.
+     */
     protected void trustAnyServerCertificate() {
         X509TrustManager trustAllCerts =
             new X509TrustManager() {
@@ -1602,11 +1602,6 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 }
         };
 
-        String propValue = System.getProperty("tech.kwik.core.no-security-warnings");
-        boolean suppressWarning = propValue != null && propValue.toLowerCase().equals("true");
-        if (! suppressWarning) {
-            System.out.println("SECURITY WARNING: INSECURE configuration! Server certificate validation is disabled; QUIC connections may be subject to man-in-the-middle attacks!");
-        }
         tlsEngine.setTrustManager(trustAllCerts);
         tlsEngine.setHostnameVerifier((hostname, serverCertificate) -> true);
     }
@@ -1657,7 +1652,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private Path secretsFile;
         private Integer initialRtt;
         private Integer connectionIdLength;
-        private List<TlsConstants.CipherSuite> cipherSuites = new ArrayList<>();
+        private final List<TlsConstants.CipherSuite> cipherSuites = new ArrayList<>();
         private boolean omitCertificateCheck;
         private Integer quantumReadinessTest;
         private X509Certificate clientCertificate;
@@ -2196,7 +2191,6 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
          * Set that the max (receive) udp payload size should be enforced. If the server sends a packet that is larger
          * than the max udp payload size, the packet will be dropped.
          * The default is not to enforce this limit.
-         * @param enforce
          */
         public void enforceMaxUdpPayloadSize(boolean enforce) {
             connectionProperties.setEnforceMaxUdpPayloadSize(enforce);

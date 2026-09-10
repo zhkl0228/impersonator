@@ -54,6 +54,7 @@
                         <!-- okhttp marks its own internals with @OkHttpInternalApi; its Gradle build opts in globally. -->
                         <arg>-opt-in=okhttp3.internal.OkHttpInternalApi</arg>
                         <arg>-Xjvm-default=all</arg>
+                        <arg>-Xjdk-release=1.8</arg>
                     </args>
                 </configuration>
             </plugin>
