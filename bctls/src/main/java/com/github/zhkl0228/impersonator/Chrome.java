@@ -220,6 +220,19 @@ abstract class Chrome extends ImpersonatorFactory {
      * And 0x3128 is Google's own {@code google_connection_options}, a list of four byte tags that
      * turn on experiments in Google's servers; Chrome sends {@code ORIG}, which Chromium's
      * {@code crypto_protocol.h} documents as "Experiment for sending new ORIGIN frame".
+     * <p>
+     * One parameter is seen and not sent. docs/captures/chrome-152-android-quic-resumed.json carries
+     * a fourteenth, 0x3127 - QUICHE's {@code kInitialRoundTripTime}, whose field is
+     * {@code initial_round_trip_time_us} - with the value 249046, which is a quarter of a second and
+     * reads like the round trip time of the connection before it. The macOS resumed capture does not
+     * carry it at all, so it is not something every resumed connection sends, and what decides is not
+     * in either capture.
+     * <p>
+     * Nor would sending it be a matter of adding a number. It is a measurement of the previous
+     * connection to that host: a constant here would turn something that varies per host and per
+     * network into a value that is the same everywhere, which identifies this client rather than
+     * hiding it. Reproducing it means feeding back an RTT this end actually measured, on the
+     * connections where Chrome does that - and neither half has a sample behind it yet.
      */
     @Override
     public QuicTransport getQuicTransport() {

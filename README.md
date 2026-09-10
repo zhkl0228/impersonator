@@ -141,8 +141,8 @@ out owns QUIC connections: on 11 it had to be an abstract subclass of our own fo
 and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
 directly if you are on 11 and want QUIC without that.
 
-**What the QUIC profiles reproduce.** `macChrome()`, `macFirefox()`, `macSafari()` and `ios()` are
-each written from a capture of that browser in `docs/captures/`, and none of them from another's:
+**What the QUIC profiles reproduce.** All five - `macChrome()`, `macFirefox()`, `macSafari()`,
+`ios()` and `android()` - are written from a capture in `docs/captures/`:
 
 - the ClientHello and its JA4, with the extension order each browser actually produces - BoringSSL
   shuffles Chrome's per connection, NSS permutes Firefox's, and Safari's is a fixed list;
@@ -161,8 +161,18 @@ each written from a capture of that browser in `docs/captures/`, and none of the
   a NEW_TOKEN frame, and 0-RTT with the request in the first flight rather than only the connection
   preamble.
 
-`android()` has no HTTP/3 profile, because no capture of it has been taken; asking for one is
-refused rather than answered with another browser's.
+The two mobile profiles send the same ClientHello as their desktop counterparts, which is a claim
+about the browsers and not a convenience - and there is a capture of each pair. Chrome 152 on a phone
+and Chrome 152 on macOS agree in every field a server reads off the handshake: the JA4, the twelve
+extensions, both key shares, every transport parameter, the connection id lengths, the Initial
+datagram size and the HTTP/3 SETTINGS. What differs is the user agent, and the two things a browser
+draws afresh for every connection anyway - the extension order and the Initial packet's frame layout.
+
+One difference is real and is left alone: Chrome's resumed ClientHello on Android carries a transport
+parameter the macOS one does not, QUICHE's `kInitialRoundTripTime` (0x3127). It is a measurement of
+the previous connection to that host, so sending the captured constant would be a value that never
+changes where a browser sends one that changes with every host and every network - which identifies
+this client rather than hiding it. See `Chrome.getQuicTransport`.
 
 ### Timeouts
 
