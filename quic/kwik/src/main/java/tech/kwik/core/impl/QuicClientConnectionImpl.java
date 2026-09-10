@@ -942,7 +942,11 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 connectionIdManager.registerInitialPeerCid(peerConnectionId);
                 connectionIdManager.registerRetrySourceConnectionId(peerConnectionId);
                 log.debug("Changing destination connection id into: " + bytesToHex(peerConnectionId));
-                generateInitialKeys(peerConnectionId);
+                // recompute rather than compute: it keeps the keys the peer's Initial packets were
+                // protected with until now, which a server that answers this first flight with both a
+                // Retry and a CONNECTION_CLOSE has already used for the close. See
+                // ConnectionSecrets.getOriginalPeerInitialAead.
+                connectionSecrets.recomputeInitialKeys(peerConnectionId);
                 ((ClientRolePacketParser) parser).setOriginalDestinationConnectionId(peerConnectionId);
 
                 // https://www.rfc-editor.org/rfc/rfc9002.html#section-6.3
@@ -1035,6 +1039,32 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         super.peerClosedWithError(closeFrame);
         if (connectionState == Status.Handshaking) {
             handshakeError = "Server closed connection: " + determineClosingErrorMessage(closeFrame);
+        }
+    }
+
+    /**
+     * A peer that closes while the handshake is running has ended the connection attempt, so the
+     * caller of connect() is told so now rather than after the draining period runs out - or, when
+     * the close arrives before the handshake could even start, after the connect timeout.
+     * <p>
+     * The base class enters the draining state RFC 9000 section 10.2.2 asks for and leaves it at
+     * that, which is right for an established connection: draining is about discarding late packets,
+     * not about the caller. During the handshake there is nothing more to wait for, and waiting
+     * turns "the server refused this attempt, with this reason" into "timed out".
+     * <p>
+     * Whatever the error code, including none. A server may close with NO_ERROR - nghttp2.org does,
+     * about one connection in fifty, alongside a Retry - and {@link #peerClosedWithError} is not
+     * called for those, so nothing recorded the reason and nothing released the caller.
+     */
+    @Override
+    protected void handlePeerClosing(ConnectionCloseFrame closing, tech.kwik.core.common.EncryptionLevel encryptionLevel) {
+        super.handlePeerClosing(closing, encryptionLevel);
+        if (handshakeFinishedCondition.getCount() > 0) {
+            if (handshakeError == null) {
+                handshakeError = "peer closed the connection during the handshake ("
+                        + (closing.hasError() ? determineClosingErrorMessage(closing) : "no error") + ")";
+            }
+            handshakeFinishedCondition.countDown();
         }
     }
 

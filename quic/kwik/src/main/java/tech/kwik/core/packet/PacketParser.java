@@ -18,6 +18,7 @@
  */
 package tech.kwik.core.packet;
 
+import tech.kwik.core.common.EncryptionLevel;
 import tech.kwik.core.common.PnSpace;
 import tech.kwik.core.crypto.Aead;
 import tech.kwik.core.crypto.ConnectionSecrets;
@@ -112,6 +113,39 @@ public abstract class PacketParser {
     }
 
     public QuicPacket parsePacket(ByteBuffer data) throws MissingKeysException, DecryptionException, InvalidPacketException, TransportError {
+        int start = data.position();
+        try {
+            return parsePacket(data, null);
+        }
+        catch (DecryptionException cannotDecrypt) {
+            /*
+             * An Initial packet that will not decrypt may be one the peer protected with the keys a
+             * Retry has just replaced. RFC 9000 section 10.2.3 lets a server put a CONNECTION_CLOSE
+             * in an Initial packet, and a server that answers the first flight with a Retry and a
+             * close sends both at once - so the close arrives protected with the keys the Retry was
+             * still being processed away from. See ConnectionSecrets.getOriginalPeerInitialAead.
+             */
+            Aead beforeRetry = connectionSecrets.getOriginalPeerInitialAead();
+            if (beforeRetry == null) {
+                throw cannotDecrypt;
+            }
+            data.position(start);
+            try {
+                return parsePacket(data, beforeRetry);
+            }
+            catch (DecryptionException | InvalidPacketException norWithTheOldKeys) {
+                // Not that either, so it is what it looked like: a packet this connection cannot read.
+                data.position(start);
+                throw cannotDecrypt;
+            }
+        }
+    }
+
+    /**
+     * @param initialKeysOverride the keys to decrypt an Initial packet with instead of the connection's
+     *                            current ones, or null to use those. See {@link #parsePacket(ByteBuffer)}.
+     */
+    private QuicPacket parsePacket(ByteBuffer data, Aead initialKeysOverride) throws MissingKeysException, DecryptionException, InvalidPacketException, TransportError {
         data.mark();
         if (data.remaining() < 2) {
             throw new InvalidPacketException("packet too short to be valid QUIC packet");
@@ -139,7 +173,9 @@ public abstract class PacketParser {
         data.reset();
 
         if (packet.getEncryptionLevel() != null) {
-            Aead aead = getAead(packet, data);
+            Aead aead = initialKeysOverride != null && packet.getEncryptionLevel() == EncryptionLevel.Initial
+                    ? initialKeysOverride
+                    : getAead(packet, data);
             long largestPN = packet.getPnSpace() != null? largestPacketNumber[packet.getPnSpace().ordinal()]: 0;
             packet.parse(data, aead, largestPN, log, cidLength);
         }

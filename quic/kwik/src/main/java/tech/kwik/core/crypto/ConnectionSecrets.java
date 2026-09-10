@@ -71,6 +71,8 @@ public class ConnectionSecrets {
     private final AtomicReferenceArray<Aead> clientSecrets = new AtomicReferenceArray<>(EncryptionLevel.values().length);
     private final AtomicReferenceArray<Aead> serverSecrets = new AtomicReferenceArray<>(EncryptionLevel.values().length);
     private volatile Aead originalClientInitialSecret;
+    /** See {@link #getOriginalPeerInitialAead()}. */
+    private volatile Aead originalPeerInitialSecret;
     private final boolean writeSecretsToFile;
     private final Path wiresharkSecretsFile;
     private volatile byte[] originalDestinationConnectionId;
@@ -129,6 +131,8 @@ public class ConnectionSecrets {
      */
     public void recomputeInitialKeys(byte[] destConnectionId) {
         originalClientInitialSecret = clientSecrets.get(EncryptionLevel.Initial.ordinal());
+        originalPeerInitialSecret = (ownRole == Role.Client ? serverSecrets : clientSecrets)
+                .get(EncryptionLevel.Initial.ordinal());
         this.originalDestinationConnectionId = destConnectionId;
         computeInitialKeys(destConnectionId);
     }
@@ -290,6 +294,26 @@ public class ConnectionSecrets {
         }
     }
 
+    /**
+     * The keys the peer's Initial packets were protected with before a Retry replaced them, or null
+     * when no Retry has been received.
+     * <p>
+     * RFC 9001 section 5.2 changes the Initial secrets when a Retry arrives, and says what the change
+     * is for: the secrets "used for constructing subsequent Initial packets". It is about sending.
+     * Section 4.9.1 is where receiving stops - "a client MUST discard Initial keys when it first sends
+     * a Handshake packet" - and a Retry is not that either.
+     * <p>
+     * Keeping them matters because a server may answer the first flight with a Retry <em>and</em> a
+     * CONNECTION_CLOSE, which RFC 9000 section 10.2.3 allows it to put in an Initial packet. Both
+     * arrive at once, the Retry is processed first, and the close is then protected with keys that
+     * have just been replaced - so a client that keeps only the new ones sees an undecryptable packet
+     * and waits out its connect timeout for an answer it has already been given. nghttp2.org does
+     * exactly this to about one connection in fifty; see docs/tools/README.md.
+     */
+    public Aead getOriginalPeerInitialAead() {
+        return originalPeerInitialSecret;
+    }
+
     private Aead checkNotNull(Aead aead, EncryptionLevel encryptionLevel) throws MissingKeysException {
         if (aead == null) {
             throw new MissingKeysException(encryptionLevel, discarded[encryptionLevel.ordinal()].get());
@@ -303,5 +327,11 @@ public class ConnectionSecrets {
         discarded[encryptionLevel.ordinal()].set(true);
         clientSecrets.set(encryptionLevel.ordinal(), null);
         serverSecrets.set(encryptionLevel.ordinal(), null);
+        if (encryptionLevel == EncryptionLevel.Initial) {
+            // Discarding the Initial keys discards these with them; they are the same level and the
+            // same reason applies - see getOriginalPeerInitialAead.
+            originalClientInitialSecret = null;
+            originalPeerInitialSecret = null;
+        }
     }
 }

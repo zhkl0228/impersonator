@@ -113,11 +113,11 @@ That test is deliberately not a set of hand-written byte vectors. Bytes written 
 would assert that the decoder agrees with how the RFC was read; a server choosing its own encoding is
 the thing that can disagree - and so is the RFC's own appendix, which is why that one is here.
 
-It fails at nghttp2.org about one connection in a hundred, with the connection timing out during the
-handshake. That is the same symptom, at the same host, as the Retry failure the tools README goes into
-- 90 connections through a real ngtcp2 server and 60 through aioquic all complete, and curl loses 5 of
-150 there - but the two have not been shown to be one thing, and it has not been ruled out that this
-end is at fault. Still open.
+It fails at nghttp2.org about one connection in fifty, with the connection timing out during the
+handshake, and that has since been read off the wire; see docs/tools/README.md. The server answers a
+first flight that needs two Initial packets with two Retry packets and a CONNECTION_CLOSE, and the
+close is protected with the Initial keys the Retry has just made the client replace - so no client can
+read it, and curl hangs the same way at the same rate. Nothing to do with QPACK.
 
 ## Re-syncing with upstream
 
