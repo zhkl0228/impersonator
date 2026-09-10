@@ -59,6 +59,7 @@ public class QuicTransport {
     private final Integer sourceConnectionIdLength;
     private final boolean chaosProtection;
     private final boolean sniSlicing;
+    private final boolean paddingOutsidePacket;
     private final Integer activeConnectionIdLimit;
     private final Integer initialDatagramSize;
     private final Long initialMaxData;
@@ -80,6 +81,7 @@ public class QuicTransport {
         this.sourceConnectionIdLength = builder.sourceConnectionIdLength;
         this.chaosProtection = builder.chaosProtection;
         this.sniSlicing = builder.sniSlicing;
+        this.paddingOutsidePacket = builder.paddingOutsidePacket;
         this.activeConnectionIdLimit = builder.activeConnectionIdLimit;
         this.initialDatagramSize = builder.initialDatagramSize;
         this.initialMaxData = builder.initialMaxData;
@@ -121,6 +123,11 @@ public class QuicTransport {
     /** See {@link Builder#sniSlicing()}. */
     public boolean isSniSlicing() {
         return sniSlicing;
+    }
+
+    /** See {@link Builder#paddingOutsidePacket()}. */
+    public boolean isPaddingOutsidePacket() {
+        return paddingOutsidePacket;
     }
 
     /** See {@link Builder#chaosProtection()}. */
@@ -214,6 +221,7 @@ public class QuicTransport {
         private Integer sourceConnectionIdLength;
         private boolean chaosProtection;
         private boolean sniSlicing;
+        private boolean paddingOutsidePacket;
         private Integer activeConnectionIdLimit;
         private Integer initialDatagramSize;
         private Long initialMaxData;
@@ -244,16 +252,6 @@ public class QuicTransport {
         }
 
         /**
-         * Sends the ClientHello the way Chrome sends it: cut into several CRYPTO frames carrying the
-         * pieces out of order, with PING frames and runs of PADDING scattered between them, drawn
-         * afresh for every packet.
-         * <p>
-         * This is QUICHE's chaos protection and it is Chrome's alone - Firefox's QUIC is neqo and
-         * Safari's is Apple's own, and neither scrambles anything - so it is asked for by the profiles
-         * whose browser does it rather than done for all of them. A capture of the browser is the only
-         * way to know which: see docs/captures/chrome-152-quic-initial.pcapng.
-         */
-        /**
          * Cuts the ClientHello through the middle of the server name and sends the halves in the wrong
          * order, which is what Firefox does - neqo's SNI slicing. Neither datagram then holds a whole
          * host name, so a middlebox that read one out of the first packet stops being able to.
@@ -265,6 +263,35 @@ public class QuicTransport {
          */
         public Builder sniSlicing() {
             this.sniSlicing = true;
+            return this;
+        }
+
+        /**
+         * Sends the ClientHello the way Chrome sends it: cut into several CRYPTO frames carrying the
+         * pieces out of order, with PING frames and runs of PADDING scattered between them, drawn
+         * afresh for every packet.
+         * <p>
+         * This is QUICHE's chaos protection and it is Chrome's alone - Firefox's QUIC is neqo and
+         * Safari's is Apple's own, and neither scrambles anything - so it is asked for by the profiles
+         * whose browser does it rather than done for all of them. A capture of the browser is the only
+         * way to know which: see docs/captures/chrome-152-quic-initial.pcapng.
+         */
+        /**
+         * Pads an Initial datagram after the QUIC packet rather than inside it, which is what Firefox
+         * does: its packet ends where its CRYPTO frames end and the rest of the 1252 bytes is zeroes
+         * outside the packet, where Chrome's and Safari's packets carry PADDING frames all the way to
+         * the end of the datagram.
+         * <p>
+         * Read off the captures rather than guessed. In
+         * docs/captures/firefox-155-quic-initial.pcapng the two Initial packets of the first flight
+         * end at 1014 and 1010 bytes of a 1252 byte datagram, and every byte after them is zero; in
+         * chrome-152-quic-initial.pcapng the packet ends at 1250, which is the datagram. The
+         * fingerprint endpoint sees the same thing from the other side: it reports a padding_length of
+         * 210 for Chrome's first Initial and 162 for Safari's, and for Firefox's it reports no padding
+         * frames at all.
+         */
+        public Builder paddingOutsidePacket() {
+            this.paddingOutsidePacket = true;
             return this;
         }
 

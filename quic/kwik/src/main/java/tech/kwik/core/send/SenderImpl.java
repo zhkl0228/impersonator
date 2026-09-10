@@ -217,6 +217,15 @@ public class SenderImpl implements Sender, CongestionControlEventListener {
         packetAssembler.setChaosProtection(chaosProtection);
     }
 
+    /**
+     * Where the padding that brings an Initial datagram up to its size goes: inside the packet as
+     * PADDING frames, which is what Chrome and Safari do, or after it in the datagram, which is what
+     * Firefox does. See {@link PaddingMode}.
+     */
+    public void setPaddingMode(PaddingMode paddingMode) {
+        packetAssembler.setPaddingMode(paddingMode);
+    }
+
     @Override
     public void setInitialToken(byte[] token) {
         if (token != null) {

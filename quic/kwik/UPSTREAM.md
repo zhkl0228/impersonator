@@ -78,6 +78,9 @@ Files changed relative to `edb3155f`:
 | `stream/StreamInputStream.java` | a stream's input stream can say which stream id it reads; not answered by default, so that a subclass which reads no stream says so rather than inventing an id |
 | `stream/StreamInputStreamImpl.java` | answers it |
 | `QuicClientConnection.java` (getNewTokens, initialToken) | the address validation tokens from NEW_TOKEN frames can be read off a connection, and a later connection can be built with one. RFC 9000 section 8.1.3 is the whole feature: without it every connection is a client whose address the server has not validated, so it is answered with a Retry where a browser is not |
+| `QuicClientConnection.java` (paddingMode) | a profile can say where the padding that brings an Initial datagram up to its size goes. kwik had this as a JVM-wide system property, which cannot be what it is - Chrome and Safari fill the packet with PADDING frames and Firefox pads the datagram after the packet, so it belongs to a profile like every other value here |
+| `send/GlobalPacketAssembler.java` (paddingMode) | takes it per connection instead of reading the system property once and keeping it final; the property is still the default |
+| `send/SenderImpl.java` (paddingMode) | passes it on, beside the chaos protection and the Initial datagram size |
 | `impl/QuicClientConnectionImpl.java` (new tokens) | keeps them instead of dropping them - the frame was parsed, checked for the empty token the RFC forbids, and then discarded - and installs the one it was built with on the sender before the handshake starts. Kept apart from the token a Retry sets, which "MUST NOT" be used for a future connection |
 
 New with no upstream counterpart: `send/InitialPacketChaosProtector.java`, a port of QUICHE's

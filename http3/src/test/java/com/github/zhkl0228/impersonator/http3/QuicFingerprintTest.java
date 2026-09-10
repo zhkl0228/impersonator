@@ -157,8 +157,7 @@ public class QuicFingerprintTest extends TestCase {
      * rebuilding kwik's packet assembly to imitate ngtcp2, and ngtcp2 is not the target - a browser
      * is, and Chrome's QUIC stack will lay its Initial out differently again. So this waits for a
      * capture of the browser rather than being built against curl.
-     */
-    /**
+     * <p>
      * CRYPTO frames and not every frame, because the endpoint reports padding a byte at a time and how
      * much of it there is depends on whether the ClientHello needed a second packet. curl's ClientHello
      * sits near that boundary - the GREASE ECH payload moves its length - so this asserted 1 frame on

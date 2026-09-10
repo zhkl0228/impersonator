@@ -1538,6 +1538,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         private InetTools.IPversionOption ipVersionOption;
         private QuicSessionTicket sessionTicket;
         private byte[] initialToken;
+        private tech.kwik.core.send.PaddingMode paddingMode;
         private QuicVersion quicVersion = QuicVersion.V1;
         private QuicVersion preferredVersion;
         private Logger log = new NullLogger();
@@ -1602,6 +1603,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             quicConnection.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
             quicConnection.maxAckDelay = maxAckDelay;
             quicConnection.sender.setChaosProtection(chaosProtection);
+            quicConnection.sender.setPaddingMode(paddingMode);
             // QUICHE does both halves, so asking for the scrambler asks for its division too; anything
             // else is named on its own.
             quicConnection.initialCryptoDivision = cryptoDivision != null ? cryptoDivision
@@ -1751,6 +1753,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         @Override
         public Builder logger(Logger log) {
             this.log = Objects.requireNonNull(log);
+            return this;
+        }
+
+        @Override
+        public Builder paddingMode(tech.kwik.core.send.PaddingMode paddingMode) {
+            this.paddingMode = paddingMode;
             return this;
         }
 

@@ -187,6 +187,21 @@ public interface QuicClientConnection extends QuicConnection {
          */
         Builder initialCryptoDivision(tech.kwik.core.crypto.InitialCryptoDivision division);
 
+        /**
+         * Where the padding that brings an Initial datagram up to its size goes; see
+         * {@link tech.kwik.core.send.PaddingMode}. Null, the default, keeps what the
+         * {@code tech.kwik.padding-mode} system property asked for, which is PADDING frames inside
+         * the packet.
+         * <p>
+         * A fingerprint, and one that survives every layer above it: Chrome and Safari fill their
+         * Initial packets to the last byte of the datagram with PADDING frames, and Firefox ends its
+         * packet where the CRYPTO frames end and pads the datagram after it with zeroes. A capture is
+         * the only place this can be read - see docs/captures - but a server sees it in the first
+         * datagram, and the fingerprint endpoint reports it as a padding length that Firefox does not
+         * have.
+         */
+        Builder paddingMode(tech.kwik.core.send.PaddingMode paddingMode);
+
         Builder logger(Logger log);
 
         /**

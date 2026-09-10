@@ -115,6 +115,33 @@ public class FirefoxQuicFingerprintTest extends TestCase {
     }
 
     /**
+     * Firefox's first Initial packet: two CRYPTO frames and nothing else, with the datagram padded
+     * after the packet rather than inside it.
+     * <p>
+     * Both halves are neqo's and neither is kwik's. The two frames are the SNI slicing - the
+     * ClientHello cut through the middle of the server name and the halves sent in the wrong order -
+     * and the absence of everything else is where the padding went: neqo's packet ends where its
+     * CRYPTO frames end, and the rest of the 1252 byte datagram is zeroes outside the QUIC packet.
+     * Chrome and Safari fill their packets to the last byte of the datagram with PADDING frames
+     * instead, and kwik did that for everyone.
+     * <p>
+     * Read off docs/captures/firefox-155-quic-initial.pcapng, where the two Initial packets of the
+     * first flight end at 1014 and 1010 bytes of a 1252 byte datagram and every byte after them is
+     * zero, and confirmed from the other side: docs/captures/firefox-155-quic.json reports
+     * {@code "frames": [6, 6]} and no padding at all, where the Chrome and Safari captures both
+     * report a padding_length.
+     */
+    public void testTheFirstInitialIsTwoCryptoFramesAndNoPadding() throws Exception {
+        JSONObject initial = fingerprint().getJSONObject("quic")
+                .getJSONArray("initial_packets").getJSONObject(0);
+
+        assertEquals("the capture has two CRYPTO frames and nothing else, got " + initial.getJSONArray("frames"),
+                List.of(6, 6), initial.getJSONArray("frames").toJavaList(Integer.class));
+        assertNull("the datagram is padded after the packet, so the packet carries no PADDING frame",
+                initial.get("padding_length"));
+    }
+
+    /**
      * The extension order, which JA4 sorts away and which Firefox draws afresh for every connection.
      * Four captured ClientHellos gave four different orders, alike only in ending with
      * quic_transport_parameters and encrypted_client_hello - so what can be asserted is the shape:

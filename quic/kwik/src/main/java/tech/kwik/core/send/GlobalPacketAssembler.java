@@ -56,7 +56,17 @@ public class GlobalPacketAssembler {
     private volatile PacketAssembler[] packetAssembler = new PacketAssembler[EncryptionLevel.values().length];
     private volatile EncryptionLevel[] enabledLevels;
     private final VersionHolder quicVersion;
-    private final PaddingMode paddingMode;
+    /**
+     * Where the padding that brings a datagram up to its minimum size goes; see {@link PaddingMode}.
+     * <p>
+     * Not a constant, because it is a fingerprint: the two Initial packets of Firefox's first flight
+     * end at 1014 and 1010 bytes inside a 1252 byte datagram, the rest of it zeroes outside the QUIC
+     * packet, while Chrome's and Safari's packets fill their datagrams to the last byte with PADDING
+     * frames. Read off docs/captures/*-quic-initial.pcapng, and it agrees with what the fingerprint
+     * endpoint reports: Chrome's first Initial has a padding_length of 210 and Firefox's has no
+     * padding at all.
+     */
+    private volatile PaddingMode paddingMode;
     private final Random random = new SecureRandom();
     private volatile boolean chaosProtection;
 
@@ -219,6 +229,13 @@ public class GlobalPacketAssembler {
      */
     public void setChaosProtection(boolean chaosProtection) {
         this.chaosProtection = chaosProtection;
+    }
+
+    /** See {@link #paddingMode}; null keeps what the system property asked for. */
+    public void setPaddingMode(PaddingMode paddingMode) {
+        if (paddingMode != null) {
+            this.paddingMode = paddingMode;
+        }
     }
 
     protected int addPadding(List<SendItem> packets, int currentEstimatedSize, int requiredMinimumSize) {

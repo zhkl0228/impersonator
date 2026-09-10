@@ -177,6 +177,31 @@ public class ChromeQuicFingerprintTest extends TestCase {
         assertEquals(CHROME_H3_HASH, fingerprint.getString("h3_hash"));
     }
 
+    /**
+     * Chrome pads its Initial packet from the inside, which is the half of the padding question
+     * Firefox answers the other way.
+     * <p>
+     * QUICHE fills the packet to the last byte of the datagram with PADDING frames, and the scrambler
+     * then spends that padding on the runs it scatters between the CRYPTO frames - so a Chrome first
+     * Initial is a mixture of CRYPTO, PING and PADDING, and the endpoint reports a padding length for
+     * it. docs/captures/chrome-152-quic.json reports 210 bytes of it, and
+     * chrome-152-quic-initial.pcapng shows why: the packet ends at 1250, which is the whole datagram.
+     * <p>
+     * Worth asserting here rather than only in the Firefox test, because the two are one setting seen
+     * from its two sides. Padding outside the packet is now a profile's choice, and a change that made
+     * it everyone's would leave Firefox passing and take Chrome's scrambler apart - the padding is
+     * what pays for the frames it scatters.
+     */
+    public void testTheFirstInitialIsPaddedFromTheInside() throws Exception {
+        JSONObject initial = fingerprint().getJSONObject("quic")
+                .getJSONArray("initial_packets").getJSONObject(0);
+
+        assertTrue("Chrome's Initial packet fills its datagram, so the endpoint reports its padding",
+                initial.getIntValue("padding_length") > 0);
+        assertTrue("and the padding is frames inside the packet, which is what the scrambler spends",
+                initial.getJSONArray("frames").toJavaList(Integer.class).contains(0));
+    }
+
     /** The GREASE setting has to be drawn per connection, or it is a stable identifier instead. */
     public void testTheGreaseSettingChangesPerConnection() throws Exception {
         assertFalse("the same GREASE setting twice is not GREASE",

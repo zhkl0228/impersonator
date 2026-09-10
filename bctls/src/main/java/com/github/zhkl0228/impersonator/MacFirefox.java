@@ -229,6 +229,7 @@ class MacFirefox extends ImpersonatorFactory {
                 .destinationConnectionIdLength(MacFirefox::initialConnectionIdLength)
                 .sourceConnectionIdLength(3)
                 .sniSlicing()
+                .paddingOutsidePacket()
                 .initialDatagramSize(1252)
                 .maxIdleTimeoutMillis(30000L)
                 .initialMaxData(25165824L)
