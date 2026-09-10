@@ -228,6 +228,7 @@ class MacFirefox extends ImpersonatorFactory {
         return QuicTransport.newBuilder()
                 .destinationConnectionIdLength(MacFirefox::initialConnectionIdLength)
                 .sourceConnectionIdLength(3)
+                .sniSlicing()
                 .initialDatagramSize(1252)
                 .maxIdleTimeoutMillis(30000L)
                 .initialMaxData(25165824L)

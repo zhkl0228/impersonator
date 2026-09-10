@@ -58,6 +58,7 @@ public class QuicTransport {
     private final IntSupplier destinationConnectionIdLength;
     private final Integer sourceConnectionIdLength;
     private final boolean chaosProtection;
+    private final boolean sniSlicing;
     private final Integer activeConnectionIdLimit;
     private final Integer initialDatagramSize;
     private final Long initialMaxData;
@@ -78,6 +79,7 @@ public class QuicTransport {
         this.destinationConnectionIdLength = builder.destinationConnectionIdLength;
         this.sourceConnectionIdLength = builder.sourceConnectionIdLength;
         this.chaosProtection = builder.chaosProtection;
+        this.sniSlicing = builder.sniSlicing;
         this.activeConnectionIdLimit = builder.activeConnectionIdLimit;
         this.initialDatagramSize = builder.initialDatagramSize;
         this.initialMaxData = builder.initialMaxData;
@@ -114,6 +116,11 @@ public class QuicTransport {
     /** Length of the Source Connection ID this endpoint uses, or null for the implementation's own. */
     public Integer getSourceConnectionIdLength() {
         return sourceConnectionIdLength;
+    }
+
+    /** See {@link Builder#sniSlicing()}. */
+    public boolean isSniSlicing() {
+        return sniSlicing;
     }
 
     /** See {@link Builder#chaosProtection()}. */
@@ -206,6 +213,7 @@ public class QuicTransport {
         private IntSupplier destinationConnectionIdLength;
         private Integer sourceConnectionIdLength;
         private boolean chaosProtection;
+        private boolean sniSlicing;
         private Integer activeConnectionIdLimit;
         private Integer initialDatagramSize;
         private Long initialMaxData;
@@ -245,6 +253,21 @@ public class QuicTransport {
          * whose browser does it rather than done for all of them. A capture of the browser is the only
          * way to know which: see docs/captures/chrome-152-quic-initial.pcapng.
          */
+        /**
+         * Cuts the ClientHello through the middle of the server name and sends the halves in the wrong
+         * order, which is what Firefox does - neqo's SNI slicing. Neither datagram then holds a whole
+         * host name, so a middlebox that read one out of the first packet stops being able to.
+         * <p>
+         * Separate from {@link #chaosProtection()} because the two browsers do different things.
+         * QUICHE moves the message about and scatters PING and PADDING through the result; neqo aims at
+         * the one field and leaves the packet otherwise clean, two CRYPTO frames and nothing else.
+         * Asking for both would produce a first flight neither browser sends.
+         */
+        public Builder sniSlicing() {
+            this.sniSlicing = true;
+            return this;
+        }
+
         public Builder chaosProtection() {
             this.chaosProtection = true;
             return this;

@@ -91,6 +91,13 @@ packet from the front, as kwik does, left the scrambler no padding to spend, so 
 went out as one CRYPTO frame between a couple of PINGs. The rule is read off four captured Chrome 152
 connections that agree to the byte and is asserted against them in `InitialCryptoDivisionTest`.
 
+The same file carries neqo's, which is what Firefox does: it cuts the ClientHello through the middle
+of the server name and sends the halves in the wrong order, so that no datagram holds a whole host
+name. That rule comes from `neqo-transport/src/crypto.rs` - `limit_chunks` and the
+`limit = data.len() / packets_needed` beside it - and the two captured Firefox connections agree with
+it to the byte. It is a division on its own and not a companion to the frame scrambler: Firefox's
+first Initial is two CRYPTO frames and nothing else.
+
 `maxUdpPayloadSize` was already on `ExtendedBuilder` returning void; it moved onto `Builder` and
 `ExtendedBuilder`'s copy became the override, so there is one of it rather than two.
 

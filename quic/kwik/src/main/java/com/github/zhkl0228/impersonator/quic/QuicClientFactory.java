@@ -9,6 +9,7 @@ import com.github.zhkl0228.impersonator.QuicTransport;
 import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.ech.EchRejectedException;
 import tech.kwik.core.QuicClientConnection;
+import tech.kwik.core.crypto.InitialCryptoDivision;
 
 /**
  * Builds QUIC connections that impersonate a browser, the way {@code OkHttpClientFactory} builds
@@ -190,6 +191,9 @@ public class QuicClientFactory {
             builder.connectionIdLength(quicTransport.getSourceConnectionIdLength());
         }
         builder.chaosProtection(quicTransport.isChaosProtection());
+        if (quicTransport.isSniSlicing()) {
+            builder.initialCryptoDivision(new InitialCryptoDivision.NeqoSniSlicing());
+        }
         if (quicTransport.getActiveConnectionIdLimit() != null) {
             builder.activeConnectionIdLimit(quicTransport.getActiveConnectionIdLimit());
         }

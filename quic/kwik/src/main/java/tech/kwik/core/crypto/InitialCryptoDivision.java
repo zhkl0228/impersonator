@@ -37,8 +37,8 @@ import java.util.Random;
 public interface InitialCryptoDivision {
 
     /**
-     * @param clientHello the whole first flight, which a division may read: a browser's may depend on
-     *                    what is in the message and not only on how long it is
+     * @param clientHello the whole first flight, which a division may read: neqo's cuts it at the
+     *                    server name, so where the pieces fall depends on what is in it
      * @param packetCapacity how many bytes of CRYPTO frame payload one Initial packet can hold
      * @return the pieces in wire order, or an empty list to leave the division to the sender
      */
@@ -123,6 +123,148 @@ public interface InitialCryptoDivision {
             pieces.add(new Piece(tailOffset, tailLength));
             pieces.add(new Piece(firstFrame, tailOffset - firstFrame));
             return pieces;
+        }
+    }
+
+    /**
+     * neqo's SNI slicing, which is what Firefox does.
+     * <p>
+     * Where QUICHE moves the ClientHello about to keep middleboxes from assuming a shape, neqo aims at
+     * one field: it cuts the message <em>through the middle of the server name</em> and sends the two
+     * halves in the wrong order, so that neither datagram holds a whole hostname and reading one out of
+     * the first packet stops working. From {@code neqo-transport/src/crypto.rs}:
+     * <pre>
+     *   if sni_slicing &amp;&amp; offset == 0 {
+     *       if let Some(sni) = find_sni(data) {
+     *           // Cut the crypto data in two at the midpoint of the SNI
+     *           let mid = sni.start + (sni.end - sni.start) / 2;
+     *           let (left, right) = data.split_at(mid);
+     *           // ...swap the chunks.
+     * </pre>
+     * {@code find_sni} returns the host name bytes themselves, so the cut lands halfway through the
+     * name. The two captured Firefox 155 connections in docs/captures/firefox-155-quic-initial.pcapng
+     * agree with that to the byte, and are a good illustration of why the cut moves:
+     * <pre>
+     *   ClientHello  first packet     second packet   cut at  tail begins at
+     *   1912         847 + 109 = 956  956             109     1065
+     *   1904         466 + 486 = 952  952             486     1438
+     * </pre>
+     * Same host and so the same host name both times, cut in a completely different place - because
+     * Firefox permutes its ClientHello extensions, so the server_name sits at a different offset every
+     * connection. The two behaviours explain each other, and neither could be reproduced by copying a
+     * layout.
+     * <p>
+     * The halves are exact, {@code total / 2} each, which is neqo's {@code limit_chunks} filling the
+     * packets evenly - Chrome's are five bytes apart, and that difference alone tells the two apart.
+     * The first packet carries the <em>end</em> of the right chunk and then the whole left chunk; what
+     * is left of the right chunk goes in the second.
+     * <p>
+     * No PING frames and no padding to spread: Firefox's first Initial is two CRYPTO frames and nothing
+     * else, which is why this is a division on its own and not a companion to the frame scrambler.
+     */
+    final class NeqoSniSlicing implements InitialCryptoDivision {
+
+        @Override
+        public List<Piece> divide(byte[] clientHello, int packetCapacity) {
+            List<Piece> pieces = new ArrayList<>(4);
+            int total = clientHello.length;
+            int mid = serverNameMidpoint(clientHello);
+            if (mid <= 0 || mid >= total || packetCapacity <= 0) {
+                // No server name to cut through. neqo writes the whole flight in one chunk then, and
+                // so does the sender when it is given no pieces.
+                return pieces;
+            }
+            /*
+             * neqo's limit, from the call site of limit_chunks:
+             *   let packets_needed = data.len().div_ceil(builder.limit());
+             *   let limit = data.len() / packets_needed;
+             * which is what makes the packets evenly filled rather than the first one full. Chrome's
+             * halves differ by five bytes and Firefox's are equal, and that alone tells them apart.
+             */
+            int packetsNeeded = (total + packetCapacity - 1) / packetCapacity;
+            int limit = total / packetsNeeded;
+
+            int leftOffset = 0, leftLength = mid;
+            int rightOffset = mid, rightLength = total - mid;
+            if (leftLength + rightLength <= limit) {
+                // Both fit, so the name is not split across packets - but it is still in two CRYPTO
+                // frames in the wrong order, which is neqo's comment on this branch exactly.
+            }
+            else if (leftLength <= limit) {
+                // "So send from the *end* of right, so that the second half of the SNI is in another
+                // packet."
+                int dropped = rightLength + leftLength - limit;
+                rightOffset += dropped;
+                rightLength -= dropped;
+            }
+            else if (rightLength <= limit) {
+                // "The SNI begins at the end of left, so send the beginning of it in this packet."
+                leftLength = limit - rightLength;
+            }
+            else {
+                leftLength = limit / 2;
+                rightLength = limit / 2;
+            }
+
+            // Right first, then left: the swap is the whole point, and it is what puts the tail of the
+            // ClientHello at the front of the first datagram.
+            pieces.add(new Piece(rightOffset, rightLength));
+            pieces.add(new Piece(leftOffset, leftLength));
+            // Whatever the first packet did not take, in order, which is how neqo sends the rest: the
+            // slicing only applies at offset zero.
+            addGap(pieces, leftOffset + leftLength, rightOffset);
+            addGap(pieces, rightOffset + rightLength, total);
+            return pieces;
+        }
+
+        private static void addGap(List<Piece> pieces, int from, int to) {
+            if (to > from) {
+                pieces.add(new Piece(from, to - from));
+            }
+        }
+
+        /**
+         * The middle of the host name in a ClientHello, or -1 when it carries none.
+         * <p>
+         * This walks the message rather than searching it, so it can only answer for a ClientHello it
+         * actually understood: anything that does not parse as one returns -1 and the caller sends the
+         * flight the ordinary way, which is also what neqo does when find_sni finds nothing. A wrong
+         * offset here would cut the message somewhere neqo never cuts it, which is worse than not
+         * cutting it at all.
+         */
+        static int serverNameMidpoint(byte[] hello) {
+            try {
+                int p = 4;                      // handshake type and 24 bit length
+                p += 2;                         // legacy_version
+                p += 32;                        // random
+                p += 1 + (hello[p] & 0xff);     // legacy_session_id
+                p += 2 + uint16(hello, p);      // cipher_suites
+                p += 1 + (hello[p] & 0xff);     // legacy_compression_methods
+                int extensionsEnd = p + 2 + uint16(hello, p);
+                p += 2;
+                while (p < extensionsEnd) {
+                    int type = uint16(hello, p);
+                    int length = uint16(hello, p + 2);
+                    if (type == 0) {            // server_name
+                        // ServerNameList length, then the name_type and host_name length that
+                        // find_sni skips to reach the name itself.
+                        int start = p + 4 + 2 + 3;
+                        int end = start + uint16(hello, p + 4) - 3;
+                        return end <= hello.length && end > start ? start + (end - start) / 2 : -1;
+                    }
+                    p += 4 + length;
+                }
+                return -1;
+            }
+            catch (RuntimeException malformed) {
+                // Not a ClientHello this understands. Saying so is the whole point; guessing an offset
+                // would put a cut on the wire that no capture supports.
+                return -1;
+            }
+        }
+
+        private static int uint16(byte[] data, int offset) {
+            return ((data[offset] & 0xff) << 8) | (data[offset + 1] & 0xff);
         }
     }
 }
