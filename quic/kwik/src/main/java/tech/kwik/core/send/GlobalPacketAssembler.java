@@ -172,7 +172,20 @@ public class GlobalPacketAssembler {
 
         int minDatagramSize = 0;
 
-        if (hasInitial && size < initialDatagramSize) {
+        /*
+         * Never past what this datagram may be: the datagram buffer in SenderImpl.send is exactly
+         * maxDatagramSize bytes, so padding beyond it is a BufferOverflowException on the sender
+         * thread. It could not happen while this was the hardcoded 1200 that RFC 9000 section 14.1
+         * requires every endpoint to accept, and it can once a profile asks for 1250 or 1252: the
+         * peer's max_udp_payload_size may be as low as 1200, registerMaxUdpPayloadSize lowers
+         * maxPacketSize to it, and an Initial packet can still be sent afterwards - an ACK for the
+         * server's Initials, before the client's first Handshake packet discards the level.
+         *
+         * The same Integer.min the PATH_RESPONSE case below has always had, for the same reason.
+         */
+        int requiredInitialSize = Integer.min(initialDatagramSize, maxDatagramSize);
+
+        if (hasInitial && size < requiredInitialSize) {
             // https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1
             // "A client MUST expand the payload of all UDP datagrams carrying Initial packets to at least the smallest
             //  allowed maximum datagram size of 1200 bytes by adding PADDING frames to the Initial packet or by coalescing
@@ -180,10 +193,10 @@ public class GlobalPacketAssembler {
             // "Similarly, a server MUST expand the payload of all UDP datagrams carrying ack-eliciting Initial packets
             //  to at least the smallest allowed maximum datagram size of 1200 bytes."
             if (paddingMode == PaddingMode.INSIDE) {
-                size += addPadding(packets, size, initialDatagramSize);
+                size += addPadding(packets, size, requiredInitialSize);
             }
             else {
-                minDatagramSize = initialDatagramSize;
+                minDatagramSize = requiredInitialSize;
             }
         }
 
