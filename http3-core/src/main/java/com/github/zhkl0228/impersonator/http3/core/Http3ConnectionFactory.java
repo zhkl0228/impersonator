@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -145,6 +146,35 @@ public class Http3ConnectionFactory {
      * @param uri anything with a host; its port, or 443, is what is connected to
      */
     public Http3Connection newConnection(URI uri) throws IOException {
+        return newConnection(uri, builder -> {});
+    }
+
+    /**
+     * The same, with the QUIC connection settings this factory has no opinion about.
+     * <p>
+     * The builder handed to {@code connectionSettings} is one this factory made, so the profile is
+     * already on it - the ClientHello spec, the transport parameters, the connection id lengths, the
+     * Initial packet layout - and so is everything HTTP/3 needs: the "h3" protocol, the address, the
+     * connect timeout, and the session ticket and address validation token kept from the last
+     * connection to this host. What is left is what belongs to the caller and not to the browser:
+     *
+     * <pre>
+     * factory.newConnection(uri, builder -&gt; builder
+     *         .noServerCertificateCheck()          // a server whose certificate is pinned elsewhere
+     *         .proxy(address)                      // dial this address, keep the URI's name in the SNI
+     *         .maxIdleTimeout(Duration.ofSeconds(30))
+     *         .enableDatagramExtension());         // RFC 9221, which a UDP relay over QUIC needs
+     * </pre>
+     *
+     * It runs last, so a caller that sets something this factory also sets wins. That is deliberate
+     * and is worth knowing about the two that carry the fingerprint: replacing what a profile put on
+     * the builder makes the connection less like the browser, not more.
+     *
+     * @param connectionSettings called with the builder, after this factory has configured it and
+     *                           before it is built
+     */
+    public Http3Connection newConnection(URI uri, Consumer<QuicClientConnection.Builder> connectionSettings)
+            throws IOException {
         String host = Objects.requireNonNull(uri.getHost(), () -> "no host in " + uri);
 
         /*
@@ -173,14 +203,15 @@ public class Http3ConnectionFactory {
         NewTokenStore newTokenStore = quicClientFactory.getNewTokenStore();
         byte[] token = newTokenStore == null ? null : newTokenStore.take(host);
 
-        QuicClientConnection quicConnection = quicClientFactory.newBuilder()
+        QuicClientConnection.Builder builder = quicClientFactory.newBuilder()
                 .uri(uri)
                 .port(uri.getPort() == -1 ? 443 : uri.getPort())
                 .applicationProtocol("h3")
                 .connectTimeout(connectTimeout)
                 .sessionTicket(ticket)
-                .initialToken(token)
-                .build();
+                .initialToken(token);
+        connectionSettings.accept(builder);
+        QuicClientConnection quicConnection = builder.build();
 
         // Constructed before the QUIC connection is up, because the constructor is what registers
         // the callback for peer-initiated streams and kwik drops any that arrive before there is

@@ -9,6 +9,7 @@ import tech.kwik.core.stream.StreamInputStream;
 import tech.kwik.flupke.HttpError;
 import tech.kwik.flupke.HttpStream;
 import tech.kwik.flupke.impl.Http3ClientConnectionImpl;
+import tech.kwik.flupke.impl.HeadersFrame;
 import tech.kwik.flupke.impl.Http3Frame;
 import tech.kwik.qpack.impl.DecoderImpl;
 import tech.kwik.qpack.impl.DynamicTable;
@@ -274,6 +275,35 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
             // dynamic table can never be acknowledged; that is not something to carry on from.
             throw new UncheckedIOException("could not open the QPACK decoder stream", e);
         }
+    }
+
+    /**
+     * Decodes a field section with <em>this connection's</em> QPACK decoder, for a caller reading
+     * HEADERS off a stream it manages itself.
+     * <p>
+     * A throwaway {@code Decoder.newBuilder().build()} is enough only against a peer that was told
+     * there is no dynamic table. This connection tells it the opposite - it sends the browser's
+     * SETTINGS, which invite the peer's encoder to keep a 65536 byte table and to reference entries
+     * it has not finished delivering - so a field section it sends may name an entry that exists only
+     * in the decoder that has been reading the encoder stream. That decoder is this one; a fresh one
+     * cannot decode such a section and never will, because the inserts went past it.
+     * <p>
+     * It is also the only decoder that can acknowledge the section. RFC 9204 section 4.4.1: "After
+     * the decoder finishes decoding a field section encoded using representations containing dynamic
+     * table references, it MUST emit a Section Acknowledgment instruction" - on the decoder stream,
+     * naming the stream the section arrived on. Hence the stream id: without it the acknowledgment
+     * cannot be written, the peer's Known Received Count never moves, and its encoder is left holding
+     * entries it believes may not have arrived.
+     *
+     * @param streamId the stream the section was read from
+     * @param headerBlock the field section's bytes, without the HEADERS frame header
+     * @throws tech.kwik.qpack.impl.HttpQPackDecompressionFailedException if it cannot be decoded,
+     *             which for a section that needs an entry this connection has not been sent is what
+     *             happens rather than a header field nobody wrote
+     */
+    public HeadersFrame parseHeaders(long streamId, byte[] headerBlock) throws IOException {
+        qpack.setSectionStreamId(streamId);
+        return new HeadersFrame().parsePayload(headerBlock, qpack);
     }
 
     /**
