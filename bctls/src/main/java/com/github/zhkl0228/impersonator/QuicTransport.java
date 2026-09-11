@@ -275,16 +275,6 @@ public class QuicTransport {
         }
 
         /**
-         * Sends the ClientHello the way Chrome sends it: cut into several CRYPTO frames carrying the
-         * pieces out of order, with PING frames and runs of PADDING scattered between them, drawn
-         * afresh for every packet.
-         * <p>
-         * This is QUICHE's chaos protection and it is Chrome's alone - Firefox's QUIC is neqo and
-         * Safari's is Apple's own, and neither scrambles anything - so it is asked for by the profiles
-         * whose browser does it rather than done for all of them. A capture of the browser is the only
-         * way to know which: see docs/captures/chrome-152-quic-initial.pcapng.
-         */
-        /**
          * The most of the ClientHello one Initial packet carries, the rest following in order, which
          * is what Safari does: it sends 999 bytes and stops, leaving 162 bytes of the packet to
          * padding where filling it would leave none.
@@ -318,6 +308,16 @@ public class QuicTransport {
             return this;
         }
 
+        /**
+         * Sends the ClientHello the way Chrome sends it: cut into several CRYPTO frames carrying the
+         * pieces out of order, with PING frames and runs of PADDING scattered between them, drawn
+         * afresh for every packet.
+         * <p>
+         * This is QUICHE's chaos protection and it is Chrome's alone - Firefox's QUIC is neqo and
+         * Safari's is Apple's own, and neither scrambles anything - so it is asked for by the profiles
+         * whose browser does it rather than done for all of them. A capture of the browser is the only
+         * way to know which: see docs/captures/chrome-152-quic-initial.pcapng.
+         */
         public Builder chaosProtection() {
             this.chaosProtection = true;
             return this;

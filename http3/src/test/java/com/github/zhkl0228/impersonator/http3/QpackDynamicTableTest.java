@@ -2,6 +2,7 @@ package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.Http3Settings;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
+import com.github.zhkl0228.impersonator.http3.core.Http3Connection;
 
 import junit.framework.TestCase;
 import tech.kwik.qpack.impl.DynamicTable;

@@ -7,6 +7,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.concurrent.TimeUnit;
 
 /**
  * One GET over HTTP/3 with a client the given factory built, closed once the session ticket is in.
@@ -68,7 +69,7 @@ class Http3Get {
         }
         long deadline = System.currentTimeMillis() + MAX_SETTLE_MILLIS;
         while (connection.getNewSessionTickets().isEmpty() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10);
+            TimeUnit.MILLISECONDS.sleep(10);
         }
     }
 }

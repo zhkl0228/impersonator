@@ -218,14 +218,14 @@ public class StreamManager {
      * over. That is enough for a first flight written by the caller of connect, and not enough for a
      * request written by a library that opens its own stream - which is what HTTP/3 is.
      */
-    /** See {@link #openEarlyDataWindow()}. */
-    public boolean isEarlyDataWindowOpen() {
-        return earlyDataWindowOpen;
-    }
-
     public void openEarlyDataWindow() {
         assert role == Role.Client;
         earlyDataWindowOpen = true;
+    }
+
+    /** See {@link #openEarlyDataWindow()}. */
+    public boolean isEarlyDataWindowOpen() {
+        return earlyDataWindowOpen;
     }
 
     /**

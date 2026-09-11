@@ -24,7 +24,7 @@ TLS/JA3/JA4 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-bctls</artifactId>
-    <version>1.7.1</version>
+    <version>1.8.0</version>
 </dependency>
 ```
 
@@ -33,7 +33,7 @@ TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-okhttp</artifactId>
-    <version>1.7.1</version>
+    <version>1.8.0</version>
 </dependency>
 ```
 - [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/okhttp/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
@@ -86,7 +86,7 @@ configs may only be trusted once the certificate presented for `public_name` has
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-http3</artifactId>
-    <version>1.7.1</version>
+    <version>1.8.0</version>
 </dependency>
 ```
 
@@ -133,13 +133,32 @@ Four artifacts, one per vendored upstream project plus the client layer:
 | `impersonator-okhttp` | Java 8 | HTTP/1.1 and HTTP/2 |
 | `impersonator-agent15` | Java 11 | vendored agent15, the TLS 1.3 handshake |
 | `impersonator-kwik` | Java 11 | vendored kwik, QUIC |
-| `impersonator-http3` | **Java 21** | flupke (an ordinary dependency, not vendored) and the client above |
+| `impersonator-http3-core` | Java 11 | HTTP/3 connections that carry a profile, on flupke (an ordinary dependency, not vendored) |
+| `impersonator-http3` | **Java 21** | the same behind `java.net.http.HttpClient` |
 
 agent15 and kwik are built for Java 11, so that is the floor for QUIC. `impersonator-http3` asks for
 21 because that is where `java.net.http.HttpClient` became `AutoCloseable`, and the client it hands
 out owns QUIC connections: on 11 it had to be an abstract subclass of our own for callers to import
 and name in a try-with-resources, which is a poor trade for one JDK version. Use `impersonator-kwik`
 directly if you are on 11 and want QUIC without that.
+
+`impersonator-http3-core` is where an HTTP/3 connection is made and everything about it decided: the
+handshake, the session ticket and the address validation token, the SETTINGS frame, the QPACK dynamic
+table, the order a request's field lines go out in and the headers the browser adds to every request.
+None of that has anything to do with `java.net.http`, so none of it needs a Java 21:
+
+```java
+Http3ConnectionFactory factory = Http3ConnectionFactory.create(ImpersonatorFactory.macChrome());
+
+try (Http3Connection connection = factory.newConnection(URI.create("https://example.com"))) {
+    HttpResponse<String> response = connection.send(
+            HttpRequest.newBuilder(URI.create("https://example.com")).build(),
+            HttpResponse.BodyHandlers.ofString());
+}
+```
+
+That is flupke's own connection API with the profile already on it, including the request headers.
+`impersonator-http3` is the same thing behind `HttpClient`, with a connection per host kept for you.
 
 Those are the versions each artifact *runs* on. Building the project needs a JDK 21, whatever you
 target: the four modules are built together and http3 compiles for 21. It used to be arranged the

@@ -1,4 +1,4 @@
-package com.github.zhkl0228.impersonator.http3;
+package com.github.zhkl0228.impersonator.http3.core;
 
 import tech.kwik.qpack.Encoder;
 

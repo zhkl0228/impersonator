@@ -4,16 +4,24 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <groupId>com.github.zhkl0228</groupId>
-        <artifactId>impersonator-quic</artifactId>
+        <artifactId>impersonator</artifactId>
         <version>1.8.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
-    <name>kwik</name>
-    <artifactId>impersonator-kwik</artifactId>
+    <name>http3-core</name>
+    <artifactId>impersonator-http3-core</artifactId>
 
-    <properties>
-        <!-- kwik is compiled for Java 11; see UPSTREAM.md. -->
-    </properties>
+    <!--
+        An HTTP/3 connection that carries a profile, without java.net.http.HttpClient.
+
+        impersonator-http3 is the adapter that puts one behind java.net.http.HttpClient, and it needs
+        a Java 21 for that - HttpClient became AutoCloseable there and nowhere earlier. Everything
+        underneath is Java 11, which is what kwik, qpack and flupke are built for, and none of it has
+        anything to do with java.net.http: the QUIC handshake, the session tickets and address
+        validation tokens, the HTTP/3 SETTINGS, the QPACK dynamic table, the order the field lines go
+        out in and the headers the browser adds to every request. Keeping that here means a caller on
+        Java 11, or one that wants flupke's connection API rather than HttpClient's, gets all of it.
+    -->
 
     <build>
         <plugins>
@@ -22,7 +30,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <!-- kwik is compiled for Java 11; see UPSTREAM.md. -->
+                    <!-- Java 11, like kwik and flupke; see the note above. -->
                     <release>11</release>
                 </configuration>
             </plugin>
@@ -40,46 +48,39 @@
     <dependencies>
         <dependency>
             <groupId>com.github.zhkl0228</groupId>
-            <artifactId>impersonator-agent15</artifactId>
+            <artifactId>impersonator-kwik</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <!-- Used by the vendored kwik. -->
-            <groupId>at.favre.lib</groupId>
-            <artifactId>hkdf</artifactId>
-            <version>2.0.0</version>
-        </dependency>
-        <dependency>
-            <!-- Used by the vendored kwik, for the stateless reset token. -->
-            <groupId>com.io7m.repackage.io.whitfin</groupId>
-            <artifactId>io.whitfin.siphash</artifactId>
-            <version>2.0.1</version>
-        </dependency>
-        <dependency>
-            <!-- Only to drive HTTP/3 in the tests; nothing in main touches it. -->
+            <!--
+                flupke is not vendored. It reaches kwik through 13 classes, none of them in a package
+                impersonator-kwik differs from upstream in, and this module needs nothing from it that
+                is not public. See ../quic/kwik/UPSTREAM.md.
+            -->
             <groupId>tech.kwik</groupId>
             <artifactId>flupke</artifactId>
             <version>0.9.4</version>
-            <scope>test</scope>
             <exclusions>
                 <exclusion>
-                    <!-- This module vendors kwik; see UPSTREAM.md. -->
                     <groupId>tech.kwik</groupId>
                     <artifactId>kwik</artifactId>
                 </exclusion>
                 <exclusion>
-                    <!-- Vendored too; see ../qpack/UPSTREAM.md. -->
+                    <!-- Vendored too; see ../quic/qpack/UPSTREAM.md. -->
                     <groupId>tech.kwik</groupId>
                     <artifactId>qpack</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
         <dependency>
-            <!-- flupke needs it and no longer gets it through kwik. -->
+            <!--
+                flupke needs it and no longer gets it through kwik. It is vendored because honestly
+                advertising Chrome's QPACK settings means implementing the dynamic table upstream does
+                not have; see ../quic/qpack/UPSTREAM.md.
+            -->
             <groupId>com.github.zhkl0228</groupId>
             <artifactId>impersonator-qpack</artifactId>
             <version>${project.version}</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>junit</groupId>

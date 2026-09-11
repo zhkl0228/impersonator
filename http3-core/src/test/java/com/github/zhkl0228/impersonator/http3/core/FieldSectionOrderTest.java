@@ -1,4 +1,4 @@
-package com.github.zhkl0228.impersonator.http3;
+package com.github.zhkl0228.impersonator.http3.core;
 
 import junit.framework.TestCase;
 

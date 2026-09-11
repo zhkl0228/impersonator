@@ -1,13 +1,8 @@
 package com.github.zhkl0228.impersonator.http3;
 
-import com.github.zhkl0228.impersonator.quic.QuicClientFactory;
-import com.github.zhkl0228.impersonator.Impersonator;
-import com.github.zhkl0228.impersonator.quic.NewTokenStore;
-import com.github.zhkl0228.impersonator.quic.SessionTicketStore;
+import com.github.zhkl0228.impersonator.http3.core.Http3Connection;
+import com.github.zhkl0228.impersonator.http3.core.Http3ConnectionFactory;
 import tech.kwik.core.QuicClientConnection;
-import tech.kwik.core.QuicSessionTicket;
-import tech.kwik.core.concurrent.DaemonThreadFactory;
-import tech.kwik.flupke.Http3ClientConnection;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -23,15 +18,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
 
 /**
@@ -45,38 +37,24 @@ import java.util.concurrent.Flow;
  */
 class Http3Client extends HttpClient {
 
-    private final QuicClientFactory quicClientFactory;
-    private final Map<Long, Long> http3Settings;
-    private final Duration connectTimeout;
-    private final Map<String, Connection> connections = new ConcurrentHashMap<>();
-    /** Daemon threads, so an unclosed client cannot keep the JVM alive. */
-    private final ExecutorService executorService =
-            Executors.newCachedThreadPool(new DaemonThreadFactory("impersonator-http3"));
+    private final Http3ConnectionFactory connectionFactory;
+    private final Map<String, Http3Connection> connections = new ConcurrentHashMap<>();
 
     private volatile boolean closed;
 
-    /** The profile whose request headers every request through this client carries; null when none. */
-    private final Impersonator impersonator;
-
-    /** The order that profile's field lines go on the wire; null when it declares none. */
-    private final List<String> fieldOrder;
-
-    Http3Client(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings, Duration connectTimeout,
-                Impersonator impersonator) {
-        this.quicClientFactory = quicClientFactory;
-        this.http3Settings = http3Settings;
-        this.connectTimeout = connectTimeout;
-        this.impersonator = impersonator;
-        this.fieldOrder = impersonator == null ? null
-                : FieldSectionOrder.of(impersonator.getPseudoHeaderOrder(),
-                        profileHeaders(impersonator).keySet());
+    Http3Client(Http3ConnectionFactory connectionFactory) {
+        this.connectionFactory = connectionFactory;
     }
 
+    // The connection is this client's for as long as the client lives, so it is not closed here; see
+    // connectionFor. Same below.
+    @SuppressWarnings("resource")
     @Override
     public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
             throws IOException, InterruptedException {
-        HttpRequest impersonated = withProfileHeaders(request);
-        return connectionFor(impersonated.uri()).send(impersonated, decoding(responseBodyHandler));
+        // The browser's own headers are the connection's doing, not this class's; see
+        // Http3Connection.send. What is this class's is undoing the Content-Encoding they ask for.
+        return connectionFor(request.uri()).send(request, decoding(responseBodyHandler));
     }
 
     /**
@@ -121,64 +99,13 @@ class Http3Client extends HttpClient {
         };
     }
 
-    /**
-     * The request with the browser's own headers added - its User-Agent above all, but also the
-     * client hints, the Accept set and the rest of what it always sends.
-     * <p>
-     * Without this a connection whose QUIC, TLS and HTTP/3 fingerprints match a browser byte for byte
-     * carries a request with no User-Agent at all, which is a plainer tell than any mismatch. A header
-     * the caller set itself is left alone: the profile describes the browser, not the request.
-     * <p>
-     * The order they end up in is not the browser's. {@link HttpRequest} keeps its headers in a sorted
-     * map, so they go out alphabetically whatever order they are added in, and matching a browser's
-     * order means building the field section without java.net.http's help.
-     */
-    private HttpRequest withProfileHeaders(HttpRequest request) {
-        if (impersonator == null) {
-            return request;
-        }
-        Map<String, String> headers = profileHeaders(impersonator);
-        if (headers.isEmpty()) {
-            return request;
-        }
-
-        HttpRequest.Builder builder = HttpRequest.newBuilder(request.uri());
-        request.timeout().ifPresent(builder::timeout);
-        request.version().ifPresent(builder::version);
-        builder.method(request.method(), request.bodyPublisher().orElseGet(HttpRequest.BodyPublishers::noBody));
-        request.headers().map().forEach((name, values) -> values.forEach(value -> builder.header(name, value)));
-        for (Map.Entry<String, String> header : headers.entrySet()) {
-            if (request.headers().firstValue(header.getKey()).isEmpty()) {
-                builder.header(header.getKey(), header.getValue());
-            }
-        }
-        return builder.build();
-    }
-
-    /**
-     * The headers a profile adds to every request, in the order it adds them.
-     * <p>
-     * The User-Agent is seeded first because a profile moves that header rather than supplying it:
-     * Chrome takes it back out and puts it after Upgrade-Insecure-Requests, which it can only do to a
-     * header already in the map. So this map's iteration order is the browser's field order, and it
-     * is the only place that order exists.
-     */
-    private static Map<String, String> profileHeaders(Impersonator impersonator) {
-        Map<String, String> headers = new LinkedHashMap<>();
-        String userAgent = impersonator.getUserAgent();
-        if (userAgent != null) {
-            headers.put("User-Agent", userAgent);
-        }
-        impersonator.fillRequestHeaders(headers);
-        return headers;
-    }
-
     @Override
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
                                                             HttpResponse.BodyHandler<T> responseBodyHandler) {
         return sendAsync(request, responseBodyHandler, null);
     }
 
+    @SuppressWarnings("resource")
     @Override
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
                                                             HttpResponse.BodyHandler<T> responseBodyHandler,
@@ -195,122 +122,31 @@ class Http3Client extends HttpClient {
     }
 
     /**
-     * The connection is opened here rather than lazily inside flupke, because
-     * {@code Http3SingleConnectionClient} expects one that is already connected, and because a
-     * handshake failure should surface as the IOException of the request that caused it.
+     * The connection to an authority, opened on first use.
+     * <p>
+     * Opened here rather than lazily inside flupke, because a handshake failure should surface as the
+     * IOException of the request that caused it. Everything about what the connection is comes from
+     * {@link Http3ConnectionFactory}; what this class adds is that there is one per authority and
+     * that it is kept.
+     * <p>
+     * The connection is {@link AutoCloseable} and is deliberately not closed here: this client owns
+     * it until {@link #close()}, which is the whole point of keeping one per authority. The only one
+     * closed on the spot is the one that loses the race below.
      */
-    private Http3ClientConnection connectionFor(URI uri) throws IOException {
+    private Http3Connection connectionFor(URI uri) throws IOException {
         String authority = authorityOf(uri);
-        Connection existing = connections.get(authority);
+        Http3Connection existing = connections.get(authority);
         if (existing != null) {
-            return existing.http3Connection;
+            return existing;
         }
-
-        /*
-         * A ticket kept from an earlier connection to this host turns the handshake into a resumed
-         * one: the ClientHello carries "pre_shared_key" and "early_data" and is a different message
-         * with a different JA4, which is what a browser's second visit to a host looks like. Without
-         * this every connection is a full handshake for ever, which no browser's history contains.
-         * <p>
-         * Only for a profile that can describe a resumed ClientHello; see
-         * Impersonator.isQuicSessionResumptionSupported. Without a profile at all there is no
-         * dictated ClientHello to accommodate, and the engine builds its own.
-         */
-        boolean mayResume = impersonator == null || impersonator.isQuicSessionResumptionSupported();
-        SessionTicketStore sessionTicketStore = quicClientFactory.getSessionTicketStore();
-        QuicSessionTicket ticket = sessionTicketStore == null || !mayResume
-                ? null
-                : sessionTicketStore.take(uri.getHost());
-
-        /*
-         * And the address validation token from an earlier connection to this host, which is a
-         * separate thing from the ticket and answers a separate question: the ticket says who the
-         * client is to TLS, the token says the server has seen this address before. Without one a
-         * server under load answers with a Retry, so a client that keeps none takes an extra round
-         * trip on every connection where a browser takes one only on its first.
-         */
-        NewTokenStore newTokenStore = quicClientFactory.getNewTokenStore();
-        byte[] token = newTokenStore == null ? null : newTokenStore.take(uri.getHost());
-
-        QuicClientConnection quicConnection = quicClientFactory.newBuilder()
-                .uri(uri)
-                .port(portOf(uri))
-                .applicationProtocol("h3")
-                .connectTimeout(connectTimeout)
-                .sessionTicket(ticket)
-                .initialToken(token)
-                .build();
-
-        // Constructed before the QUIC connection is up, because the constructor is what registers
-        // the callback for peer-initiated streams and kwik drops any that arrive before there is
-        // one - silently, its default being a no-op consumer. The server opens its control and QPACK
-        // encoder streams as soon as the handshake completes, so connecting first loses whichever of
-        // them wins the race, and the QPACK one carries the dynamic table. Http3Connection.connect()
-        // brings the QUIC connection up itself.
-        Http3Connection http3Connection =
-                new Http3Connection(quicConnection, executorService, http3Settings, fieldOrder);
-        if (ticket != null) {
-            /*
-             * Resuming, so the handshake is started and not waited for: what follows - this
-             * connection's control stream, its SETTINGS, its QPACK decoder stream, and then the
-             * request itself, which flupke writes on a stream it opens for itself - happens inside
-             * the 0-RTT window and goes out in the first flight. Nothing below this line knows that;
-             * see QuicClientConnection.startConnect.
-             *
-             * Waiting for the handshake is Http3Connection's, at the first moment anything is
-             * expected back from the peer. Offering "early_data" and sending nothing would be a claim
-             * about this client that is not true, and is refused there.
-             */
-            quicConnection.startConnect(true);
-        }
-        else {
-            quicConnection.connect();
-        }
-        http3Connection.connect();
-
-        Connection connection = new Connection(uri.getHost(), quicConnection, http3Connection);
-        Connection raced = connections.putIfAbsent(authority, connection);
+        Http3Connection connection = connectionFactory.newConnection(uri);
+        Http3Connection raced = connections.putIfAbsent(authority, connection);
         if (raced != null) {
             // Another thread got there first; keep theirs and drop the connection just opened.
-            connection.close(sessionTicketStore, newTokenStore);
-            return raced.http3Connection;
+            connection.close();
+            return raced;
         }
-        return connection.http3Connection;
-    }
-
-    /**
-     * The QUIC connection is kept alongside the HTTP/3 one because closing is the caller's business
-     * and the HTTP/3 connection does not own the QUIC one it was handed.
-     */
-    private record Connection(String host, QuicClientConnection quicConnection,
-                              Http3ClientConnection http3Connection) {
-
-        void close(SessionTicketStore sessionTicketStore, NewTokenStore newTokenStore) {
-            /*
-             * The tickets are collected here rather than after the handshake because that is not when
-             * they arrive: a server sends its NewSessionTickets once the handshake is over, so asking
-             * a connection for them at the moment it is done with is the first point they are all in.
-             */
-            if (sessionTicketStore != null) {
-                try {
-                    sessionTicketStore.put(host, quicConnection.getNewSessionTickets());
-                } catch (RuntimeException ignored) {
-                    // A ticket that cannot be kept costs the next connection a full handshake, nothing more.
-                }
-            }
-            if (newTokenStore != null) {
-                try {
-                    newTokenStore.put(host, quicConnection.getNewTokens());
-                } catch (RuntimeException ignored) {
-                    // A token that cannot be kept costs the next connection a Retry, nothing more.
-                }
-            }
-            try {
-                quicConnection.close();
-            } catch (RuntimeException ignored) {
-                // Closing a connection that is already gone must not mask what the caller was doing.
-            }
-        }
+        return connection;
     }
 
     /**
@@ -322,8 +158,7 @@ class Http3Client extends HttpClient {
      * tested by observing that nothing broke, which is not the same claim.
      */
     Http3Connection openConnection(String authority) {
-        Connection connection = connections.get(authority);
-        return connection == null ? null : (Http3Connection) connection.http3Connection;
+        return connections.get(authority);
     }
 
     /**
@@ -333,8 +168,8 @@ class Http3Client extends HttpClient {
      * through it.
      */
     QuicClientConnection quicConnectionFor(String authority) {
-        Connection connection = connections.get(authority);
-        return connection == null ? null : connection.quicConnection;
+        Http3Connection connection = connections.get(authority);
+        return connection == null ? null : connection.getQuicConnection();
     }
 
     private static String authorityOf(URI uri) {
@@ -356,17 +191,14 @@ class Http3Client extends HttpClient {
     @Override
     public void close() {
         closed = true;
-        SessionTicketStore sessionTicketStore = quicClientFactory.getSessionTicketStore();
-        NewTokenStore newTokenStore = quicClientFactory.getNewTokenStore();
         for (String authority : connections.keySet()) {
-            Connection connection = connections.remove(authority);
+            Http3Connection connection = connections.remove(authority);
             if (connection != null) {
-                connection.close(sessionTicketStore, newTokenStore);
+                // Which is also where its session ticket and address validation token are kept for
+                // the next connection to that host; see Http3Connection.close.
+                connection.close();
             }
         }
-        // After the connections, because collecting their session tickets is the last thing they are
-        // asked for and closing this first would take the threads that answer.
-        executorService.shutdownNow();
     }
 
     /** No orderly variant exists here; see {@link #close()}. */
@@ -399,7 +231,7 @@ class Http3Client extends HttpClient {
 
     @Override
     public Optional<Duration> connectTimeout() {
-        return Optional.of(connectTimeout);
+        return Optional.of(connectionFactory.getConnectTimeout());
     }
 
     @Override
@@ -437,6 +269,6 @@ class Http3Client extends HttpClient {
 
     @Override
     public Optional<Executor> executor() {
-        return Optional.of(executorService);
+        return Optional.of(connectionFactory.getExecutor());
     }
 }

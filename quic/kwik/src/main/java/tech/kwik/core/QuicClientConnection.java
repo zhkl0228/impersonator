@@ -297,7 +297,6 @@ public interface QuicClientConnection extends QuicConnection {
          */
         Builder initialMaxStreamDataBidirectional(long initialMaxStreamData);
 
-        /** The initial_max_stream_data_uni transport parameter, and the flow control it promises. */
         /**
          * The max_ack_delay transport parameter, in milliseconds. Absent means 25 to the peer, so
          * sending one at all is as visible as its value.
@@ -310,6 +309,7 @@ public interface QuicClientConnection extends QuicConnection {
          */
         Builder initialMaxStreamDataBidirectionalRemote(long initialMaxStreamData);
 
+        /** The initial_max_stream_data_uni transport parameter, and the flow control it promises. */
         Builder initialMaxStreamDataUnidirectional(long initialMaxStreamData);
 
         /**

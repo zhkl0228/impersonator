@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.github.zhkl0228</groupId>
         <artifactId>impersonator</artifactId>
-        <version>1.7.1</version>
+        <version>1.8.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <name>http3</name>
@@ -44,6 +44,16 @@
     </build>
 
     <dependencies>
+        <dependency>
+            <!--
+                The connections, and everything about them that is not java.net.http's. This module is
+                the adapter that puts one behind java.net.http.HttpClient, which is the only part that
+                needs a Java 21; see that module's pom.
+            -->
+            <groupId>com.github.zhkl0228</groupId>
+            <artifactId>impersonator-http3-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.github.zhkl0228</groupId>
             <artifactId>impersonator-kwik</artifactId>

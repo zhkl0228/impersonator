@@ -9,9 +9,13 @@ import com.github.zhkl0228.impersonator.QuicTransport;
 import com.github.zhkl0228.impersonator.quic.EchRejectionHandler;
 import com.github.zhkl0228.impersonator.quic.QuicClientFactory;
 
+import com.github.zhkl0228.impersonator.http3.core.Http3Connection;
+import com.github.zhkl0228.impersonator.http3.core.Http3ConnectionFactory;
+
+import java.io.IOException;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -35,12 +39,13 @@ import java.util.concurrent.TimeUnit;
  */
 public class Http3ClientFactory {
 
-    private final QuicClientFactory quicClientFactory;
-    private final Map<Long, Long> http3Settings;
-
-    private Duration connectTimeout = Duration.ofSeconds(10);
-
-    private final Impersonator impersonator;
+    /**
+     * The connections themselves, and everything about them that is not java.net.http's: the
+     * handshake, the tickets, the tokens, the SETTINGS, the field order and the browser's headers.
+     * This class is the adapter that puts one behind an {@link HttpClient}; see
+     * {@link Http3ConnectionFactory}, which is Java 11 and can be used on its own.
+     */
+    private final Http3ConnectionFactory connectionFactory;
 
     /**
      * Whether the impersonated browser does Encrypted Client Hello. True when there is no profile
@@ -48,11 +53,8 @@ public class Http3ClientFactory {
      */
     private final boolean echSupported;
 
-    private Http3ClientFactory(QuicClientFactory quicClientFactory, Map<Long, Long> http3Settings,
-                               Impersonator impersonator, boolean echSupported) {
-        this.quicClientFactory = quicClientFactory;
-        this.http3Settings = http3Settings;
-        this.impersonator = impersonator;
+    private Http3ClientFactory(Http3ConnectionFactory connectionFactory, boolean echSupported) {
+        this.connectionFactory = connectionFactory;
         this.echSupported = echSupported;
     }
 
@@ -63,10 +65,7 @@ public class Http3ClientFactory {
      *             its TCP one, and this library does not invent one from the other.
      */
     public static Http3ClientFactory create(ImpersonatorApi api) {
-        Impersonator impersonator = api instanceof Impersonator? (Impersonator) api: null;
-        return new Http3ClientFactory(QuicClientFactory.create(api),
-                impersonator == null? null: impersonator.getHttp3Settings(),
-                impersonator, api.isEchSupported());
+        return new Http3ClientFactory(Http3ConnectionFactory.create(api), api.isEchSupported());
     }
 
     /**
@@ -79,7 +78,7 @@ public class Http3ClientFactory {
 
     /** A ClientHello and the QUIC layer that goes with it, with no profile behind them. */
     public static Http3ClientFactory create(QuicClientHello quicClientHello, QuicTransport quicTransport) {
-        return new Http3ClientFactory(QuicClientFactory.create(quicClientHello, quicTransport), null, null, true);
+        return new Http3ClientFactory(Http3ConnectionFactory.create(quicClientHello, quicTransport), true);
     }
 
     /**
@@ -87,12 +86,12 @@ public class Http3ClientFactory {
      * Useful as the control in a fingerprint comparison, and for plain HTTP/3.
      */
     public static Http3ClientFactory create() {
-        return new Http3ClientFactory(QuicClientFactory.create(), null, null, true);
+        return new Http3ClientFactory(Http3ConnectionFactory.create(), true);
     }
 
     /** How long {@link HttpClient#send} waits for the QUIC handshake. Defaults to 10 seconds. */
     public Http3ClientFactory setConnectTimeout(long timeout, TimeUnit unit) {
-        this.connectTimeout = Duration.ofMillis(unit.toMillis(timeout));
+        connectionFactory.setConnectTimeout(Duration.ofMillis(unit.toMillis(timeout)));
         return this;
     }
 
@@ -111,7 +110,7 @@ public class Http3ClientFactory {
             throw new UnsupportedOperationException("this profile impersonates a browser that does not"
                     + " support Encrypted Client Hello");
         }
-        quicClientFactory.setEchConfigProvider(echConfigProvider);
+        connectionFactory.setEchConfigProvider(echConfigProvider);
         return this;
     }
 
@@ -120,7 +119,7 @@ public class Http3ClientFactory {
      * published. Retrying is left to the caller; see {@link EchRejectionHandler}.
      */
     public Http3ClientFactory setEchRejectionHandler(EchRejectionHandler echRejectionHandler) {
-        quicClientFactory.setEchRejectionHandler(echRejectionHandler);
+        connectionFactory.getQuicClientFactory().setEchRejectionHandler(echRejectionHandler);
         return this;
     }
 
@@ -130,7 +129,16 @@ public class Http3ClientFactory {
      * before building this, and the tests here need to reach in to make a server reject a ticket.
      */
     QuicClientFactory quicClientFactory() {
-        return quicClientFactory;
+        return connectionFactory.getQuicClientFactory();
+    }
+
+    /**
+     * One connection, with no {@link HttpClient} around it: flupke's own API, and every detail of the
+     * profile - the handshake, the SETTINGS, the field order, the browser's headers - already on it.
+     * Closing it is the caller's business, and is what keeps its session ticket for the next one.
+     */
+    public Http3Connection newConnection(URI uri) throws IOException {
+        return connectionFactory.newConnection(uri);
     }
 
     /**
@@ -139,7 +147,7 @@ public class Http3ClientFactory {
      *         this module is Java 21 while the ones below it are Java 11.
      */
     public HttpClient newHttpClient() {
-        return new Http3Client(quicClientFactory, http3Settings, connectTimeout, impersonator);
+        return new Http3Client(connectionFactory);
     }
 
 }

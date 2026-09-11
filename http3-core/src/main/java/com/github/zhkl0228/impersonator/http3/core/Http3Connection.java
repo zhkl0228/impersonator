@@ -1,23 +1,21 @@
-package com.github.zhkl0228.impersonator.http3;
+package com.github.zhkl0228.impersonator.http3.core;
 
 import com.github.zhkl0228.impersonator.Http3Settings;
-
+import com.github.zhkl0228.impersonator.quic.NewTokenStore;
+import com.github.zhkl0228.impersonator.quic.SessionTicketStore;
 import tech.kwik.core.QuicClientConnection;
-import tech.kwik.core.QuicConnection;
 import tech.kwik.core.QuicStream;
 import tech.kwik.core.stream.StreamInputStream;
-import tech.kwik.flupke.HttpStream;
 import tech.kwik.flupke.HttpError;
+import tech.kwik.flupke.HttpStream;
 import tech.kwik.flupke.impl.Http3ClientConnectionImpl;
 import tech.kwik.flupke.impl.Http3Frame;
 import tech.kwik.qpack.impl.DecoderImpl;
 import tech.kwik.qpack.impl.DynamicTable;
 
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.UncheckedIOException;
+import java.io.*;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 
@@ -45,18 +43,33 @@ import java.util.concurrent.ExecutorService;
  * A profile may only ask for settings the implementation underneath honours; see
  * {@code Impersonator.getHttp3Settings()}.
  */
-class Http3Connection extends Http3ClientConnectionImpl {
+public class Http3Connection extends Http3ClientConnectionImpl implements AutoCloseable {
 
     private final ExecutorService executorService;
     private final DecoderImpl qpack;
     private final FieldSectionOrder ordering;
+    private final QuicClientConnection quicClientConnection;
+    private final String host;
+    private final Map<String, String> profileHeaders;
+    private final SessionTicketStore sessionTicketStore;
+    private final NewTokenStore newTokenStore;
 
-    /** Set when the control stream has already gone out in 0-RTT, so flupke must not open a second. */
-
-    Http3Connection(QuicConnection quicConnection, ExecutorService executorService, Map<Long, Long> settings,
-                    java.util.List<String> fieldOrder) {
+    /**
+     * @param profileHeaders the headers the browser adds to every request, in the order it adds them;
+     *                       empty for no profile. See {@link #send(HttpRequest, HttpResponse.BodyHandler)}.
+     * @param sessionTicketStore where this connection's session tickets go when it is closed, or null
+     * @param newTokenStore where its address validation tokens go, or null
+     */
+    Http3Connection(QuicClientConnection quicConnection, ExecutorService executorService, Map<Long, Long> settings,
+                    java.util.List<String> fieldOrder, Map<String, String> profileHeaders,
+                    SessionTicketStore sessionTicketStore, NewTokenStore newTokenStore, String host) {
         super(quicConnection, executorService);
         this.executorService = executorService;
+        this.quicClientConnection = quicConnection;
+        this.host = host;
+        this.profileHeaders = profileHeaders;
+        this.sessionTicketStore = sessionTicketStore;
+        this.newTokenStore = newTokenStore;
         if (settings != null) {
             settingsParameters.clear();
             settingsParameters.putAll(settings);
@@ -74,35 +87,119 @@ class Http3Connection extends Http3ClientConnectionImpl {
         qpack.setMaxBlockedStreams((int) advertised(Http3Settings.QPACK_BLOCKED_STREAMS));
     }
 
+    /**
+     * The request with the browser's own headers added - its User-Agent above all, but also the
+     * client hints, the Accept set and the rest of what it always sends.
+     * <p>
+     * Here rather than in whatever put the request together, because it belongs to the connection:
+     * a connection that carries a browser's QUIC, TLS and HTTP/3 fingerprint byte for byte and then a
+     * request with no User-Agent at all is a plainer tell than any mismatch, and nothing above this
+     * has to remember that. A header the caller set itself is left alone - the profile describes the
+     * browser, not the request.
+     * <p>
+     * The order they end up in is not the browser's, and does not need to be: {@link HttpRequest}
+     * keeps its headers in a sorted map, so they go out alphabetically whatever order they are added
+     * in, and the field section is put back into the browser's order further down, where it still
+     * exists. See {@link FieldSectionOrder}.
+     */
+    @Override
+    public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
+            throws IOException {
+        return super.send(withProfileHeaders(request), responseBodyHandler);
+    }
+
+    @Override
+    public <T> void sendAsync(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler,
+                              java.util.concurrent.CompletableFuture<HttpResponse<T>> result) {
+        super.sendAsync(withProfileHeaders(request), responseBodyHandler, result);
+    }
+
+    private HttpRequest withProfileHeaders(HttpRequest request) {
+        if (profileHeaders.isEmpty()) {
+            return request;
+        }
+        HttpRequest.Builder builder = HttpRequest.newBuilder(request.uri());
+        request.timeout().ifPresent(builder::timeout);
+        request.version().ifPresent(builder::version);
+        builder.method(request.method(), request.bodyPublisher().orElseGet(HttpRequest.BodyPublishers::noBody));
+        request.headers().map().forEach((name, values) -> values.forEach(value -> builder.header(name, value)));
+        for (Map.Entry<String, String> header : profileHeaders.entrySet()) {
+            if (request.headers().firstValue(header.getKey()).isEmpty()) {
+                builder.header(header.getKey(), header.getValue());
+            }
+        }
+        return builder.build();
+    }
+
+    /** The QUIC connection underneath, which carries the profile's QUIC and TLS fingerprint. */
+    public QuicClientConnection getQuicConnection() {
+        return quicClientConnection;
+    }
+
+    /**
+     * Keeps what this connection learned and closes it.
+     * <p>
+     * The tickets and tokens are collected here rather than when the handshake finished, because that
+     * is not when they arrive: a server sends its NewSessionTickets and its NEW_TOKEN frames once the
+     * handshake is over, so the moment the connection is done with is the first point they are all in.
+     * Without them the next connection to this host is a full handshake that asks for a Retry, which
+     * is not a history any browser has.
+     */
+    @Override
+    public void close() {
+        if (sessionTicketStore != null) {
+            try {
+                sessionTicketStore.put(host, quicClientConnection.getNewSessionTickets());
+            }
+            catch (RuntimeException ignored) {
+                // A ticket that cannot be kept costs the next connection a full handshake, nothing more.
+            }
+        }
+        if (newTokenStore != null) {
+            try {
+                newTokenStore.put(host, quicClientConnection.getNewTokens());
+            }
+            catch (RuntimeException ignored) {
+                // A token that cannot be kept costs the next connection a Retry, nothing more.
+            }
+        }
+        try {
+            quicClientConnection.close();
+        }
+        catch (RuntimeException ignored) {
+            // Closing a connection that is already gone must not mask what the caller was doing.
+        }
+    }
+
     /** The field names of the last request written, in wire order; null when no order was declared. */
-    java.util.List<String> lastFieldSection() {
+    public java.util.List<String> lastFieldSection() {
         return ordering == null ? null : ordering.lastFieldSection();
     }
 
     /** QPACK's dynamic table, for a test that wants to see whether the peer's encoder used it. */
-    DynamicTable dynamicTable() {
+    public DynamicTable dynamicTable() {
         return qpack.getDynamicTable();
     }
 
     /** How many field lines arrived as a reference into that table; see {@link #dynamicTable()}. */
-    long dynamicTableReferences() {
+    public long dynamicTableReferences() {
         return qpack.getDynamicTableReferences();
     }
 
     /** The blocked stream limit the decoder was given, to check it against the one advertised. */
-    int qpackMaxBlockedStreams() {
+    public int qpackMaxBlockedStreams() {
         return qpack.getMaxBlockedStreams();
     }
 
     /** The value this connection's SETTINGS frame carries for a setting, or zero if it carries none. */
-    long advertised(long identifier) {
+    public long advertised(long identifier) {
         Long value = settingsParameters.get(identifier);
         return value == null ? 0 : value;
     }
 
     /**
      * Opens this connection's HTTP/3 streams, the QUIC connection having been brought up - or at least
-     * started - by {@link Http3Client}.
+     * started - by {@link Http3ConnectionFactory}.
      * <p>
      * flupke's own connect() calls {@code quicConnection.connect()} when the connection does not
      * report itself connected, which a connection in its 0-RTT window does not: it has sent its

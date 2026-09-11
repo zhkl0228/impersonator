@@ -3,6 +3,8 @@
   <component name="Encoding">
     <file url="file://$PROJECT_DIR$/bctls/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/bctls/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/http3-core/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/http3-core/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/http3/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/http3/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/okhttp/src/main/java" charset="UTF-8" />
