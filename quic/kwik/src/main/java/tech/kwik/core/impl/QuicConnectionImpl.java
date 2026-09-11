@@ -138,6 +138,26 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
 
     protected volatile Status connectionState;
 
+    /**
+     * Why this connection stopped being usable, or null while it still is.
+     * <p>
+     * The same sentence {@link #emit(ConnectionTerminatedEvent)} logs, kept rather than only logged:
+     * by the time a caller is told "not connected" the reason has gone to the log and nowhere else,
+     * and a log line is not something the caller can report, test against or put in an exception. It
+     * is the difference between "not connected" and "the peer closed this with STREAM_LIMIT_ERROR".
+     */
+    private volatile String terminationReason;
+
+    /** The exception behind {@link #terminationReason}, when a local error was what ended it. */
+    private volatile Throwable terminationCause;
+
+    /**
+     * A lock of its own and emphatically not {@code this}: a client holds the connection's monitor
+     * for the whole of {@code connect()}, so a receiver thread taking it to record a termination
+     * would wait for the very handshake whose end it is trying to report.
+     */
+    private final Object terminationLock = new Object();
+
     private RateLimiter closeFramesSendRateLimiter;
     private volatile ConnectionCloseFrame lastConnectionCloseFrameSent;
     private final ScheduledExecutorService scheduler;
@@ -268,7 +288,20 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
          * why the window is a period rather than a callback.
          */
         if (connectionState != Status.Connected && !getStreamManager().isEarlyDataWindowOpen()) {
-            throw new IOException("not connected");
+            /*
+             * With the state and, when there is one, the reason it is in that state. "not connected"
+             * on its own is true of a connection that was never started and of one that the peer shut
+             * down between the handshake finishing and this call - which is the failure a caller
+             * actually meets, and the one that says nothing: HTTP/3 opens its control stream in that
+             * gap, so a server that closes there produces "not connected" about a connection that was
+             * connected a moment ago, with the reason it gave thrown away.
+             */
+            IOException notConnected = new IOException("not connected: the connection is " + connectionState
+                    + (terminationReason != null ? ", " + terminationReason : ""));
+            if (terminationCause != null) {
+                notConnected.initCause(terminationCause);
+            }
+            throw notConnected;
         }
 
         return getStreamManager().createStream(bidirectional);
@@ -829,12 +862,44 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
         if (connectionListener != null) {
             callbackThread.submit(() -> connectionListener.disconnected(connectionDisconnectEvent));
         }
+        // Kept as well as logged; see terminationReason.
+        recordTermination((connectionDisconnectEvent.closedByPeer() ? "closed by the peer" : "closed")
+                + (connectionDisconnectEvent.hasError()
+                        ? " with " + connectionDisconnectEvent.errorDescription()
+                        : " (" + connectionDisconnectEvent.closeReason() + ")"), null);
         String logMessage = (connectionDisconnectEvent.closedByPeer()? "Peer is closing ": "Closing ") +
                 this +
                 (connectionDisconnectEvent.hasError()?
                         " with error " + connectionDisconnectEvent.errorDescription():
                         " (reason: " + connectionDisconnectEvent.closeReason() + ")");
         log.info(logMessage);
+    }
+
+    /**
+     * Remembers why this connection stopped being usable, the first answer winning: what went wrong
+     * first is the cause, and everything after it is a consequence of that.
+     *
+     * @param cause the exception that ended it, or null when it ended without one
+     */
+    protected void recordTermination(String reason, Throwable cause) {
+        synchronized (terminationLock) {
+            if (terminationReason == null) {
+                terminationCause = cause;
+                // Last, because it is what every reader tests; the cause is in place before anything
+                // can see a reason to look for one.
+                terminationReason = reason;
+            }
+        }
+    }
+
+    /** Why this connection stopped being usable, or null while it still is. */
+    public String getTerminationReason() {
+        return terminationReason;
+    }
+
+    /** See {@link #getTerminationReason()}; the exception behind it, or null. */
+    public Throwable getTerminationCause() {
+        return terminationCause;
     }
 
     protected void emit(ConnectionEstablishedEvent connectionEstablishedEvent) {

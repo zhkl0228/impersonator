@@ -174,6 +174,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     /** See {@link #awaitConnected()}, which several threads may reach and which settles once. */
     private final Object connectLock = new Object();
     private volatile boolean connectCompleted;
+    /**
+     * What {@link #awaitConnected()} settled on when it did not succeed, so that the callers after
+     * the first are told the same thing rather than re-diagnosing a connection that is no longer in
+     * the state that failed; see {@link #awaitHandshake()}.
+     */
+    private volatile Throwable connectFailure;
     private final List<TlsConstants.CipherSuite> cipherSuites;
 
     private final GlobalAckGenerator ackGenerator;
@@ -499,17 +505,21 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
         startReceiverLoop();
 
-        startHandshake(applicationProtocol, withEarlyData);
         offeredEarlyData = withEarlyData;
         if (withEarlyData) {
-            // Said as soon as it is offered rather than once it is written, because the answer -
-            // Accepted or Rejected - arrives during the handshake and would otherwise be overwritten
-            // by this. That a connection which offered it really wrote some is checked when the window
-            // closes; see awaitConnected.
+            /*
+             * All of this before the ClientHello goes out, not after. The server's answer - Accepted
+             * or Rejected - arrives on the receiver thread, which is already running; writing
+             * "Requested" after startHandshake would be a write racing that answer and able to
+             * overwrite it, which is the one thing this value must not do. Nothing can act on the
+             * window this early either: startConnect is synchronized and no caller has the connection
+             * back yet, so the window is only open in the sense that it is ready.
+             *
+             * That a connection which offered early data really wrote some is checked when the window
+             * closes; see awaitConnected.
+             */
             earlyDataStatus = Requested;
-        }
 
-        if (withEarlyData) {
             /*
              * The limits the server gave last time, which is what 0-RTT data is written against: RFC
              * 9001 section 4.6.1, "a client MUST NOT ... send more data than the server permitted in
@@ -521,6 +531,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             setZeroRttTransportParameters(rememberedTransportParameters);
             streamManager.openEarlyDataWindow();
         }
+
+        startHandshake(applicationProtocol, withEarlyData);
     }
 
     /**
@@ -543,6 +555,36 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         if (connectCompleted) {
             return;
         }
+        if (connectFailure != null) {
+            /*
+             * Settled, and settled badly: everyone who asks is told what the first caller was told.
+             * Running the rest of this a second time would diagnose a connection that is no longer in
+             * the state that failed - the early data window has been closed and emptied by now, so
+             * "a connection that offers early data must write some" would be said of a connection
+             * that wrote plenty - and the second caller would wait out another whole connect timeout
+             * to be told it. The exception is the first one rather than a copy of it, so its stack
+             * trace points at what actually failed.
+             */
+            if (connectFailure instanceof IOException) {
+                throw (IOException) connectFailure;
+            }
+            throw (RuntimeException) connectFailure;
+        }
+        try {
+            settleConnection();
+        }
+        catch (IOException | RuntimeException failure) {
+            connectFailure = failure;
+            throw failure;
+        }
+        connectCompleted = true;
+    }
+
+    /**
+     * Waits for the handshake and sends again whatever 0-RTT data the server refused. Called once:
+     * {@link #awaitHandshake()} remembers whether it returned or threw.
+     */
+    private void settleConnection() throws IOException {
         List<EarlyDataStream> earlyDataStreams = streamManager.closeEarlyDataWindow();
         if (offeredEarlyData && earlyDataStreams.isEmpty()) {
             // The ClientHello has already offered "early_data"; sending none would make it a claim
@@ -558,7 +600,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             }
             else if (connectionState != Status.Connected) {
                 abortHandshake();
-                throw new ConnectException("Handshake error: " + (handshakeError != null? handshakeError: ""));
+                throw handshakeFailed();
             }
         }
         catch (InterruptedException e) {
@@ -578,7 +620,36 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 }
             }
         }
-        connectCompleted = true;
+    }
+
+    /**
+     * The handshake ended without connecting; this says what is known about why.
+     * <p>
+     * "Handshake error: " and then nothing is what this used to be able to produce, and it is the
+     * worst answer of the three there are: {@link #handshakeError} is only set from the two places
+     * that run while the state is still Handshaking, so a connection that failed a moment later - or
+     * that was closed without an error code at all - arrived here with an empty string where the
+     * reason should be. The connection's own account of how it ended is the fallback, and the state
+     * is the last resort, because "Failed" is still more than "".
+     */
+    private ConnectException handshakeFailed() {
+        String reason;
+        if (handshakeError != null) {
+            reason = handshakeError;
+        }
+        else if (getTerminationReason() != null) {
+            reason = getTerminationReason();
+        }
+        else {
+            reason = "the connection is " + connectionState + " and nothing recorded why";
+        }
+        ConnectException failure = new ConnectException("Handshake error: " + reason);
+        if (getTerminationCause() != null) {
+            // The exception itself, so that a crash in this client reaches the caller as a stack trace
+            // rather than as a sentence someone has to guess a line number from.
+            failure.initCause(getTerminationCause());
+        }
+        return failure;
     }
 
     /**
@@ -1305,6 +1376,15 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         if (connectionState == Status.Handshaking) {
             handshakeError = error.toString();
         }
+        /*
+         * Kept where a caller can reach it, and kept as the exception rather than as a sentence about
+         * it. The log call below is the only other record of what happened, and the default logger is
+         * a NullLogger - so a fatal error on an established connection used to leave nothing at all
+         * behind, and the next thing the caller did got "not connected" as its whole explanation.
+         * That is how a QUIC-level crash reached a soak of google.com as an HTTP/3 stream that could
+         * not be opened.
+         */
+        recordTermination("aborted by a local error: " + error, error);
         connectionState = Status.Error;
 
         if (error != null) {

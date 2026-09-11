@@ -9,6 +9,7 @@ import tech.kwik.core.stream.EarlyDataStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -87,7 +88,10 @@ public class EarlyDataWindowTest extends TestCase {
             fail("a connection that has not sent its ClientHello cannot open a stream");
         }
         catch (IOException expected) {
-            assertEquals("not connected", expected.getMessage());
+            // With the state, which is what tells this apart from a connection the peer shut down
+            // between the handshake and the first stream - the other thing "not connected" used to be
+            // the whole of.
+            assertEquals("not connected: the connection is Created", expected.getMessage());
         }
         finally {
             connection.close();
@@ -108,6 +112,88 @@ public class EarlyDataWindowTest extends TestCase {
         }
         catch (IllegalStateException expected) {
             assertTrue(expected.getMessage(), expected.getMessage().contains("must write some"));
+        }
+        finally {
+            connection.close();
+        }
+    }
+
+    /**
+     * Once the window has closed, {@code createStream} hands out an ordinary stream again - the other
+     * half of what the window is, and the half that says the flag is really read per call rather than
+     * once.
+     */
+    public void testAfterTheWindowAStreamIsAnOrdinaryOneAgain() throws Exception {
+        QuicClientConnection connection = resuming();
+        try {
+            connection.startConnect(true);
+
+            QuicStream inTheWindow = connection.createStream(true);
+            OutputStream out = inTheWindow.getOutputStream();
+            out.write("0-RTT window probe".getBytes());
+            out.flush();
+
+            connection.awaitConnected();
+
+            QuicStream afterwards = connection.createStream(true);
+            assertFalse("a stream opened after the window must not still write at the 0-RTT level,"
+                            + " got " + afterwards.getClass().getName(),
+                    afterwards instanceof EarlyDataStream);
+        }
+        finally {
+            connection.close();
+        }
+    }
+
+    /**
+     * A handshake that failed is reported the same way to everyone who asks.
+     * <p>
+     * Several threads reach {@code awaitConnected} on an HTTP/3 connection - the one writing the
+     * request and the ones reading the peer's streams - and only the first of them ran the settling.
+     * A second one used to run it again on a connection that was no longer in the state that failed:
+     * the early data window had been closed and emptied by then, so it found no early data streams
+     * and answered "a connection that offers early data must write some" about a connection that had
+     * written plenty, hiding the timeout that actually happened. It also waited out another whole
+     * connect timeout to say it.
+     * <p>
+     * One millisecond, because no handshake with a remote host finishes in one.
+     */
+    public void testEveryCallerOfAwaitIsToldTheSameFailure() throws Exception {
+        QuicSessionTicket ticket = ticket();
+        assertNotNull("the endpoint issued no session ticket, so there is nothing to resume", ticket);
+        QuicClientConnection connection = QuicClientConnection.newBuilder()
+                .uri(ENDPOINT)
+                .applicationProtocol("h3")
+                .noServerCertificateCheck()
+                .sessionTicket(ticket)
+                .connectTimeout(Duration.ofMillis(1))
+                .build();
+        try {
+            connection.startConnect(true);
+            OutputStream out = connection.createStream(true).getOutputStream();
+            out.write("0-RTT window probe".getBytes());
+            out.flush();
+
+            IOException first;
+            try {
+                connection.awaitConnected();
+                fail("a handshake given one millisecond cannot have finished");
+                return;
+            }
+            catch (IOException timedOut) {
+                first = timedOut;
+            }
+
+            try {
+                connection.awaitConnected();
+                fail("a connection whose handshake failed must not report success afterwards");
+            }
+            catch (IOException again) {
+                assertEquals("the second caller was given a different kind of failure",
+                        first.getClass(), again.getClass());
+                assertEquals("the second caller was given a different failure",
+                        first.getMessage(), again.getMessage());
+            }
         }
         finally {
             connection.close();

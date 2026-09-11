@@ -138,6 +138,17 @@ public abstract class PacketParser {
                 data.position(start);
                 throw cannotDecrypt;
             }
+            catch (MissingKeysException | TransportError | RuntimeException readWithTheOldKeys) {
+                /*
+                 * The old keys did open it and what came out is broken - a frame this endpoint must
+                 * close the connection over, say. That is a real error about a packet that was really
+                 * read, not the "will not decrypt" this started as, and answering with the latter
+                 * would report a packet nobody could read where there was one that was read and was
+                 * wrong. The original goes along suppressed, so the route here is still in the trace.
+                 */
+                readWithTheOldKeys.addSuppressed(cannotDecrypt);
+                throw readWithTheOldKeys;
+            }
         }
     }
 
