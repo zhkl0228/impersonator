@@ -122,6 +122,10 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
         HttpRequest.Builder builder = HttpRequest.newBuilder(request.uri());
         request.timeout().ifPresent(builder::timeout);
         request.version().ifPresent(builder::version);
+        // Every property HttpRequest has, because this is a copy and a copy that quietly drops one is
+        // worse than no copy: expectContinue defaults to false, so leaving it out turns a request that
+        // asked for 100-continue into one that does not and sends its body straight away.
+        builder.expectContinue(request.expectContinue());
         builder.method(request.method(), request.bodyPublisher().orElseGet(HttpRequest.BodyPublishers::noBody));
         request.headers().map().forEach((name, values) -> values.forEach(value -> builder.header(name, value)));
         for (Map.Entry<String, String> header : profileHeaders.entrySet()) {
@@ -209,10 +213,27 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
      * for the same reason a request does.
      */
     @Override
-    public void connect() {
+    public void connect() throws IOException {
         synchronized (this) {
             if (!streamsStarted) {
-                startControlStream();
+                try {
+                    startControlStream();
+                }
+                catch (UncheckedIOException wrapped) {
+                    /*
+                     * flupke's startControlStream() declares no IOException, so the QPACK decoder
+                     * stream this adds to it can only report one by wrapping; here is the first place
+                     * that may unwrap it, connect() being declared to throw IOException by flupke's
+                     * own interface. Left wrapped it goes straight past a caller that catches
+                     * IOException around newConnection - which is every caller, since that is what
+                     * the method declares - and out of the thread instead.
+                     *
+                     * Not hypothetical: anything that ends the QUIC connection in the gap between the
+                     * handshake finishing and these streams being opened produces exactly this, and a
+                     * soak of google.com met it four times in four hundred connections.
+                     */
+                    throw wrapped.getCause();
+                }
                 streamsStarted = true;
             }
         }

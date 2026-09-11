@@ -114,7 +114,10 @@ class Http3Client extends HttpClient {
         try {
             // HTTP/3 has no push promise in RFC 9114 the way HTTP/2 did, and flupke offers no hook for
             // one, so a handler is accepted and never called rather than silently dropped elsewhere.
-            connectionFor(request.uri()).sendAsync(request, responseBodyHandler, result);
+            // The Content-Encoding is undone here exactly as in send(): the Accept-Encoding that asks
+            // for it is the connection's, so it asks for it on both paths, and a response body handed
+            // back still compressed is binary noise whichever method was called.
+            connectionFor(request.uri()).sendAsync(request, decoding(responseBodyHandler), result);
         } catch (IOException e) {
             result.completeExceptionally(e);
         }

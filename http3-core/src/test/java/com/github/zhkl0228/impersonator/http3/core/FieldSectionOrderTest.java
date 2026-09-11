@@ -87,6 +87,24 @@ public class FieldSectionOrderTest extends TestCase {
                         "user-agent", ":path"));
     }
 
+    /**
+     * Two identical field lines both go out - which sounds too obvious to test, and was not true.
+     * <p>
+     * The lines placed so far were kept as a set of {@link Map.Entry}, whose equals compares the name
+     * and the value, so two identical lines were one entry: the second was passed over here as
+     * already placed and passed over again below as placed, and the field section came out a line
+     * shorter than it arrived. Nothing said so; the request simply carried one fewer header. Only
+     * names the profile declares an order for could hit it, which is most of them.
+     */
+    public void testARepeatedFieldLineIsNotSwallowed() {
+        List<String> order = FieldSectionOrder.of("m,a,s,p", List.of("Accept", "Cookie"));
+
+        assertEquals(List.of(":method", ":authority", ":scheme", ":path", "accept", "accept",
+                        "cookie", "cookie"),
+                encoded(order, ":method", "accept", "cookie", ":authority", "accept", ":scheme",
+                        "cookie", ":path"));
+    }
+
     /** Runs the reordering and reports the names in the order QPACK would have written them. */
     private static List<String> encoded(List<String> order, String... arriving) {
         List<String> written = new ArrayList<>();

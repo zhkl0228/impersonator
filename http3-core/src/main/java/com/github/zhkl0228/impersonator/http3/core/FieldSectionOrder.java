@@ -4,11 +4,9 @@ import tech.kwik.qpack.Encoder;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Puts a request's field lines in the order the impersonated browser sends them, immediately before
@@ -61,18 +59,27 @@ class FieldSectionOrder implements Encoder {
      */
     @Override
     public ByteBuffer compressHeaders(List<Map.Entry<String, String>> headers) {
+        /*
+         * By position and not by value. Map.Entry.equals compares the name and the value, so a set of
+         * entries cannot tell two identical field lines apart - two "cookie: a=1" lines, say - and the
+         * second one was dropped: skipped here as already placed, and skipped below as placed. A field
+         * section this reordered came out one line shorter than it went in, silently. Every line has
+         * its own index, and every index is written exactly once.
+         */
         List<Map.Entry<String, String>> ordered = new ArrayList<>(headers.size());
-        Set<Map.Entry<String, String>> placed = new LinkedHashSet<>();
+        boolean[] placed = new boolean[headers.size()];
         for (String name : order) {
-            for (Map.Entry<String, String> header : headers) {
-                if (name.equals(header.getKey().toLowerCase(Locale.ROOT)) && placed.add(header)) {
+            for (int i = 0; i < headers.size(); i++) {
+                Map.Entry<String, String> header = headers.get(i);
+                if (!placed[i] && name.equals(header.getKey().toLowerCase(Locale.ROOT))) {
+                    placed[i] = true;
                     ordered.add(header);
                 }
             }
         }
-        for (Map.Entry<String, String> header : headers) {
-            if (!placed.contains(header)) {
-                ordered.add(header);
+        for (int i = 0; i < headers.size(); i++) {
+            if (!placed[i]) {
+                ordered.add(headers.get(i));
             }
         }
         List<String> names = new ArrayList<>(ordered.size());
