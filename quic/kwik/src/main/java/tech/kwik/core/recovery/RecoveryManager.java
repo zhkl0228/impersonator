@@ -43,6 +43,7 @@ import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -358,11 +359,10 @@ public class RecoveryManager implements FrameReceivedListener<AckFrame>, Handsha
 
     private void sendProbesWithData(PnSpace pnSpace, int numberOfPackets) {
         if (pnSpace == PnSpace.Initial) {
-            List<QuicFrame> framesToRetransmit = getFramesToRetransmit(PnSpace.Initial);
+            List<List<QuicFrame>> framesToRetransmit = getFramesToRetransmit(PnSpace.Initial, numberOfPackets);
             if (!framesToRetransmit.isEmpty()) {
                 log.recovery("(Probe is an initial retransmit)");
-                repeatSend(numberOfPackets, () ->
-                        sender.sendProbe(framesToRetransmit , EncryptionLevel.Initial));
+                sendProbes(framesToRetransmit, numberOfPackets, EncryptionLevel.Initial);
             }
             else {
                 // This can happen, when the probe is sent because of peer awaiting address validation
@@ -373,11 +373,10 @@ public class RecoveryManager implements FrameReceivedListener<AckFrame>, Handsha
         }
         else if (pnSpace == PnSpace.Handshake) {
             // Client role: find ack eliciting handshake packet that is not acked and retransmit its contents.
-            List<QuicFrame> framesToRetransmit = getFramesToRetransmit(PnSpace.Handshake);
+            List<List<QuicFrame>> framesToRetransmit = getFramesToRetransmit(PnSpace.Handshake, numberOfPackets);
             if (!framesToRetransmit.isEmpty()) {
                 log.recovery("(Probe is a handshake retransmit)");
-                repeatSend(numberOfPackets, () ->
-                        sender.sendProbe(framesToRetransmit, EncryptionLevel.Handshake));
+                sendProbes(framesToRetransmit, numberOfPackets, EncryptionLevel.Handshake);
             }
             else {
                 log.recovery("(Probe is a handshake ping)");
@@ -387,11 +386,10 @@ public class RecoveryManager implements FrameReceivedListener<AckFrame>, Handsha
         }
         else {
             EncryptionLevel probeLevel = pnSpace.relatedEncryptionLevel();
-            List<QuicFrame> framesToRetransmit = getFramesToRetransmit(pnSpace);
+            List<List<QuicFrame>> framesToRetransmit = getFramesToRetransmit(pnSpace, numberOfPackets);
             if (!framesToRetransmit.isEmpty()) {
                 log.recovery(("(Probe is retransmit on level " + probeLevel + ")"));
-                repeatSend(numberOfPackets, () ->
-                        sender.sendProbe(framesToRetransmit, probeLevel));
+                sendProbes(framesToRetransmit, numberOfPackets, probeLevel);
             }
             else {
                 log.recovery(("(Probe is ping on level " + probeLevel + ")"));
@@ -402,24 +400,39 @@ public class RecoveryManager implements FrameReceivedListener<AckFrame>, Handsha
     }
 
     List<QuicFrame> getFramesToRetransmit(PnSpace pnSpace) {
-        List<QuicPacket> unAckedPackets = lossDetectors[pnSpace.ordinal()].unAcked();
-        Optional<QuicPacket> ackEliciting = unAckedPackets.stream()
+        List<List<QuicFrame>> framesPerPacket = getFramesToRetransmit(pnSpace, 1);
+        return framesPerPacket.isEmpty()? Collections.emptyList(): framesPerPacket.get(0);
+    }
+
+    /**
+     * The frames of the oldest unacknowledged packets that are worth repeating, one list per packet,
+     * oldest first, at most {@code atMost} of them.
+     * <p>
+     * More than one because a PTO may send two packets, and two probes carrying the same bytes make
+     * progress on one packet where they could make it on two. RFC 9002 section 6.2.4 allows both -
+     * its reason for the second datagram is "to avoid an expensive consecutive PTO expiration due to
+     * a single lost datagram", which repeating serves, and it then says "Implementations MAY use
+     * alternative strategies for determining the content of probe packets". The alternative is worth
+     * it here because a browser's first flight is two Initial packets: while nothing has been
+     * acknowledged, repeating only the first leaves the second unsent however many probes go out, and
+     * the peer cannot assemble a ClientHello out of the half it has.
+     * <p>
+     * With only one packet to repeat there is nothing to choose and the caller repeats that one, which
+     * is the redundancy the section describes.
+     */
+    List<List<QuicFrame>> getFramesToRetransmit(PnSpace pnSpace, int atMost) {
+        return lossDetectors[pnSpace.ordinal()].unAcked().stream()
                 .filter(p -> p.isAckEliciting())
                 // Filter out packets that only contain frames that should not be retransmitted (in a probe).
                 .filter(p -> ! p.getFrames().stream().allMatch(RecoveryManager::nonRetransmittableFrame))
-                .findFirst();
-        if (ackEliciting.isPresent()) {
-            List<QuicFrame> framesToRetransmit = ackEliciting.get().getFrames().stream()
-                    .filter(frame -> !(frame instanceof AckFrame))
-                    .filter(frame -> !(frame instanceof PathChallengeFrame))
-                    .filter(frame -> !(frame instanceof PathResponseFrame))
-                    .filter(frame -> !(frame instanceof Padding))
-                    .collect(Collectors.toList());
-            return framesToRetransmit;
-        }
-        else {
-            return Collections.emptyList();
-        }
+                .limit(atMost)
+                .map(packet -> packet.getFrames().stream()
+                        .filter(frame -> !(frame instanceof AckFrame))
+                        .filter(frame -> !(frame instanceof PathChallengeFrame))
+                        .filter(frame -> !(frame instanceof PathResponseFrame))
+                        .filter(frame -> !(frame instanceof Padding))
+                        .collect(Collectors.toList()))
+                .collect(Collectors.toList());
     }
 
     static boolean nonRetransmittableFrame(QuicFrame frame) {
@@ -627,9 +640,24 @@ public class RecoveryManager implements FrameReceivedListener<AckFrame>, Handsha
         }
     }
 
+    /**
+     * Sends the probes, each carrying a different unacknowledged packet's frames for as far as there
+     * are different ones; once they run out, the last is repeated - which is one packet's data sent
+     * twice, the redundancy RFC 9002 section 6.2.4 describes, and is what happens whenever there is
+     * only one packet outstanding.
+     */
+    private void sendProbes(List<List<QuicFrame>> framesPerPacket, int numberOfPackets, EncryptionLevel level) {
+        repeatSend(numberOfPackets, i ->
+                sender.sendProbe(framesPerPacket.get(Integer.min(i, framesPerPacket.size() - 1)), level));
+    }
+
     private void repeatSend(int count, Runnable task) {
+        repeatSend(count, i -> task.run());
+    }
+
+    private void repeatSend(int count, IntConsumer task) {
         for (int i = 0; i < count; i++) {
-            task.run();
+            task.accept(i);
             try {
                 Thread.sleep(1);  // Use a small delay when sending multiple packets
             } catch (InterruptedException e) {
