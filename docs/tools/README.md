@@ -195,6 +195,17 @@ only when the decrypted 8 byte worker id happens to equal a live worker's, which
 from the published sources or something ahead of it is doing the dropping. What is
 certain is the length, and that it is the one nghttpx reserves for itself.
 
+It is not this end sending something malformed, which a server that answers nothing
+cannot rule out on its own. The long header of the first Initial packet reads
+correctly field by field at 17, next to 16 and 18 - the DCID Length field says 17,
+the connection ID is 17 bytes, and the Length field plus the header equals the
+packet: 35 + 1165 = 1200. Those fields are in the clear; only the first byte's low
+bits and the packet number are header protected, so what is read there is what went
+out. And three unrelated server stacks accept the same packet - `www.google.com`
+15/15, `cloudflare-ech.com` 15/15, `quic.tools.scrapfly.io` 12/12 - which they could
+not do if it were malformed, since the Initial keys are derived from that very
+connection ID. Nothing in this code knows the number 17 either.
+
 **Left alone deliberately.** neqo draws this length at random, and the profile draws
 it the same way - `max(8, 5 + (v & (v >> 4)))`, which is 8 more than half the time
 and 17 exactly 9 times in 256:
