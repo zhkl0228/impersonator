@@ -391,6 +391,17 @@ public class ClientHello extends HandshakeMessage {
         }
 
         int clientHelloLength = buffer.position() - 4;
+        /*
+         * The handshake length is a uint24 and this writes the low two bytes of it, the high one
+         * having been left zero above. That is right for every ClientHello there is and wrong in
+         * silence for one that is not: a message of 65536 bytes would go out declaring itself 0 bytes
+         * long. The other constructor cannot reach this - it serializes into a 3000 byte buffer and
+         * overflows first - and this one sizes its buffer to fit, so the bound has to be said here.
+         */
+        if (clientHelloLength > 0xffff) {
+            throw new IllegalArgumentException("ClientHello is " + clientHelloLength + " bytes; this writes"
+                    + " the handshake length as a uint16 and cannot express more than " + 0xffff);
+        }
         buffer.putShort(2, (short) clientHelloLength);
         data = new byte[clientHelloLength + 4];
         buffer.rewind();

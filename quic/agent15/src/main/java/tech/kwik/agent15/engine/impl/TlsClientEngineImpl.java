@@ -37,8 +37,6 @@ import tech.kwik.agent15.extension.*;
 import tech.kwik.agent15.handshake.*;
 import tech.kwik.agent15.log.Logger;
 
-import java.nio.ByteBuffer;
-
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 import com.github.zhkl0228.impersonator.CertificateChains;
@@ -711,9 +709,15 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
              * HTTP/3 with settings_len = 0, and on this protocol everything ALPS carries travels the
              * other way, in the server's EncryptedExtensions.
              *
-             * BoringSSL omits this message when early data was accepted, the settings being the ones
-             * already agreed on the earlier connection. That case cannot arise here: this engine has
-             * no 0-RTT at all, so there is no branch for it rather than an untested one.
+             * Sent on the server's word and never on this end's wish: applicationSettingsType is set
+             * only when the server echoed, in its EncryptedExtensions, the codepoint the ClientHello
+             * offered. That is also what settles the one case BoringSSL treats specially. When early
+             * data is accepted the settings are the ones already agreed on the earlier connection, so
+             * BoringSSL's server does not echo the extension and its client sends no EncryptedExtensions
+             * of its own; a server behaving that way lands here with a null type and nothing is sent,
+             * without this having to know anything about 0-RTT. A server that echoed it while accepting
+             * early data would be a case no capture here covers - see the note in
+             * TlsClientEngineImpl.negotiatedApplicationSettings.
              */
             ClientEncryptedExtensions applicationSettings =
                     new ClientEncryptedExtensions(applicationSettingsType, new byte[0]);
@@ -945,7 +949,7 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
      * and a server echoing a codepoint that was never offered has already been rejected above as an
      * "extension response to missing request".
      */
-    private Integer negotiatedApplicationSettings(EncryptedExtensions encryptedExtensions) {
+    private Integer negotiatedApplicationSettings(EncryptedExtensions encryptedExtensions) throws ErrorAlert {
         for (Extension sent : sentExtensions) {
             int type = sent.getType() & 0xffff;
             if (type != APPLICATION_SETTINGS && type != APPLICATION_SETTINGS_OLD) {
@@ -954,6 +958,30 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
             boolean accepted = encryptedExtensions.getExtensions().stream()
                     .anyMatch(extension -> (extension.getType() & 0xffff) == type);
             if (accepted) {
+                if (encryptedExtensions.getExtensions().stream().anyMatch(ext -> ext instanceof EarlyDataExtension)) {
+                    /*
+                     * Early data accepted and the extension echoed anyway, which no capture here shows
+                     * and which the two implementations of ALPS disagree about what to do with. When
+                     * early data is accepted the settings are the ones already agreed on the earlier
+                     * connection, and BoringSSL treats that as settled on both sides: its server does
+                     * not echo "application_settings" at all, and its client sends no EncryptedExtensions
+                     * of its own. A server that echoes it is therefore either asking for the client's
+                     * message or repeating what was agreed, and those want opposite behaviour - send it,
+                     * and a server of the second kind answers with "unexpected_message"; leave it out,
+                     * and a server of the first kind answers the Finished the same way. Neither is
+                     * guessed at: this is the only place with enough information to tell, and what it
+                     * needs is a capture of a server that does this.
+                     *
+                     * Not a theoretical branch that costs real traffic, either: google.com negotiates
+                     * ALPS and accepts this client's 0-RTT, and does not echo the extension when it
+                     * does - SessionResumptionTest and ApplicationSettingsTest both go through it.
+                     */
+                    throw new UnsupportedExtensionAlert("server echoed application_settings (codepoint "
+                            + type + ") in an EncryptedExtensions that also accepted early data. No sample"
+                            + " of that combination exists, and whether the client then owes an"
+                            + " EncryptedExtensions of its own is exactly what it decides. Extensions in the"
+                            + " message: " + encryptedExtensions.getExtensions());
+                }
                 return type;
             }
         }
@@ -1240,8 +1268,10 @@ public class TlsClientEngineImpl extends TlsEngineImpl implements TlsClientEngin
 
         if (!echPublicNameAuthenticated) {
             // Reaching Finished with nothing authenticated means no server certificate was sent, which on this path
-            // cannot happen: a PSK is refused when ECH is offered, so the handshake cannot skip Certificate. Report it
-            // in full rather than hand over retry_configs nobody vouched for.
+            // cannot happen: a rejected ECH is a server that used the ClientHelloOuter, the ClientHelloOuter carries no
+            // pre_shared_key at all, and a handshake with no PSK cannot skip Certificate. (The reason used to be that a
+            // PSK was refused outright when ECH was offered; the two may now be used together, and the conclusion is
+            // the same by a different route.) Report it in full rather than hand over retry_configs nobody vouched for.
             throw new CertificateUnknownAlert("Encrypted Client Hello was rejected on a handshake that sent no server"
                     + " certificate, so the retry_configs could not be authenticated for " + publicName
                     + ". retry_configs=" + (echRetryConfigs == null? "<none>": hex(echRetryConfigs))

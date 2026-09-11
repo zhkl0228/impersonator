@@ -58,6 +58,9 @@ public class KeyShareExtension extends Extension {
     private TlsConstants.HandshakeType handshakeType;
     private List<KeyShareEntry> keyShareEntries = new ArrayList<>();
 
+    /** The last named group {@code decodeNamedGroup} did not know, so that a ServerHello can name it. */
+    private short lastUnrecognizedNamedGroup;
+
 
     /**
      * Assuming KeyShareClientHello:
@@ -120,6 +123,22 @@ public class KeyShareExtension extends Extension {
             if (remaining != 0) {
                 throw new DecodeErrorException("inconsistent length");
             }
+            if (keyShareEntries.isEmpty()) {
+                /*
+                 * The server chose a named group this implementation has no codepoint for, so the entry
+                 * was dropped - and a ServerHello's key_share has exactly one entry, which the engine
+                 * reads as getKeyShareEntries().get(0). Dropping it silently would turn "the server
+                 * picked a group I do not know" into "Index 0 out of bounds for length 0" somewhere
+                 * else entirely, which says nothing about what arrived and nothing about what to do.
+                 *
+                 * What it needs is the codepoint added to TlsConstants.NamedGroup, and a ClientHelloSpec
+                 * that offers a group needs it there too: the spec can generate a key share for any
+                 * number, and this is where the answer has to be turned back into one.
+                 */
+                throw new DecodeErrorException("server selected named group 0x"
+                        + Integer.toHexString(lastUnrecognizedNamedGroup & 0xffff)
+                        + ", which is not in TlsConstants.NamedGroup, so its key share cannot be read");
+            }
         }
         else {
             throw new IllegalArgumentException();
@@ -132,7 +151,13 @@ public class KeyShareExtension extends Extension {
             throw new DecodeErrorException("extension underflow");
         }
 
-        Optional<TlsConstants.NamedGroup> recognizedNamedGroup = TlsConstants.decodeNamedGroup(buffer.getShort());
+        short namedGroupValue = buffer.getShort();
+        Optional<TlsConstants.NamedGroup> recognizedNamedGroup = TlsConstants.decodeNamedGroup(namedGroupValue);
+        if (!recognizedNamedGroup.isPresent()) {
+            // Only so that the ServerHello case above can say which group it was; in a ClientHello an
+            // unrecognized group is ordinary - a client may offer GREASE ones - and is skipped.
+            lastUnrecognizedNamedGroup = namedGroupValue;
+        }
 
         if (namedGroupOnly) {
             recognizedNamedGroup.ifPresent(namedGroup -> keyShareEntries.add(new ECKeyShareEntry(namedGroup, null)));
