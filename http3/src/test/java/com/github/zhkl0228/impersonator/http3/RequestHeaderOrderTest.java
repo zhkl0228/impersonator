@@ -21,9 +21,11 @@ import java.util.List;
  * if the HTTP/2 order is ever corrected against a new capture, these fail until they are corrected
  * with it, which is the point.
  * <p>
- * Asserted from inside rather than from an endpoint's report because no endpoint reachable from here
- * reports the field order it received over HTTP/3. The HTTP/2 one does, and that is where the orders
- * came from; here the connection is asked what it wrote.
+ * Asserted from inside, by asking the connection what it wrote. That is a different question from the
+ * one {@code RequestFieldOrderTest} in impersonator-http3-core asks, which is what a server received,
+ * and both are worth asking: this one covers the path through {@link java.net.http.HttpClient} - a
+ * request rebuilt by {@link HttpRequest.Builder}, whose headers are a sorted map - and needs no
+ * endpoint that reports field order, so it runs against the same host as every other test here.
  */
 public class RequestHeaderOrderTest extends TestCase {
 
