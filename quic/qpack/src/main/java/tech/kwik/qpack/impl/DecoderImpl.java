@@ -429,11 +429,33 @@ public class DecoderImpl implements Decoder {
         }
     }
 
+    /**
+     * The longest string literal this will allocate a buffer for. A field line's name or value is a
+     * header, so this is far above anything real; it is here because the length prefix is a 62 bit
+     * integer and casting one to int to size an array turns "impossibly long" into a negative array
+     * size or a silent truncation. RFC 9204 sets no limit on the encoding, so this is a limit on what
+     * this end will believe before it has seen the bytes, not a claim about the protocol.
+     */
+    private static final long MAX_STRING_LENGTH = 1 << 20;
+
+    /**
+     * The declared length as an int, or an error. Never a truncated one: {@code (int)} on a 62 bit
+     * value can come out negative, and {@code new byte[negative]} is a NegativeArraySizeException
+     * from somewhere that says nothing about the connection it came from.
+     */
+    private static int stringLength(long declaredLength) {
+        if (declaredLength > MAX_STRING_LENGTH) {
+            throw new HttpQPackDecompressionFailedException("a string literal declares " + declaredLength
+                    + " bytes, past the " + MAX_STRING_LENGTH + " bytes this decoder will allocate for");
+        }
+        return (int) declaredLength;
+    }
+
     private String parseStringValue(PushbackInputStream inputStream) throws IOException {
         byte firstByte = read(inputStream);
         inputStream.unread(firstByte);
         boolean huffmanEncoded = (firstByte & 0x80) == 0x80;
-        int valueLength = (int) parsePrefixedInteger(7, inputStream);
+        int valueLength = stringLength(parsePrefixedInteger(7, inputStream));
         byte[] rawValue = new byte[valueLength];
         readExact(inputStream, rawValue);
         return huffmanEncoded? huffman.decode(rawValue): new String(rawValue, StandardCharsets.ISO_8859_1);
@@ -454,7 +476,7 @@ public class DecoderImpl implements Decoder {
         byte firstByte = read(inputStream);
         inputStream.unread(firstByte);
         boolean huffmanEncoded = (firstByte & huffmanFlagMask) == huffmanFlagMask;
-        int length = (int) parsePrefixedInteger(prefixLength, inputStream);
+        int length = stringLength(parsePrefixedInteger(prefixLength, inputStream));
         byte[] rawBytes = new byte[length];
         readExact(inputStream, rawBytes);
         return huffmanEncoded? huffman.decode(rawBytes): new String(rawBytes, StandardCharsets.ISO_8859_1);

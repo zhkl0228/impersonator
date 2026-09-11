@@ -74,6 +74,12 @@ public class PrefixedInteger {
         }
     }
 
+    /**
+     * The largest value RFC 9204 section 4.1.1 asks for: "QPACK implementations MUST be able to
+     * decode integers up to and including 62 bits long."
+     */
+    private static final long MAX_VALUE = (1L << 62) - 1;
+
     static long parsePrefixedInteger(int prefixLength, InputStream input) throws IOException {
         int maxPrefix = (int) (Math.pow(2, prefixLength) - 1);
         int initialValue = read(input) & maxPrefix;
@@ -86,7 +92,23 @@ public class PrefixedInteger {
         byte next;
         do {
             next = read(input);
-            value += ((long) (next & 0x7f)) << factor;
+            int septet = next & 0x7f;
+            /*
+             * Checked rather than trusted, because neither of the two ways this goes wrong is loud.
+             * Java masks a shift distance to six bits, so at factor 64 the "<<" below starts over at
+             * zero and a long integer comes back as some entirely different number; and the addition
+             * itself wraps through the sign bit. Either way a peer sending more continuation bytes
+             * than the encoding allows would get a value accepted that it never encoded, which is the
+             * one outcome worse than a connection error. It is also the only bound on the loop: an
+             * endless run of 0x80 bytes ends here rather than in an endless read.
+             */
+            if (factor > 62 || septet > (MAX_VALUE >> factor) || value > MAX_VALUE - (((long) septet) << factor)) {
+                throw new HttpQPackDecompressionFailedException("prefixed integer with a " + prefixLength
+                        + " bit prefix is longer than the 62 bits RFC 9204 section 4.1.1 requires an"
+                        + " implementation to decode (" + value + " so far, continuation byte 0x"
+                        + Integer.toHexString(next & 0xff) + " at bit " + factor + ")");
+            }
+            value += ((long) septet) << factor;
             factor += 7;
         }
         while ((next & 0x80) == 0x80);

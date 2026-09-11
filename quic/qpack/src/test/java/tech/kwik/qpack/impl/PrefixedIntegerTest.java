@@ -6,6 +6,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 /**
  * The prefixed integer of RFC 7541 section 5.1, which RFC 9204 section 4.1.1 uses unmodified and
@@ -67,6 +68,42 @@ public class PrefixedIntegerTest extends TestCase {
             for (long value : values) {
                 assertRoundTrip(prefixLength, value);
             }
+        }
+    }
+
+    /**
+     * And refuses what is past those 62 bits, rather than returning some other number.
+     * <p>
+     * Both ways a longer integer goes wrong here are silent. Java masks a shift distance to six bits,
+     * so at 64 the continuation bytes start landing back on the low bits of the value, and the
+     * addition itself wraps through the sign bit - so a peer sending more continuation bytes than the
+     * encoding allows would have a value accepted that it never encoded. The last case is also the
+     * only bound on the loop: a run of 0x80 bytes carries no bits at all and used to be read for as
+     * long as it lasted.
+     */
+    public void testItRefusesMoreThanSixtyTwoBits() throws IOException {
+        for (int prefixLength : PREFIX_LENGTHS) {
+            assertRefused(prefixLength, write(prefixLength, (byte) 0, 1L << 62));
+            assertRefused(prefixLength, write(prefixLength, (byte) 0, Long.MAX_VALUE));
+
+            // Continuation bytes that never stop: all bits set, and all bits clear.
+            byte[] ones = new byte[64];
+            Arrays.fill(ones, (byte) 0xff);
+            assertRefused(prefixLength, ones);
+            byte[] zeroes = new byte[64];
+            Arrays.fill(zeroes, (byte) 0x80);
+            zeroes[0] = (byte) 0xff;
+            assertRefused(prefixLength, zeroes);
+        }
+    }
+
+    private static void assertRefused(int prefixLength, byte[] encoded) {
+        try {
+            long parsed = PrefixedInteger.parsePrefixedInteger(prefixLength, new ByteArrayInputStream(encoded));
+            fail("prefix length " + prefixLength + ": an integer past 62 bits was read as " + parsed);
+        }
+        catch (HttpQPackDecompressionFailedException | IOException refused) {
+            // What it is for.
         }
     }
 
