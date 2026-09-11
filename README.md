@@ -24,7 +24,7 @@ TLS/JA3/JA4 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-bctls</artifactId>
-    <version>1.9.0</version>
+    <version>1.10.0</version>
 </dependency>
 ```
 
@@ -33,7 +33,7 @@ TLS/JA3/JA4 fingerprints and HTTP/2 fingerprints impersonation
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-okhttp</artifactId>
-    <version>1.9.0</version>
+    <version>1.10.0</version>
 </dependency>
 ```
 - [src/test/java/com/github/zhkl0228/impersonator/IOSTest.java](https://github.com/zhkl0228/impersonator/blob/master/okhttp/src/test/java/com/github/zhkl0228/impersonator/IOSTest.java)
@@ -86,7 +86,7 @@ configs may only be trusted once the certificate presented for `public_name` has
 <dependency>
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator-http3</artifactId>
-    <version>1.9.0</version>
+    <version>1.10.0</version>
 </dependency>
 ```
 

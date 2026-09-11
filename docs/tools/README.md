@@ -229,3 +229,80 @@ with one is not making a per-connection decision - more than one process is
 answering the same address, configured differently. That is also the most economical
 explanation for the Retry and the CONNECTION_CLOSE contradicting each other in the
 same burst: they are not one server changing its mind.
+
+## A LiteSpeed server closes with INTERNAL_ERROR and no reason
+
+`www.litespeedtech.com` answers the Chrome and Android profiles with
+`CONNECTION_CLOSE` about one connection in four - 22/30, 23/30 - where Safari's and
+Firefox's lose none. The frame is `0x1c`, error code 1, frame type 0, reason phrase
+empty. Both halves of the Chrome first flight have to be in place for it to happen:
+the QUICHE chaos protection alone is 30/30 and the multi-packet division alone is
+30/30, only the two together fail.
+
+The frame type 0 in it is not a clue. lsquic hardcodes it:
+
+    *p = 0x1C + !!app_error;
+    ...
+    if (!app_error)
+        *p++ = 0;   /* Frame type */ /* TODO */
+
+The empty reason phrase is the clue. Every `TEC_INTERNAL_ERROR` in
+`lsquic_full_conn_ietf.c` carries a reason string, so none of them is this. The one
+that matches is in the mini connection - the object that handles a handshake before
+a full connection exists - where the close frame builder ends in a catch-all with no
+reason at all:
+
+    else
+    {
+        is_app = 0;
+        error_code = TEC_INTERNAL_ERROR;
+        reason = NULL;
+        rlen = 0;
+    }
+
+The path into that branch: `imico_stash_stream_frame` returns -1, so
+`imico_process_crypto_frame` returns 0, so `imico_parse_regular_packet` fails, so
+`conn->imc_flags |= IMC_ERROR` and the connection is closed by the catch-all. And
+`imico_stash_stream_frame` has exactly two ways to return -1:
+
+    if (conn->imc_n_crypto_frames >= conn->imc_enpub->enp_settings.es_max_crypto_stash)
+        ... return -1;
+    if (conn->imc_crypto_frames_sz + DF_SIZE(frame) > IMICO_MAX_BUFFERED_CRYPTO)
+        ... return -1;
+
+The byte quota is 6 KiB and a ClientHello of about 2 KB cannot reach it, so it is the
+frame count - the number of CRYPTO frames held at once while their predecessor is
+still missing. lsquic documents the setting in its own header, and documents this
+very interop failure while doing so:
+
+    /**
+     * The maximum number of out-of-order CRYPTO frames the mini connection
+     * stashes while waiting for the missing predecessor frames.  When the
+     * limit is hit, the connection is aborted.  Client implementations such
+     * as ngtcp2 (since its "chaos protection") shuffle the ClientHello into
+     * ~20 out-of-order frames; the historical limit of 10 fails such
+     * handshakes.
+     */
+    unsigned char   es_max_crypto_stash;
+
+Counting the CRYPTO frames across both Initial packets of the first flight, over 60
+connections, puts the boundary where a limit of 10 would put it rather than where the
+current default of 20 would:
+
+     9..13 frames   ok 21   failed  0
+    14 frames       ok 12   failed  2      18 frames   ok  4   failed  0
+    15 frames       ok  4   failed  2      19 frames   ok  1   failed  3
+    16 frames       ok  2   failed  1      20 frames   ok  1   failed  0
+    17 frames       ok  2   failed  0      21 frames   ok  2   failed  2
+                                           23 frames   ok  0   failed  1
+
+Not a clean threshold, and it should not be: what the counter holds is the frames
+*outstanding at once*, which is at most the total and equals it only when the split
+happens to deliver every piece before its predecessor. That is also why neither the
+frame count of the first packet alone nor the length of the CRYPTO piece at offset 0
+predicts anything - measured, they do not.
+
+**Left alone deliberately.** This is a limit on the server's side of a handshake that
+is within the protocol, and the chaos protection producing it is
+`InitialPacketChaosProtector`, a port of QUICHE's `QuicChaosProtector` - what real
+Chrome sends. Sending fewer pieces would be a difference from the browser, not a fix.
