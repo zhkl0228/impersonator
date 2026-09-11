@@ -167,6 +167,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      * not be kept.
      */
     private final List<byte[]> newTokens = Collections.synchronizedList(new ArrayList<>());
+    /**
+     * Told as each arrives, rather than leaving a caller to ask afterwards; see
+     * {@link QuicClientConnection#onNewSessionTicket}. Null until someone asks to hear.
+     */
+    private volatile Consumer<QuicSessionTicket> newSessionTicketListener;
+    private volatile Consumer<byte[]> newTokenListener;
     private boolean ignoreVersionNegotiation;
     private volatile EarlyDataStatus earlyDataStatus = None;
     /** Whether the ClientHello offered "early_data"; see {@link #startConnect(boolean)}. */
@@ -1072,6 +1078,10 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         // "Clients might receive multiple tokens on a single connection. Aside from preventing
         //  linkability, any token can be used in any connection attempt."
         newTokens.add(newTokenFrame.getToken());
+        Consumer<byte[]> listener = newTokenListener;
+        if (listener != null) {
+            listener.accept(newTokenFrame.getToken());
+        }
     }
 
     @Override
@@ -1581,7 +1591,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
                 log.error("Invalid quic new session ticket (invalid early data size); ignoring ticket.");
             }
         }
-        newSessionTickets.add(new QuicSessionTicketImpl(tlsSessionTicket, peerTransportParams));
+        QuicSessionTicket ticket = new QuicSessionTicketImpl(tlsSessionTicket, peerTransportParams);
+        newSessionTickets.add(ticket);
+        Consumer<QuicSessionTicket> listener = newSessionTicketListener;
+        if (listener != null) {
+            listener.accept(ticket);
+        }
     }
 
     @Override
@@ -1592,6 +1607,16 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     @Override
     public List<QuicSessionTicket> getNewSessionTickets() {
         return newSessionTickets;
+    }
+
+    @Override
+    public void onNewSessionTicket(Consumer<QuicSessionTicket> listener) {
+        this.newSessionTicketListener = listener;
+    }
+
+    @Override
+    public void onNewToken(Consumer<byte[]> listener) {
+        this.newTokenListener = listener;
     }
 
     @Override

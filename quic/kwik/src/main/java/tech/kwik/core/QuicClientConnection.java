@@ -43,6 +43,7 @@ import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Consumer;
 
 
 public interface QuicClientConnection extends QuicConnection {
@@ -115,6 +116,31 @@ public interface QuicClientConnection extends QuicConnection {
     void keepAlive(int seconds);
 
     List<QuicSessionTicket> getNewSessionTickets();
+
+    /**
+     * Called with each session ticket as it arrives, rather than leaving a caller to ask afterwards.
+     * <p>
+     * {@link #getNewSessionTickets()} answers with what has arrived so far, which is enough for a
+     * caller that asks once, at the end, and only if it gets that far. A connection that is kept -
+     * which is what an HTTP client does, one per host for as long as it lives - has tickets and
+     * tokens arriving throughout, and none of them is any use to anything else until somebody asks;
+     * and a connection that is dropped rather than closed is never asked at all, so what it learned
+     * is lost. A listener makes the two the same thing: the caller's store knows what the connection
+     * knows, when it knows it.
+     * <p>
+     * It cannot conjure what has not arrived. A server that sends its NewSessionTicket after the
+     * response has sent nothing by the time a caller that closes immediately has closed, and no
+     * listener changes that - only staying connected does.
+     * <p>
+     * Set before connecting. It is called on the thread that processed the packet, so a listener that
+     * blocks holds up the connection and one that throws ends it.
+     *
+     * @param listener the listener, or null to remove one.
+     */
+    void onNewSessionTicket(Consumer<QuicSessionTicket> listener);
+
+    /** The same for the address validation tokens of NEW_TOKEN frames; see {@link #getNewTokens()}. */
+    void onNewToken(Consumer<byte[]> listener);
 
     /**
      * The address validation tokens this connection was given in NEW_TOKEN frames, oldest first, for

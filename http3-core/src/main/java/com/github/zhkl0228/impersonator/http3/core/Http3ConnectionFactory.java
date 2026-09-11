@@ -49,9 +49,11 @@ import java.util.concurrent.Executors;
  * connection per host kept for you; it needs a Java 21 because that is where that class became
  * {@link AutoCloseable}. This needs only the Java 11 the QUIC modules are built for.
  * <p>
- * One connection per call, and closing it is the caller's business - which is also when its session
- * ticket and its address validation token are kept for the next one, so a connection that is dropped
- * rather than closed teaches this factory nothing.
+ * One connection per call, and closing it is the caller's business. What it learns on the way - the
+ * session tickets and the address validation tokens the server hands out - reaches this factory's
+ * stores as each one arrives, so the next connection has it whether or not this one was closed
+ * tidily. What the server had not sent by the time the caller closed is another matter, and only
+ * staying connected longer answers it.
  */
 public class Http3ConnectionFactory {
 
@@ -223,7 +225,42 @@ public class Http3ConnectionFactory {
         // encoder streams as soon as the handshake completes, so connecting first loses whichever of
         // them wins the race, and the QPACK one carries the dynamic table.
         Http3Connection connection = new Http3Connection(quicConnection, executorService, http3Settings,
-                fieldOrder, profileHeaders, sessionTicketStore, newTokenStore, host);
+                fieldOrder, profileHeaders);
+
+        /*
+         * As they arrive, not when this connection is closed. Collecting at close made the stores
+         * depend on close being called and on its timing: a connection that is kept - which is what
+         * the HttpClient above does, one per host for as long as it lives - had everything the server
+         * handed it sitting where nothing else could reach it, and one that was dropped rather than
+         * closed taught this factory nothing at all.
+         *
+         * It does not conjure what has not arrived. A server that sends its NewSessionTicket after the
+         * response has sent nothing by the time a caller that closes at once has closed; keeping a
+         * connection open is the only thing that helps there, and that is the caller's to decide.
+         *
+         * Registered before the handshake starts, so nothing can arrive before there is somewhere to
+         * put it. The listener runs on the thread that processed the packet and must not throw: a
+         * ticket that cannot be kept costs the next connection a full handshake, and a token a Retry,
+         * and neither is worth ending a working connection over.
+         */
+        if (sessionTicketStore != null) {
+            quicConnection.onNewSessionTicket(newTicket -> {
+                try {
+                    sessionTicketStore.put(host, Collections.singletonList(newTicket));
+                }
+                catch (RuntimeException ignored) {
+                }
+            });
+        }
+        if (newTokenStore != null) {
+            quicConnection.onNewToken(newToken -> {
+                try {
+                    newTokenStore.put(host, Collections.singletonList(newToken));
+                }
+                catch (RuntimeException ignored) {
+                }
+            });
+        }
         try {
             if (ticket != null) {
                 /*
