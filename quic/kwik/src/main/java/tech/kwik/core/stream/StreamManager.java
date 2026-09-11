@@ -193,17 +193,33 @@ public class StreamManager {
     }
 
     public QuicStream createStream(boolean bidirectional, long timeout, TimeUnit timeoutUnit) throws TimeoutException {
-        if (earlyDataWindowOpen) {
-            // The handshake has not finished, so anything written now can go out in 0-RTT packets -
-            // which is what an ordinary caller asking for a stream in this window wants, and the only
-            // way it can have it: an EarlyDataStream is the only stream that writes at that level.
-            // See openEarlyDataWindow.
-            QuicStreamSupplier earlyDataCreator = (streamId) ->
-                    new EarlyDataStream(quicVersion, streamId, (QuicClientConnectionImpl) connection, this, flowController, log);
-            return register(createStream(bidirectional, timeout, timeoutUnit, earlyDataCreator));
+        // Outside the lock, because this is the part that blocks - until the peer grants stream credit,
+        // which for the default timeout is days - and closeEarlyDataWindow must not wait behind it.
+        acquireStreamCredit(bidirectional, timeout, timeoutUnit);
+        synchronized (earlyDataStreams) {
+            /*
+             * The window is read, the stream is made and it is registered under one lock, so that
+             * every stream is either an early data stream closeEarlyDataWindow will settle or an
+             * ordinary stream made after the window shut. Reading the flag outside the lock left a
+             * third possibility: a stream created as an EarlyDataStream - writing at the 0-RTT level -
+             * and registered into a list closeEarlyDataWindow had already taken and cleared, so
+             * nothing would send its data again when the server refused the early data. The request
+             * then never arrives and never fails either.
+             *
+             * Everything inside here is non-blocking; the lock is held for a stream id and a map put.
+             */
+            if (earlyDataWindowOpen) {
+                // The handshake has not finished, so anything written now can go out in 0-RTT packets -
+                // which is what an ordinary caller asking for a stream in this window wants, and the only
+                // way it can have it: an EarlyDataStream is the only stream that writes at that level.
+                // See openEarlyDataWindow.
+                QuicStreamSupplier earlyDataCreator = (streamId) ->
+                        new EarlyDataStream(quicVersion, streamId, (QuicClientConnectionImpl) connection, this, flowController, log);
+                return register(openStream(bidirectional, earlyDataCreator));
+            }
+            QuicStreamSupplier streamCreator = (streamId) -> new QuicStreamImpl(quicVersion, streamId, role, connection, this, flowController, log);
+            return openStream(bidirectional, streamCreator);
         }
-        QuicStreamSupplier streamCreator = (streamId) -> new QuicStreamImpl(quicVersion, streamId, role, connection, this, flowController, log);
-        return createStream(bidirectional, timeout, timeoutUnit, streamCreator);
     }
 
     /**
@@ -235,10 +251,10 @@ public class StreamManager {
      */
     public List<EarlyDataStream> closeEarlyDataWindow() {
         synchronized (earlyDataStreams) {
-            // Inside the lock, so that a stream created while this runs is either registered before
-            // the window shuts - and settled here - or created after it and not an early data stream
-            // at all. A stream that fell between the two would write 0-RTT data that nothing ever
-            // sends again if the server refuses it.
+            // The same lock createStream reads the flag and registers under, so that a stream created
+            // while this runs is either registered before the window shuts - and settled here - or
+            // created after it and not an early data stream at all. A stream that fell between the two
+            // would write 0-RTT data that nothing ever sends again if the server refuses it.
             earlyDataWindowOpen = false;
             List<EarlyDataStream> opened = new ArrayList<>(earlyDataStreams);
             earlyDataStreams.clear();
@@ -274,6 +290,16 @@ public class StreamManager {
     }
 
     private QuicStreamImpl createStream(boolean bidirectional, long timeout, TimeUnit unit, QuicStreamSupplier streamFactory) throws TimeoutException {
+        acquireStreamCredit(bidirectional, timeout, unit);
+        return openStream(bidirectional, streamFactory);
+    }
+
+    /**
+     * Waits for the peer to allow one more stream of this kind. The blocking half of creating a
+     * stream, split off so that {@link #createStream(boolean, long, TimeUnit)} can do it before
+     * taking the early data window's lock.
+     */
+    private void acquireStreamCredit(boolean bidirectional, long timeout, TimeUnit unit) throws TimeoutException {
         try {
             boolean acquired;
             if (bidirectional) {
@@ -289,7 +315,10 @@ public class StreamManager {
             log.debug("blocked createStream operation is interrupted");
             throw new TimeoutException("operation interrupted");
         }
+    }
 
+    /** The other half: the credit is in hand, so this only makes the stream and files it. Never blocks. */
+    private QuicStreamImpl openStream(boolean bidirectional, QuicStreamSupplier streamFactory) {
         int streamId = generateStreamId(bidirectional);
         QuicStreamImpl stream = streamFactory.apply(streamId);
         streams.put(streamId, stream);
