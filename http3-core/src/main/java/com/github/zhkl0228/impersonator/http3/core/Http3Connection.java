@@ -67,9 +67,10 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
             settingsParameters.clear();
             settingsParameters.putAll(settings);
         }
+        qpackEncoder = huffmanCodingEncoder();
         FieldSectionOrder ordering = null;
         if (fieldOrder != null) {
-            // Wrapping rather than replacing: flupke's encoder still does the encoding, it just gets
+            // Wrapping rather than replacing: the encoder above still does the encoding, it just gets
             // the field lines in the browser's order. See FieldSectionOrder for why this is the only
             // point at which that order still exists.
             qpackEncoder = ordering = new FieldSectionOrder(qpackEncoder, fieldOrder);
@@ -78,6 +79,24 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
         qpack = (DecoderImpl) qpackDecoder;
         qpack.setMaxTableCapacity(advertised(Http3Settings.QPACK_MAX_TABLE_CAPACITY));
         qpack.setMaxBlockedStreams((int) advertised(Http3Settings.QPACK_BLOCKED_STREAMS));
+    }
+
+    /**
+     * An encoder that Huffman codes its string literals, in place of the one flupke builds.
+     * <p>
+     * flupke builds its own with {@code Encoder.newBuilder().build()}, and the builder's
+     * {@code useHuffmanEncoding} defaults to false, so every request went out with its field lines
+     * spelled in ASCII. For the field section a profile sends that is a fifth of it wasted: Chrome's
+     * seventeen field lines measure 575 bytes uncoded and 451 Huffman coded, and the User-Agent alone
+     * is 129 of those bytes, sent again on every request of every connection.
+     * <p>
+     * RFC 9204 section 4.1.2 leaves the choice to the encoder, per string - {@code EncoderImpl} takes
+     * the coded form only where it is shorter - so this costs nothing but the coding itself, and no
+     * decoder can tell the difference beyond the H bit it is told to read. Browsers code their
+     * headers too, so it is also the closer of the two to what one looks like.
+     */
+    private static Encoder huffmanCodingEncoder() {
+        return Encoder.newBuilder().useHuffmanEncoding(true).build();
     }
 
     /**
