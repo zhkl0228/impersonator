@@ -9,6 +9,7 @@ import tech.kwik.flupke.HttpStream;
 import tech.kwik.flupke.impl.Http3ClientConnectionImpl;
 import tech.kwik.flupke.impl.HeadersFrame;
 import tech.kwik.flupke.impl.Http3Frame;
+import tech.kwik.qpack.Encoder;
 import tech.kwik.qpack.impl.DecoderImpl;
 import tech.kwik.qpack.impl.DynamicTable;
 
@@ -315,6 +316,28 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
             // dynamic table can never be acknowledged; that is not something to carry on from.
             throw new UncheckedIOException("could not open the QPACK decoder stream", e);
         }
+    }
+
+    /**
+     * Encodes a field section with <em>this connection's</em> QPACK encoder, for a caller writing
+     * HEADERS onto a stream it manages itself - the counterpart of {@link #parseHeaders}.
+     * <p>
+     * A throwaway {@code Encoder.newBuilder().build()} writes the same bytes for the same field
+     * lines: it holds no state at all between sections, writes a zero block prefix and names only
+     * static table entries. What it does not have is the order. This one is wrapped in the browser's
+     * field order wherever there is one to wrap - a profile a capture gave a pseudo header order for;
+     * without one it is flupke's encoder unwrapped, which is all a throwaway would ever have been.
+     * {@link FieldSectionOrder} is the only place that order exists - a caller encoding with an
+     * encoder of its own sends the four pseudo headers in whatever order the map holding them
+     * iterated, which for a {@code Map.of} the JDK randomises per run.
+     * <p>
+     * One encoder serves every stream of this connection, as it already does for the requests flupke
+     * writes itself. {@link #lastFieldSection()} is the one thing concurrent use costs: it reports
+     * the section written last, which among concurrent writers is whichever finished last rather
+     * than the caller's own.
+     */
+    public Encoder fieldSectionEncoder() {
+        return qpackEncoder;
     }
 
     /**
