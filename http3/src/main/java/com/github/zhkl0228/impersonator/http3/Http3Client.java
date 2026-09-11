@@ -7,24 +7,20 @@ import tech.kwik.core.QuicClientConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.Authenticator;
 import java.net.CookieHandler;
 import java.net.ProxySelector;
 import java.net.URI;
-import java.nio.ByteBuffer;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Flow;
 
 /**
  * One QUIC connection per host and port, each carrying the factory's profile, behind one
@@ -52,51 +48,9 @@ class Http3Client extends HttpClient {
     @Override
     public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
             throws IOException, InterruptedException {
-        // The browser's own headers are the connection's doing, not this class's; see
-        // Http3Connection.send. What is this class's is undoing the Content-Encoding they ask for.
-        return connectionFor(request.uri()).send(request, decoding(responseBodyHandler));
-    }
-
-    /**
-     * The caller's body handler, with any Content-Encoding undone first.
-     * <p>
-     * The profile's Accept-Encoding asks for gzip, deflate, br and zstd because that is what the
-     * browser asks for, so the answer has to be decoded rather than handed on compressed - which is
-     * what happened for one run of the tests, and looked like a response body of binary noise.
-     * <p>
-     * The body is buffered whole to decode it, which is what decoding needs anyway, and then fed to
-     * the handler the caller gave. A response with no Content-Encoding goes straight through and is
-     * not buffered.
-     */
-    private <T> HttpResponse.BodyHandler<T> decoding(HttpResponse.BodyHandler<T> handler) {
-        return responseInfo -> {
-            String contentEncoding = responseInfo.headers().firstValue("content-encoding").orElse(null);
-            if (!ContentEncoding.isEncoded(contentEncoding)) {
-                return handler.apply(responseInfo);
-            }
-            return HttpResponse.BodySubscribers.mapping(HttpResponse.BodySubscribers.ofByteArray(), body -> {
-                byte[] decoded;
-                try {
-                    decoded = ContentEncoding.decode(contentEncoding, body);
-                }
-                catch (IOException e) {
-                    throw new UncheckedIOException("decode a " + contentEncoding + " response body", e);
-                }
-                HttpResponse.BodySubscriber<T> delegate = handler.apply(responseInfo);
-                delegate.onSubscribe(new Flow.Subscription() {
-                    @Override
-                    public void request(long n) {
-                    }
-
-                    @Override
-                    public void cancel() {
-                    }
-                });
-                delegate.onNext(List.of(ByteBuffer.wrap(decoded)));
-                delegate.onComplete();
-                return delegate.getBody().toCompletableFuture().join();
-            });
-        };
+        // The browser's own headers and the decoding of what its Accept-Encoding asks for are both
+        // the connection's doing, not this class's; see Http3Connection.send.
+        return connectionFor(request.uri()).send(request, responseBodyHandler);
     }
 
     @Override
@@ -114,10 +68,7 @@ class Http3Client extends HttpClient {
         try {
             // HTTP/3 has no push promise in RFC 9114 the way HTTP/2 did, and flupke offers no hook for
             // one, so a handler is accepted and never called rather than silently dropped elsewhere.
-            // The Content-Encoding is undone here exactly as in send(): the Accept-Encoding that asks
-            // for it is the connection's, so it asks for it on both paths, and a response body handed
-            // back still compressed is binary noise whichever method was called.
-            connectionFor(request.uri()).sendAsync(request, decoding(responseBodyHandler), result);
+            connectionFor(request.uri()).sendAsync(request, responseBodyHandler, result);
         } catch (IOException e) {
             result.completeExceptionally(e);
         }

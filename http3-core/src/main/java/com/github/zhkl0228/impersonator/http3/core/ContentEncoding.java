@@ -1,4 +1,4 @@
-package com.github.zhkl0228.impersonator.http3;
+package com.github.zhkl0228.impersonator.http3.core;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -9,6 +9,13 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * Undoing the Content-Encoding of a response.
+ * <p>
+ * Here rather than beside {@code java.net.http.HttpClient}, because the Accept-Encoding that asks for
+ * these is the connection's: {@code Http3Connection} adds the browser's own headers to every request,
+ * so every caller of this module asks for gzip, deflate, br and zstd whether or not it went through
+ * the adapter above. While this lived up there, a caller using {@code Http3ConnectionFactory}
+ * directly - which is the whole reason this module exists, and the only one available on Java 11 -
+ * got the compressed bytes back and nothing said so.
  * <p>
  * A browser profile's request headers include the Accept-Encoding the browser sends, and Chrome's is
  * {@code gzip, deflate, br, zstd}. Asking for those and then handing the caller the compressed bytes

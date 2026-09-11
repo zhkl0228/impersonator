@@ -1,8 +1,6 @@
 package com.github.zhkl0228.impersonator.http3.core;
 
 import com.github.zhkl0228.impersonator.Http3Settings;
-import com.github.zhkl0228.impersonator.quic.NewTokenStore;
-import com.github.zhkl0228.impersonator.quic.SessionTicketStore;
 import tech.kwik.core.QuicClientConnection;
 import tech.kwik.core.QuicStream;
 import tech.kwik.core.stream.StreamInputStream;
@@ -17,8 +15,10 @@ import tech.kwik.qpack.impl.DynamicTable;
 import java.io.*;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Flow;
 
 /**
  * An HTTP/3 connection whose SETTINGS frame is the profile's rather than flupke's, and which honours
@@ -50,27 +50,18 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
     private final DecoderImpl qpack;
     private final FieldSectionOrder ordering;
     private final QuicClientConnection quicClientConnection;
-    private final String host;
     private final Map<String, String> profileHeaders;
-    private final SessionTicketStore sessionTicketStore;
-    private final NewTokenStore newTokenStore;
 
     /**
      * @param profileHeaders the headers the browser adds to every request, in the order it adds them;
      *                       empty for no profile. See {@link #send(HttpRequest, HttpResponse.BodyHandler)}.
-     * @param sessionTicketStore where this connection's session tickets go when it is closed, or null
-     * @param newTokenStore where its address validation tokens go, or null
      */
     Http3Connection(QuicClientConnection quicConnection, ExecutorService executorService, Map<Long, Long> settings,
-                    java.util.List<String> fieldOrder, Map<String, String> profileHeaders,
-                    SessionTicketStore sessionTicketStore, NewTokenStore newTokenStore, String host) {
+                    java.util.List<String> fieldOrder, Map<String, String> profileHeaders) {
         super(quicConnection, executorService);
         this.executorService = executorService;
         this.quicClientConnection = quicConnection;
-        this.host = host;
         this.profileHeaders = profileHeaders;
-        this.sessionTicketStore = sessionTicketStore;
-        this.newTokenStore = newTokenStore;
         if (settings != null) {
             settingsParameters.clear();
             settingsParameters.putAll(settings);
@@ -106,13 +97,58 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
     @Override
     public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
             throws IOException {
-        return super.send(withProfileHeaders(request), responseBodyHandler);
+        return super.send(withProfileHeaders(request), decoding(responseBodyHandler));
     }
 
     @Override
     public <T> void sendAsync(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler,
                               java.util.concurrent.CompletableFuture<HttpResponse<T>> result) {
-        super.sendAsync(withProfileHeaders(request), responseBodyHandler, result);
+        super.sendAsync(withProfileHeaders(request), decoding(responseBodyHandler), result);
+    }
+
+    /**
+     * The caller's body handler, with any Content-Encoding undone first.
+     * <p>
+     * It belongs to the connection because the Accept-Encoding does: {@link #withProfileHeaders} adds
+     * the browser's own, which asks for gzip, deflate, br and zstd, so the answer has to be decoded
+     * rather than handed on compressed. That is true of every caller of this class, not only of the
+     * ones that reach it through {@code java.net.http.HttpClient} - and while this lived up there, a
+     * caller using {@link Http3ConnectionFactory} directly got a response body of binary noise with
+     * nothing to say why.
+     * <p>
+     * The body is buffered whole to decode it, which is what decoding needs anyway, and then fed to
+     * the handler the caller gave. A response with no Content-Encoding goes straight through and is
+     * not buffered.
+     */
+    private <T> HttpResponse.BodyHandler<T> decoding(HttpResponse.BodyHandler<T> handler) {
+        return responseInfo -> {
+            String contentEncoding = responseInfo.headers().firstValue("content-encoding").orElse(null);
+            if (!ContentEncoding.isEncoded(contentEncoding)) {
+                return handler.apply(responseInfo);
+            }
+            return HttpResponse.BodySubscribers.mapping(HttpResponse.BodySubscribers.ofByteArray(), body -> {
+                byte[] decoded;
+                try {
+                    decoded = ContentEncoding.decode(contentEncoding, body);
+                }
+                catch (IOException e) {
+                    throw new UncheckedIOException("decode a " + contentEncoding + " response body", e);
+                }
+                HttpResponse.BodySubscriber<T> delegate = handler.apply(responseInfo);
+                delegate.onSubscribe(new Flow.Subscription() {
+                    @Override
+                    public void request(long n) {
+                    }
+
+                    @Override
+                    public void cancel() {
+                    }
+                });
+                delegate.onNext(java.util.List.of(ByteBuffer.wrap(decoded)));
+                delegate.onComplete();
+                return delegate.getBody().toCompletableFuture().join();
+            });
+        };
     }
 
     private HttpRequest withProfileHeaders(HttpRequest request) {
@@ -142,32 +178,15 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
     }
 
     /**
-     * Keeps what this connection learned and closes it.
+     * Closes the QUIC connection underneath.
      * <p>
-     * The tickets and tokens are collected here rather than when the handshake finished, because that
-     * is not when they arrive: a server sends its NewSessionTickets and its NEW_TOKEN frames once the
-     * handshake is over, so the moment the connection is done with is the first point they are all in.
-     * Without them the next connection to this host is a full handshake that asks for a Retry, which
-     * is not a history any browser has.
+     * The session tickets and address validation tokens this connection was given are not collected
+     * here. They used to be, which made the stores depend on this method being called at all, and on
+     * nothing else needing them while the connection was still alive. They now go to their stores as
+     * they arrive; see Http3ConnectionFactory.newConnection.
      */
     @Override
     public void close() {
-        if (sessionTicketStore != null) {
-            try {
-                sessionTicketStore.put(host, quicClientConnection.getNewSessionTickets());
-            }
-            catch (RuntimeException ignored) {
-                // A ticket that cannot be kept costs the next connection a full handshake, nothing more.
-            }
-        }
-        if (newTokenStore != null) {
-            try {
-                newTokenStore.put(host, quicClientConnection.getNewTokens());
-            }
-            catch (RuntimeException ignored) {
-                // A token that cannot be kept costs the next connection a Retry, nothing more.
-            }
-        }
         try {
             quicClientConnection.close();
         }
