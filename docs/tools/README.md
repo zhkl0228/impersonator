@@ -146,3 +146,75 @@ about packet count or message size. nghttpx's is `quicconf.upstream.require_toke
 and the same `hd.tokenlen == 0`, so it retries every first flight and the packet
 count has nothing to do with *that* either. What the packet count does correlate
 with is the failure above.
+
+### A 17 byte Destination Connection ID is dropped, every time
+
+The Firefox profile loses about one connection in thirty to nghttp2.org to a full
+connect timeout - no answer at all, five probes over ten seconds - where Chrome's
+and Safari's lose none. It is not the ClientHello, the padding or anything else the
+profile does differently. It is the length of the initial Destination Connection ID.
+
+Measured with no profile at all, so that nothing else varies: one Initial packet,
+agent15's own ClientHello, ten connections at each length from 8 to 20.
+
+    len  8..16  10/10   len 18..20  10/10
+    len 17       0/10
+
+Sixty more at 17: 0/60, every one a timeout. Against the real address rather than
+this machine's resolver, 0/10 at 17 and 10/10 at 16 and 18. At `www.google.com` and
+`cloudflare-ech.com`, 15/15 at 17. It is nghttp2.org and it is that one length.
+
+17 is nghttpx's own connection ID length. From `src/shrpx_quic.h`:
+
+    SHRPX_QUIC_CID_WORKER_ID_OFFSET  1
+    SHRPX_QUIC_WORKER_IDLEN          4 + 4
+    SHRPX_QUIC_CLIENT_IDLEN          8
+    SHRPX_QUIC_SCIDLEN               1 + 8 + 8 = 17
+
+and `#define SV_DCIDLEN 17` in `bpf/reuseport_kern.c`, its eBPF socket selector.
+Every Retry nghttp2.org sends carries a 17 byte Source Connection ID, which is the
+same number seen from the other side.
+
+To nghttpx, a 17 byte DCID *means* "a connection ID this server issued". The eBPF
+decrypts bytes 1..16 of it and routes the packet by the worker id inside;
+`shrpx_quic_connection_handler.cc` decrypts the same bytes again and, for an Initial
+that starts a new connection, drops it outright -
+
+    // If we get Initial and it has the Worker ID of this worker, it
+    // is likely that client is intentionally use the prefix.  Just
+    // drop it.
+
+- and an Initial carrying a Retry token is required to have one: "Initial packets
+with Retry token must have DCID chosen by server", else `return`. A client that
+picks 17 bytes for itself is therefore indistinguishable from one replaying a
+server-chosen connection ID, and is treated as hostile.
+
+Which line drops all of them is not settled. The two `return`s above are reached
+only when the decrypted 8 byte worker id happens to equal a live worker's, which for
+16 random bytes is chance, not certainty; so either the deployed nghttpx differs
+from the published sources or something ahead of it is doing the dropping. What is
+certain is the length, and that it is the one nghttpx reserves for itself.
+
+**Left alone deliberately.** neqo draws this length at random, and the profile draws
+it the same way - `max(8, 5 + (v & (v >> 4)))`, which is 8 more than half the time
+and 17 exactly 9 times in 256:
+
+    len  8  56.25%   len 12   1.17%   len 16   1.17%   len 20   0.39%
+    len  9  10.55%   len 13  10.55%   len 17   3.52%
+    len 10   3.52%   len 14   3.52%   len 18   1.17%
+    len 11   3.52%   len 15   3.52%   len 19   1.17%
+
+3.52% against 7 of 200 and 10 of 200 measured, which is the whole of the Firefox
+profile's timeout rate against this host and nothing else. Avoiding 17 would be a
+difference from the browser rather than a fix: real Firefox draws it just as often
+and loses the same connections.
+
+### Why a Retry arrives at all
+
+Worth recording next to the CONNECTION_CLOSE above: in nghttpx every `send_retry`
+call site is guarded by `quicconf.upstream.require_token`, which is static
+configuration. So a host that answers 98.5% of connections with no Retry and 1.5%
+with one is not making a per-connection decision - more than one process is
+answering the same address, configured differently. That is also the most economical
+explanation for the Retry and the CONNECTION_CLOSE contradicting each other in the
+same burst: they are not one server changing its mind.
