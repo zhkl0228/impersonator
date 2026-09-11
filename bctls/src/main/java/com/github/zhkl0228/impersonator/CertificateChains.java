@@ -53,7 +53,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class CertificateChains {
 
     /** Long enough for a certificate over plain HTTP, short enough not to hang a handshake. */
-    private static final int TIMEOUT_MILLIS = 5000;
+    private static final int TIMEOUT_MILLIS = 2000;
+
+    /**
+     * The whole budget for completing one chain, fetches and all.
+     * <p>
+     * This runs on the thread that is processing the handshake - for QUIC that is kwik's receiver
+     * loop, the same thread that acknowledges packets and reads the rest of the server's flight - so
+     * every millisecond spent here is a millisecond the connection is deaf. It has to stay well
+     * inside the connect timeout above it, which is ten seconds by default in
+     * {@code Http3ConnectionFactory}; {@link #MAX_FETCHES} separate timeouts of their own would not.
+     * <p>
+     * Cheap to spend at most once per intermediate per process: {@link #CACHE} answers afterwards,
+     * and it is consulted before the budget is.
+     */
+    private static final long BUDGET_MILLIS = 4000;
 
     /** A certificate is a couple of kilobytes; this is only here so a wrong URL cannot stream forever. */
     private static final int MAX_CERTIFICATE_BYTES = 64 * 1024;
@@ -119,6 +133,7 @@ public class CertificateChains {
         if (chain == null || chain.length == 0) {
             return chain;
         }
+        long deadline = System.currentTimeMillis() + BUDGET_MILLIS;
         List<X509Certificate> completed = new ArrayList<>(Arrays.asList(chain));
         for (int fetches = 0; fetches < MAX_FETCHES; fetches++) {
             X509Certificate last = completed.get(completed.size() - 1);
@@ -139,7 +154,7 @@ public class CertificateChains {
             if (url == null) {
                 break;
             }
-            X509Certificate issuer = fetch(url);
+            X509Certificate issuer = fetch(url, deadline);
             if (issuer == null || !issuer.getSubjectX500Principal().equals(last.getIssuerX500Principal())) {
                 // Not the issuer that was asked for; appending it would only confuse path building.
                 break;
@@ -184,17 +199,32 @@ public class CertificateChains {
 
     /**
      * A probe as well: a URL that does not answer, or answers with something that is not a
-     * certificate, means the chain cannot be completed this way.
+     * certificate, means the chain cannot be completed this way. So does running out of time.
+     *
+     * @param deadline when this chain's whole budget is spent; see {@link #BUDGET_MILLIS}
      */
-    private static X509Certificate fetch(String url) {
+    private static X509Certificate fetch(String url, long deadline) {
         X509Certificate cached = CACHE.get(url);
         if (cached != null) {
+            // Before the clock, so a chain whose intermediates have all been seen before is completed
+            // however little time is left: this is the case for every connection after the first.
             return cached;
+        }
+        /*
+         * Halved, because the connect and the read each get the whole of what they are given and a
+         * fetch can therefore take twice it. Taking the half keeps MAX_FETCHES attempts inside the
+         * budget rather than inside twice the budget.
+         */
+        int timeout = (int) Math.min(TIMEOUT_MILLIS, (deadline - System.currentTimeMillis()) / 2);
+        if (timeout <= 0) {
+            // Out of budget. The caller's own validation failure stands, which is the honest answer:
+            // this did not manage to complete the chain in the time a handshake could give it.
+            return null;
         }
         try {
             HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setConnectTimeout(TIMEOUT_MILLIS);
-            connection.setReadTimeout(TIMEOUT_MILLIS);
+            connection.setConnectTimeout(timeout);
+            connection.setReadTimeout(timeout);
             try {
                 if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
                     return null;
