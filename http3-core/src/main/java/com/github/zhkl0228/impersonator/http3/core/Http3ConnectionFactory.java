@@ -57,7 +57,6 @@ public class Http3ConnectionFactory {
 
     private final QuicClientFactory quicClientFactory;
     private final Impersonator impersonator;
-    private final Map<Long, Long> http3Settings;
 
     /** The order the profile's field lines go on the wire; null when it declares none. */
     private final List<String> fieldOrder;
@@ -74,7 +73,6 @@ public class Http3ConnectionFactory {
     private Http3ConnectionFactory(QuicClientFactory quicClientFactory, Impersonator impersonator) {
         this.quicClientFactory = quicClientFactory;
         this.impersonator = impersonator;
-        this.http3Settings = impersonator == null ? null : impersonator.getHttp3Settings();
         this.profileHeaders = impersonator == null
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(profileHeaders(impersonator));
@@ -213,6 +211,12 @@ public class Http3ConnectionFactory {
         connectionSettings.accept(builder);
         QuicClientConnection quicConnection = builder.build();
 
+        // Asked per connection and not once per factory: a profile's SETTINGS frame carries a GREASE
+        // setting whose identifier and value are drawn afresh each time it is asked, and one drawn
+        // once per factory would be the same on every connection this factory opens - a stable
+        // identifier rather than noise, which is the opposite of what GREASE is for.
+        Map<Long, Long> http3Settings = impersonator == null ? null : impersonator.getHttp3Settings();
+
         // Constructed before the QUIC connection is up, because the constructor is what registers
         // the callback for peer-initiated streams and kwik drops any that arrive before there is
         // one - silently, its default being a no-op consumer. The server opens its control and QPACK
@@ -220,24 +224,42 @@ public class Http3ConnectionFactory {
         // them wins the race, and the QPACK one carries the dynamic table.
         Http3Connection connection = new Http3Connection(quicConnection, executorService, http3Settings,
                 fieldOrder, profileHeaders, sessionTicketStore, newTokenStore, host);
-        if (ticket != null) {
+        try {
+            if (ticket != null) {
+                /*
+                 * Resuming, so the handshake is started and not waited for: what follows - this
+                 * connection's control stream, its SETTINGS, its QPACK decoder stream, and then the
+                 * request itself, which flupke writes on a stream it opens for itself - happens inside
+                 * the 0-RTT window and goes out in the first flight. Nothing below this line knows that;
+                 * see QuicClientConnection.startConnect.
+                 *
+                 * Waiting for the handshake is the connection's own, at the first moment anything is
+                 * expected back from the peer. Offering "early_data" and sending nothing would be a claim
+                 * about this client that is not true, and is refused there.
+                 */
+                quicConnection.startConnect(true);
+            }
+            else {
+                quicConnection.connect();
+            }
+            connection.connect();
+        }
+        catch (IOException | RuntimeException failed) {
             /*
-             * Resuming, so the handshake is started and not waited for: what follows - this
-             * connection's control stream, its SETTINGS, its QPACK decoder stream, and then the
-             * request itself, which flupke writes on a stream it opens for itself - happens inside
-             * the 0-RTT window and goes out in the first flight. Nothing below this line knows that;
-             * see QuicClientConnection.startConnect.
-             *
-             * Waiting for the handshake is the connection's own, at the first moment anything is
-             * expected back from the peer. Offering "early_data" and sending nothing would be a claim
-             * about this client that is not true, and is refused there.
+             * Nothing is handed back, so nothing can be closed by the caller, so it is closed here.
+             * The window where this matters is real: the QUIC handshake can succeed and the HTTP/3
+             * streams opened right after it can fail, because the peer closed the connection in
+             * between - and then a connected QUIC connection, its socket and its threads were left
+             * with no reference to them anywhere.
              */
-            quicConnection.startConnect(true);
+            try {
+                connection.close();
+            }
+            catch (RuntimeException ignored) {
+                // The failure being reported is the one worth reporting.
+            }
+            throw failed;
         }
-        else {
-            quicConnection.connect();
-        }
-        connection.connect();
         return connection;
     }
 

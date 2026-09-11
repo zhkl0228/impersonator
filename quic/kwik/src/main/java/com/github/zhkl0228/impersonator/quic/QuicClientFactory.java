@@ -12,6 +12,8 @@ import tech.kwik.core.QuicClientConnection;
 import tech.kwik.core.crypto.InitialCryptoDivision;
 import tech.kwik.core.send.PaddingMode;
 
+import java.util.function.Supplier;
+
 /**
  * Builds QUIC connections that impersonate a browser, the way {@code OkHttpClientFactory} builds
  * HTTP clients that do.
@@ -36,12 +38,25 @@ public class QuicClientFactory {
 
     private SessionTicketStore sessionTicketStore = new InMemorySessionTicketStore();
     private NewTokenStore newTokenStore = new InMemoryNewTokenStore();
-    private final QuicTransport quicTransport;
+
+    /**
+     * Asked once per connection rather than held as one object, because a profile draws part of its
+     * answer afresh every time it is asked: the reserved transport parameter of RFC 9287 and the
+     * reserved version of RFC 9368 are GREASE, and GREASE that is drawn once per factory is not
+     * GREASE at all - it is a value that stays the same across every connection this factory opens,
+     * which is a stable identifier rather than noise. The one place that already had this right is
+     * {@link QuicTransport#getDestinationConnectionIdLength()}, which is a supplier for the same
+     * reason.
+     * <p>
+     * A constant supplier for the two factory methods that are handed a {@link QuicTransport}: what a
+     * caller built itself is theirs, and nothing here can redraw it.
+     */
+    private final Supplier<QuicTransport> quicTransport;
 
     private EchConfigProvider echConfigProvider;
     private EchRejectionHandler echRejectionHandler;
 
-    private QuicClientFactory(QuicClientHello quicClientHello, QuicTransport quicTransport,
+    private QuicClientFactory(QuicClientHello quicClientHello, Supplier<QuicTransport> quicTransport,
                               EchConfigProvider echConfigProvider) {
         this.quicClientHello = quicClientHello;
         this.quicTransport = quicTransport;
@@ -61,8 +76,9 @@ public class QuicClientFactory {
                     + Impersonator.class.getName() + ", so it cannot describe a ClientHello");
         }
         Impersonator impersonator = (Impersonator) api;
-        // Asked for now rather than per connection, so a profile with no HTTP/3 capture says so here.
-        return new QuicClientFactory(impersonator.getQuicClientHello(), impersonator.getQuicTransport(),
+        // The ClientHello is asked for now rather than per connection, so that a profile with no
+        // HTTP/3 capture says so here. The transport is asked for per connection; see quicTransport.
+        return new QuicClientFactory(impersonator.getQuicClientHello(), impersonator::getQuicTransport,
                 impersonator::getEchConfigList);
     }
 
@@ -79,7 +95,7 @@ public class QuicClientFactory {
         if (quicClientHello == null) {
             throw new NullPointerException("quicClientHello");
         }
-        return new QuicClientFactory(quicClientHello, quicTransport, null);
+        return new QuicClientFactory(quicClientHello, () -> quicTransport, null);
     }
 
     /**
@@ -87,7 +103,7 @@ public class QuicClientFactory {
      * Useful as the control in a fingerprint comparison, and for plain QUIC.
      */
     public static QuicClientFactory create() {
-        return new QuicClientFactory(null, null, null);
+        return new QuicClientFactory(null, () -> null, null);
     }
 
     /**
@@ -151,8 +167,8 @@ public class QuicClientFactory {
 
     /**
      * A builder with this factory's profile already on it. Each call gets its own, because a
-     * ClientHello spec holds the private halves of one connection's key shares.
-     *
+     * ClientHello spec holds the private halves of one connection's key shares - and because the
+     * profile's QUIC layer is drawn afresh here, GREASE and all; see {@link #quicTransport}.
      */
     public QuicClientConnection.Builder newBuilder() {
         QuicClientConnection.Builder builder = QuicClientConnection.newBuilder();
@@ -173,8 +189,9 @@ public class QuicClientFactory {
                 }
             }
         }
-        if (quicTransport != null) {
-            applyTransport(builder);
+        QuicTransport transport = quicTransport.get();
+        if (transport != null) {
+            applyTransport(builder, transport);
         }
         if (echConfigProvider != null) {
             builder.echConfigProvider(new tech.kwik.agent15.ech.EchConfigProvider() {
@@ -201,7 +218,7 @@ public class QuicClientFactory {
      * the connection behave the way it advertises: a flow control limit on the wire is a promise, and
      * setting it here sets both halves.
      */
-    private void applyTransport(QuicClientConnection.Builder builder) {
+    private void applyTransport(QuicClientConnection.Builder builder, QuicTransport quicTransport) {
         if (quicTransport.getDestinationConnectionIdLength() != null) {
             // Asked here, once per builder and so once per connection, which is what a browser that
             // draws a fresh length every time needs.
