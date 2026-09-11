@@ -68,6 +68,30 @@ public class CryptoStream {
     private final List<HandshakeMessage> messagesSent;
     private final List<HandshakeMessage> bufferedMessages;
     private final TlsMessageParser tlsMessageParser;
+    /**
+     * The handshake bytes queued for sending, and the lock every access to them takes.
+     * <p>
+     * Two threads meet on it: whichever one the TLS engine runs on calls {@link #write(byte[])}, and
+     * the sender thread drains it in {@link #sendFrame(int)}. It is an {@code ArrayList} and was
+     * shared between them with nothing at all - which held only while each flight was one message,
+     * because then a write had always finished before the sender was told there was anything to send.
+     * <p>
+     * The client's EncryptedExtensions of ALPS ended that: the flight became two messages, the first
+     * one flushes the sender, and the Finished is written while the sender thread is already inside
+     * the list. An {@code ArrayList.add} that grows the array while another thread is in
+     * {@code get(0)} hands back a null, and one that shifts on {@code remove(0)} hands back nothing
+     * at all - so the sender thread died with "Cannot invoke ByteBuffer.remaining() because
+     * List.get(int) is null", or with "Index 0 out of bounds for length 0", and the connection was
+     * aborted just after its handshake had succeeded.
+     * <p>
+     * It cost about one connection in seventy to google.com, which is the one host in these tests
+     * that negotiates ALPS; cloudflare-ech.com and nghttp2.org, which do not, went through the same
+     * runs without a single one. Five hundred fresh connections to google.com in a row after this,
+     * with none. {@code CryptoStreamSendConcurrencyTest} is the same two threads without a network.
+     * <p>
+     * {@code sendStreamSize} and {@code dataToSendOffset} belong to the same lock: they say what is in
+     * the list and how much of it has gone.
+     */
     private final List<ByteBuffer> dataToSend;
     private final int maxMessageSize;
     private volatile int dataToSendOffset;
@@ -310,8 +334,25 @@ public class CryptoStream {
     }
 
     void write(byte[] data) {
-        dataToSend.add(ByteBuffer.wrap(data));
-        sendStreamSize += data.length;
+        /*
+         * Under the lock, because the sender thread is already draining this list; see dataToSend.
+         * Outside it: sender.send, which takes the sender's own locks - and sendFrame runs with those
+         * held and takes this one, so doing both here in one order would be the other half of a
+         * deadlock.
+         */
+        synchronized (dataToSend) {
+            if (plannedData != null) {
+                // Once a division has been made, the frames come from plannedData and nothing looks at
+                // this list again, so anything added here would go nowhere at all. It cannot happen -
+                // the only thing written at the Initial level is the ClientHello, and a Retry calls
+                // reset() before the next one - and it is said rather than assumed, because the way it
+                // would go wrong is a handshake message that is never sent and never reported.
+                throw new IllegalStateException("crypto data written after the " + encryptionLevel
+                        + " flight was divided into packets; " + data.length + " bytes would not be sent");
+            }
+            dataToSend.add(ByteBuffer.wrap(data));
+            sendStreamSize += data.length;
+        }
         sender.send(this::sendFrame, 10, encryptionLevel, this::retransmitCrypto);  // Caller should flush sender.
     }
 
@@ -327,36 +368,53 @@ public class CryptoStream {
             }
             else {
                 // No division after all, so put it back for the sequential path to send.
-                dataToSend.add(java.nio.ByteBuffer.wrap(flight));
+                synchronized (dataToSend) {
+                    dataToSend.add(java.nio.ByteBuffer.wrap(flight));
+                }
             }
         }
         if (plannedData != null) {
             return sendPlannedFrame(maxSize);
         }
-        int leftToSend = sendStreamSize - dataToSendOffset;
-        int bytesToSend = Integer.min(leftToSend, maxSize - 10);
-        if (bytesToSend == 0) {
-            return null;
+        /*
+         * How much is queued, and taking it, under one lock: see dataToSend for why there has to be
+         * one at all. It has to cover both, not just the copying - reading sendStreamSize outside it
+         * and then copying that many bytes is asking the list for data that a write() in between has
+         * counted but not yet added.
+         */
+        int bytesToSend;
+        int frameOffset;
+        byte[] frameData;
+        boolean moreToSend;
+        synchronized (dataToSend) {
+            int leftToSend = sendStreamSize - dataToSendOffset;
+            bytesToSend = Integer.min(leftToSend, maxSize - 10);
+            if (bytesToSend == 0) {
+                return null;
+            }
+            moreToSend = bytesToSend < leftToSend;
+
+            frameData = new byte[bytesToSend];
+            int frameDataOffset = 0;
+            while (frameDataOffset < bytesToSend) {
+                ByteBuffer head = dataToSend.get(0);
+                int bytesToCopy = Integer.min(bytesToSend - frameDataOffset, head.remaining());
+                head.get(frameData, frameDataOffset, bytesToCopy);
+                if (head.remaining() == 0) {
+                    dataToSend.remove(0);
+                }
+                frameDataOffset += bytesToCopy;
+            }
+            frameOffset = dataToSendOffset;
+            dataToSendOffset += bytesToSend;
         }
-        if (bytesToSend < leftToSend) {
-            // Need (at least) another frame to send all data. Because current method is the sender callback, flushing sender is not necessary.
+        if (moreToSend) {
+            // Need (at least) another frame to send all data. Because current method is the sender callback, flushing
+            // sender is not necessary. Outside the lock, because this takes the sender's; see write(byte[]).
             sender.send(this::sendFrame, 10, encryptionLevel, this::retransmitCrypto);
         }
 
-        byte[] frameData = new byte[bytesToSend];
-        int frameDataOffset = 0;
-        while (frameDataOffset < bytesToSend) {
-            int bytesToCopy = Integer.min(bytesToSend - frameDataOffset, dataToSend.get(0).remaining());
-            dataToSend.get(0).get(frameData, frameDataOffset, bytesToCopy);
-            if (dataToSend.get(0).remaining() == 0) {
-                dataToSend.remove(0);
-            }
-            frameDataOffset += bytesToCopy;
-        }
-
-        CryptoFrame frame = new CryptoFrame(quicVersion.getVersion(), dataToSendOffset, frameData);
-        dataToSendOffset += bytesToSend;
-        return frame;
+        return new CryptoFrame(quicVersion.getVersion(), frameOffset, frameData);
     }
 
     /**
@@ -403,15 +461,17 @@ public class CryptoStream {
 
     /** Everything still queued, as one array, leaving {@link #dataToSend} empty. */
     private byte[] drainDataToSend() {
-        byte[] all = new byte[sendStreamSize - dataToSendOffset];
-        int offset = 0;
-        while (!dataToSend.isEmpty()) {
-            ByteBuffer buffer = dataToSend.remove(0);
-            int remaining = buffer.remaining();
-            buffer.get(all, offset, remaining);
-            offset += remaining;
+        synchronized (dataToSend) {
+            byte[] all = new byte[sendStreamSize - dataToSendOffset];
+            int offset = 0;
+            while (!dataToSend.isEmpty()) {
+                ByteBuffer buffer = dataToSend.remove(0);
+                int remaining = buffer.remaining();
+                buffer.get(all, offset, remaining);
+                offset += remaining;
+            }
+            return all;
         }
-        return all;
     }
 
     private void retransmitCrypto(QuicFrame cryptoFrame) {
@@ -424,9 +484,11 @@ public class CryptoStream {
         planIndex = 0;
         plannedData = null;
         plannedCapacity = 0;
-        dataToSendOffset = 0;
-        sendStreamSize = 0;
-        dataToSend.clear();
+        synchronized (dataToSend) {
+            dataToSendOffset = 0;
+            sendStreamSize = 0;
+            dataToSend.clear();
+        }
     }
 
     public EncryptionLevel getEncryptionLevel() {
