@@ -18,6 +18,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.Assert.assertNotEquals;
+
 /**
  * Firefox's QUIC and HTTP/3 fingerprint, from a Wireshark capture cross-checked against the
  * endpoint's report of the same connections; see docs/captures/firefox-155-quic*.
@@ -73,8 +75,7 @@ public class FirefoxQuicFingerprintTest extends TestCase {
                 List.of(4588, 29, 23), ids(extension(tls, 51).getJSONArray("data")));
 
         for (Object value : tls.getJSONArray("cipher_suites")) {
-            assertFalse("Firefox greases no cipher suite",
-                    "GREASE".equals(((JSONObject) value).getString("name")));
+            assertNotEquals("Firefox greases no cipher suite", "GREASE", ((JSONObject) value).getString("name"));
         }
         for (int id : ids(tls.getJSONArray("extensions"))) {
             assertFalse("Firefox greases no extension", ImpersonatorFactory.isGrease(id));
@@ -164,26 +165,20 @@ public class FirefoxQuicFingerprintTest extends TestCase {
     }
 
     /**
-     * The Destination Connection ID length is drawn per connection, not fixed. This is neqo's
-     * ConnectionId::generate_initial - {@code max(8, 5 + (v & (v >> 4)))} for a random byte v - which
-     * lands between 8 and 20 and picks 8 more than half the time, and four captured Firefox
-     * connections gave 8, 13, 14 and 19.
+     * The Destination Connection ID length the server actually saw is one neqo could have drawn.
      * <p>
-     * So the assertion is on the shape of the distribution rather than on any one value: a length
-     * outside the range would be wrong, and a length that never varied would be wrong in the way that
-     * matters, since never varying is the tell.
+     * That it is <em>drawn</em>, per connection and with neqo's distribution, is asserted in
+     * {@code ConnectionIdLengthTest} over a thousand draws rather than here over eight connections.
+     * Eight is too few to ask a question about a distribution: the length is 8 nine times in sixteen,
+     * so eight connections come out the same about one run in a hundred, and this failed exactly that
+     * way. What is left here is the half only a connection can answer - that the number the profile
+     * draws is the number that reaches the wire.
      */
-    public void testTheConnectionIdLengthVariesTheWayNeqoDrawsIt() throws Exception {
-        Set<Integer> lengths = new HashSet<>();
-        for (int i = 0; i < 8; i++) {
+    public void testTheConnectionIdLengthOnTheWireIsOneNeqoCouldDraw() throws Exception {
+        for (int i = 0; i < 3; i++) {
             int length = fingerprint().getJSONObject("quic").getIntValue("dcid_length");
             assertTrue("neqo picks between 8 and 20, got " + length, length >= 8 && length <= 20);
-            lengths.add(length);
         }
-        assertTrue("eight connections all chose the same length, so it is not being drawn at all",
-                lengths.size() > 1);
-        assertTrue("8 is picked more than half the time, so it should be among eight draws",
-                lengths.contains(8));
     }
 
 
@@ -263,9 +258,8 @@ public class FirefoxQuicFingerprintTest extends TestCase {
             QuicClientConnectionImpl connection =
                     (QuicClientConnectionImpl) client.quicConnectionFor(uri.getHost() + ":443");
             assertNotNull("no connection to " + uri.getHost() + " is open", connection);
-            assertTrue("the resumed connection wrote no early data, so its \"early_data\" was a claim"
-                            + " about this client that is not true",
-                    connection.getEarlyDataStatus() != QuicClientConnectionImpl.EarlyDataStatus.None);
+            assertNotSame("the resumed connection wrote no early data, so its \"early_data\" was a claim"
+                    + " about this client that is not true", QuicClientConnectionImpl.EarlyDataStatus.None, connection.getEarlyDataStatus());
         }
     }
 
