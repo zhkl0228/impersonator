@@ -341,6 +341,31 @@ public class Http3Connection extends Http3ClientConnectionImpl implements AutoCl
     }
 
     /**
+     * The headers the profile's browser adds to every request, in the order it adds them;
+     * unmodifiable, and empty when there is no profile.
+     * <p>
+     * {@link #send(HttpRequest, HttpResponse.BodyHandler)} adds these itself, so a caller that goes
+     * through it never has to ask. A caller writing its own HEADERS onto a stream it opened itself
+     * does have to: a connection carrying a browser's QUIC, TLS and HTTP/3 fingerprint byte for byte,
+     * carrying a request with no User-Agent at all, is a plainer tell than any mismatch.
+     * <p>
+     * The iteration order is the browser's, and a caller need not preserve it -
+     * {@link #fieldSectionEncoder()} puts the field section into that order whatever order it is
+     * handed, which is what lets these go through a {@link java.net.http.HttpHeaders} that sorts
+     * them.
+     * <p>
+     * An Accept-Encoding among them is the caller's to answer, and the map is where to look for one
+     * rather than the profile: all three browser profiles here send one - gzip, deflate, br, zstd -
+     * but {@code Impersonator.fillRequestHeaders} is a no-op unless a profile overrides it, so an
+     * implementation of its own may send none. {@code send()} undoes the Content-Encoding that comes
+     * back; a caller reading DATA frames off a stream of its own has nothing that does, and would
+     * take the compressed bytes for content.
+     */
+    public Map<String, String> profileHeaders() {
+        return profileHeaders;
+    }
+
+    /**
      * Decodes a field section with <em>this connection's</em> QPACK decoder, for a caller reading
      * HEADERS off a stream it manages itself.
      * <p>
