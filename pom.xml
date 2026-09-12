@@ -7,7 +7,7 @@
     <groupId>com.github.zhkl0228</groupId>
     <artifactId>impersonator</artifactId>
     <packaging>pom</packaging>
-    <version>1.10.0</version>
+    <version>1.10.1</version>
     <!--
         All four, unconditionally. They used to be split across profiles activated by JDK version, so
         that "mvn install" would work on a JDK 8 - and the cost of that was a release built on one
