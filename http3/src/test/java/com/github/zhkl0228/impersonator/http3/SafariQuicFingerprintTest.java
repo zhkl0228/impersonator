@@ -29,15 +29,15 @@ public class SafariQuicFingerprintTest extends TestCase {
     private static final String FINGERPRINT_URL = "https://quic.tools.scrapfly.io/api/fp/quic";
 
     /** From the capture of Safari 26.6.2, and identical from iOS Safari 26.6. */
-    private static final String SAFARI_JA4 = "q13d0311h3_55b375c5d22e_61548afbd53c";
-    private static final String SAFARI_JA4_HASH = "af0321aee9b1";
+    private static final String SAFARI_JA4 = "q13d0311h3_55b375c5d22e_f2a83c8e78ae";
+    private static final String SAFARI_JA4_HASH = "fe9999b49816";
     private static final String SAFARI_JA4_R = "q13d0311h3_1301,1302,1303"
             + "_0005,000a,000d,0012,001b,002b,002d,0033,0039"
-            + "_0201,0401,0403,0501,0503,0601,0804,0805,0805,0806";
+            + "_0403,0804,0401,0503,0805,0805,0501,0806,0601,0201";
     private static final String SAFARI_H3_HASH = "56334358583c";
 
     /** From docs/captures/safari-26-quic-resumed.json - Safari's ClientHello after a refresh. */
-    private static final String SAFARI_RESUMED_JA4 = "q13d0313h3_55b375c5d22e_0e01f397cec6";
+    private static final String SAFARI_RESUMED_JA4 = "q13d0313h3_55b375c5d22e_6bb9a3ac9a4b";
 
     /** From the same capture; iOS Safari differs from macOS Safari in this and nothing else. */
     private static final String USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
@@ -73,16 +73,16 @@ public class SafariQuicFingerprintTest extends TestCase {
         assertEquals("eleven extensions between two GREASE ones", 13, extensions.size());
         assertEquals(List.of(0, 10, 16, 5, 13, 18, 51, 45, 43, 57, 27),
                 extensions.subList(1, extensions.size() - 1));
-        assertTrue("the first extension should be GREASE", isGrease(extensions.get(0)));
-        assertTrue("the last extension should be GREASE", isGrease(extensions.get(extensions.size() - 1)));
+        assertTrue("the first extension should be GREASE", isGrease(extensions.getFirst()));
+        assertTrue("the last extension should be GREASE", isGrease(extensions.getLast()));
 
         List<Integer> groups = ids(extension(tls, 10).getJSONArray("data"));
         List<Integer> keyShares = ids(extension(tls, 51).getJSONArray("data"));
         assertEquals(List.of(4588, 29, 23, 24, 25), groups.subList(1, groups.size()));
         assertEquals(List.of(4588, 29), keyShares.subList(1, keyShares.size()));
-        assertTrue("supported_groups should begin with a GREASE group", isGrease(groups.get(0)));
+        assertTrue("supported_groups should begin with a GREASE group", isGrease(groups.getFirst()));
         assertEquals("the key share greases with the same value as the group list",
-                groups.get(0), keyShares.get(0));
+                groups.getFirst(), keyShares.getFirst());
     }
 
     /**

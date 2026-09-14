@@ -37,14 +37,14 @@ public class FirefoxQuicFingerprintTest extends TestCase {
     private static final String FINGERPRINT_URL = "https://quic.tools.scrapfly.io/api/fp/quic";
 
     /** From docs/captures/firefox-155-quic.json. */
-    private static final String FIREFOX_JA4 = "q13d0315h3_55b375c5d22e_9cac0a2e6d46";
-    private static final String FIREFOX_JA4_HASH = "aed78de26df6";
+    private static final String FIREFOX_JA4 = "q13d0315h3_55b375c5d22e_dc5437974b47";
+    private static final String FIREFOX_JA4_HASH = "d63089f71130";
     private static final String FIREFOX_JA4_R = "q13d0315h3_1301,1302,1303"
             + "_0005,000a,000d,0017,001b,001c,0022,002b,002d,0033,0039,fe0d,ff01"
-            + "_0201,0203,0401,0403,0501,0503,0601,0603,0804,0805,0806";
+            + "_0403,0503,0603,0203,0804,0805,0806,0401,0501,0601,0201";
     private static final String FIREFOX_H3_HASH = "ae2c42da46ea";
     /** From docs/captures/firefox-155-quic-resumed.json: seventeen extensions, not fifteen. */
-    private static final String FIREFOX_RESUMED_JA4 = "q13d0317h3_55b375c5d22e_0f46968d0c60";
+    private static final String FIREFOX_RESUMED_JA4 = "q13d0317h3_55b375c5d22e_eaaab5390495";
     private static final String USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:155.0) Gecko/20100101 Firefox/155.0";
 

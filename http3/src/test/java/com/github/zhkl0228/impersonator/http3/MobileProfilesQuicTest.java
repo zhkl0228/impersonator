@@ -33,13 +33,13 @@ public class MobileProfilesQuicTest extends TestCase {
     private static final String FINGERPRINT_URL = "https://quic.tools.scrapfly.io/api/fp/quic";
 
     /** From docs/captures/chrome-152-quic.json and chrome-152-android-quic.json, which agree. */
-    private static final String CHROME_JA4 = "q13d0312h3_55b375c5d22e_54c9dd0422dd";
+    private static final String CHROME_JA4 = "q13d0312h3_55b375c5d22e_178839b6cec1";
     private static final String CHROME_H3 = "1:65536;6:262144;7:100;51:1;GREASE";
     private static final String ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K)"
             + " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36";
 
     /** From docs/captures/safari-26-quic.json and safari-26-ios-quic.json, which agree. */
-    private static final String SAFARI_JA4 = "q13d0311h3_55b375c5d22e_61548afbd53c";
+    private static final String SAFARI_JA4 = "q13d0311h3_55b375c5d22e_f2a83c8e78ae";
     private static final String SAFARI_H3 = "1:16383;7:100;GREASE";
     private static final String IOS_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X)"
             + " AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1";

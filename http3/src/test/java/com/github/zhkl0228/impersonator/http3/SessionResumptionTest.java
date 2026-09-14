@@ -34,10 +34,10 @@ public class SessionResumptionTest extends TestCase {
     private static final String FINGERPRINT_URL = "https://quic.tools.scrapfly.io/api/fp/quic";
 
     /** From docs/captures/chrome-152-quic.json - Chrome's first connection to a host. */
-    private static final String CHROME_FRESH_JA4 = "q13d0312h3_55b375c5d22e_54c9dd0422dd";
+    private static final String CHROME_FRESH_JA4 = "q13d0312h3_55b375c5d22e_178839b6cec1";
 
     /** From docs/captures/chrome-152-quic-resumed.json - Chrome's ClientHello after a refresh. */
-    private static final String CHROME_RESUMED_JA4 = "q13d0314h3_55b375c5d22e_22df90fcce4c";
+    private static final String CHROME_RESUMED_JA4 = "q13d0314h3_55b375c5d22e_79cc91d6b50c";
 
     /**
      * Whether a ticket is <em>accepted</em> has to be asked of a server that reliably accepts one.

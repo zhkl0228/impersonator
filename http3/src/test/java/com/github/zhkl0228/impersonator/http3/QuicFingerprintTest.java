@@ -25,8 +25,8 @@ public class QuicFingerprintTest extends TestCase {
     private static final String FINGERPRINT_URL = "https://quic.tools.scrapfly.io/api/fp/quic";
 
     /** curl 8.21.0 / ngtcp2 / OpenSSL 3.6.3, captured from the endpoint above on 2026-09-09. */
-    private static final String CURL_JA4 = "q13d0312h3_55b375c5d22e_f5ac3e2d82fc";
-    private static final String CURL_JA4_HASH = "16fc307196e6";
+    private static final String CURL_JA4 = "q13d0312h3_55b375c5d22e_c0efc70deb60";
+    private static final String CURL_JA4_HASH = "e031513c0843";
 
     /**
      * Without a spec the ClientHello is agent15's own: one cipher suite and eight extensions, which

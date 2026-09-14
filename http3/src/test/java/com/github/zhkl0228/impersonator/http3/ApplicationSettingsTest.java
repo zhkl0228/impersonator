@@ -21,14 +21,10 @@ import junit.framework.TestCase;
  */
 public class ApplicationSettingsTest extends TestCase {
 
-    /**
-     * Google negotiates ALPS, so reaching it at all is the assertion. The response is a redirect to a
-     * country domain, which is what this host answers a bare GET with; what matters is that there is
-     * a response.
-     */
+    /** Google negotiates ALPS, so reaching it at all is the assertion. */
     public void testAHostThatNegotiatesAlpsCompletesTheHandshake() throws Exception {
-        assertEquals(302, status("https://www.google.com/"));
-        assertEquals(200, status("https://www.youtube.com/"));
+        assertAnswered("https://www.google.com/");
+        assertAnswered("https://www.youtube.com/");
     }
 
     /**
@@ -48,6 +44,21 @@ public class ApplicationSettingsTest extends TestCase {
          */
         assertEquals(200, status("https://cloudflare-ech.com/cdn-cgi/trace"));
         assertEquals(200, status("https://quic.tools.scrapfly.io/api/fp/quic"));
+    }
+
+    /**
+     * That the host answered at all, which is the whole of what ALPS decides. A handshake it broke
+     * never gets this far: the server closes the connection and {@link Http3Get#status} throws rather
+     * than returning a number, so a number returned is the pass.
+     * <p>
+     * Which number it is belongs to the host and not to this test. www.google.com answered a bare GET
+     * with 302 to a country domain when this was written and answers 200 now - a redirect policy that
+     * says nothing about ALPS - and the assertion that pinned 302 failed for it. The range is here so
+     * that a 4xx or 5xx, which would be the host refusing rather than serving, still does not pass.
+     */
+    private static void assertAnswered(String url) throws Exception {
+        int status = status(url);
+        assertTrue(url + " answered " + status + " rather than serving the GET", status >= 200 && status < 400);
     }
 
     private static int status(String url) throws Exception {

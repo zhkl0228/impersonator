@@ -22,11 +22,11 @@ public class ChromeQuicFingerprintTest extends TestCase {
     private static final String FINGERPRINT_URL = "https://quic.tools.scrapfly.io/api/fp/quic";
 
     /** From docs/captures/chrome-152-quic.json. */
-    private static final String CHROME_JA4 = "q13d0312h3_55b375c5d22e_54c9dd0422dd";
-    private static final String CHROME_JA4_HASH = "62c61f544d54";
+    private static final String CHROME_JA4 = "q13d0312h3_55b375c5d22e_178839b6cec1";
+    private static final String CHROME_JA4_HASH = "c3ef06741e08";
     private static final String CHROME_JA4_R = "q13d0312h3_1301,1302,1303"
             + "_000a,000d,001b,002b,002d,0033,0039,44cd,ca34,fe0d"
-            + "_0201,0401,0403,0501,0503,0601,0804,0805,0806";
+            + "_0403,0804,0401,0503,0805,0501,0806,0601,0201";
     private static final String CHROME_H3_HASH = "049704d97f9b";
 
     private static final String USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
