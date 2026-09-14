@@ -98,6 +98,16 @@ public interface Impersonator {
     }
 
     /**
+     * The REALITY parameters this connection authenticates with, or null for an ordinary TLS one.
+     * <p>
+     * Not part of a browser profile - it belongs to the outbound - but it reaches the handshake
+     * through the same object, because the profile is what the TLS layer is handed.
+     */
+    default RealityConfig getRealityConfig() {
+        return null;
+    }
+
+    /**
      * The HTTP/3 SETTINGS this profile sends, in the order they go in the frame. A fresh map per
      * connection, because a GREASE setting has to be drawn per connection to be GREASE at all.
      * <p>

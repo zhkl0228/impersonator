@@ -37,4 +37,20 @@ public interface ImpersonatorApi {
      */
     void setEchConfigProvider(EchConfigProvider echConfigProvider);
 
+    /**
+     * An {@link SSLContext} whose every connection authenticates as REALITY with one outbound's
+     * server public key and shortId, keeping this API's browser fingerprint.
+     * <p>
+     * A context rather than a setter because the parameters belong to the outbound while the profile
+     * is usually shared: one {@code ImpersonatorApi} commonly serves every node of a subscription, and
+     * a REALITY node must not change how the others connect.
+     * <p>
+     * The certificate a REALITY server sends is a temporary one it signs with a key only this
+     * handshake could derive, so it is judged by that rather than by a chain - no trust manager is
+     * consulted, and there is nothing to skip or to trust. Encrypted Client Hello cannot be used on
+     * such a connection: REALITY authenticates the exact bytes of the ClientHello it sends, and ECH
+     * sends two different ones.
+     */
+    SSLContext newRealityContext(RealityConfig realityConfig);
+
 }

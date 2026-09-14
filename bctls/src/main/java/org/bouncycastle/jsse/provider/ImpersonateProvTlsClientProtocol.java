@@ -13,9 +13,26 @@ class ImpersonateProvTlsClientProtocol extends ProvTlsClientProtocol {
 
     private final Impersonator impersonator;
 
-    ImpersonateProvTlsClientProtocol(InputStream input, OutputStream output, Closeable closeable, Impersonator impersonator) {
+    private final RealityHandshake reality;
+
+    ImpersonateProvTlsClientProtocol(InputStream input, OutputStream output, Closeable closeable, Impersonator impersonator,
+                                     RealityHandshake reality) {
         super(input, output, closeable);
         this.impersonator = impersonator;
+        this.reality = reality;
+    }
+
+    /**
+     * REALITY's authentication replaces the ClientHello's legacy_session_id and is computed over the
+     * rest of that same message, so it can only be written once the message is encoded - after the
+     * profile has had its say about the extensions and their order, and before the transcript hash
+     * sees any of it.
+     */
+    @Override
+    protected void onClientHelloEncoded(byte[] message, int length) throws IOException {
+        if (reality != null) {
+            reality.sealClientHello(clientHello, message, length, clientAgreements);
+        }
     }
 
     @Override

@@ -4,7 +4,11 @@ import com.github.zhkl0228.impersonator.Impersonator;
 import org.bouncycastle.tls.AlertDescription;
 import org.bouncycastle.tls.AlertLevel;
 import org.bouncycastle.tls.Certificate;
+import org.bouncycastle.tls.CertificateRequest;
+import org.bouncycastle.tls.TlsAuthentication;
+import org.bouncycastle.tls.TlsCredentials;
 import org.bouncycastle.tls.TlsFatalAlert;
+import org.bouncycastle.tls.TlsServerCertificate;
 
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -18,12 +22,44 @@ class ImpersonateTlsClient extends ProvTlsClient {
 
     private final int[] cipherSuites;
     private final Impersonator impersonator;
+    private final RealityHandshake reality;
 
     ImpersonateTlsClient(ProvTlsManager manager, ProvSSLParameters sslParameters, int[] cipherSuites,
-                         Impersonator impersonator) {
+                         Impersonator impersonator, RealityHandshake reality) {
         super(manager, sslParameters);
         this.cipherSuites = cipherSuites;
         this.impersonator = impersonator;
+        this.reality = reality;
+    }
+
+    /**
+     * A REALITY server's certificate is a temporary one it signs with the key this connection's
+     * ClientHello established, so it is judged by that and never by a chain - there is no issuer to
+     * find and nothing for a trust manager to say. Everything else, the client credentials included,
+     * stays with {@link ProvTlsClient}.
+     */
+    @Override
+    public TlsAuthentication getAuthentication() throws IOException {
+        final TlsAuthentication authentication = super.getAuthentication();
+        if (reality == null) {
+            return authentication;
+        }
+        return new TlsAuthentication() {
+            @Override
+            public void notifyServerCertificate(TlsServerCertificate serverCertificate) throws IOException {
+                Certificate certificate = serverCertificate.getCertificate();
+                if (certificate == null || certificate.isEmpty()) {
+                    throw new TlsFatalAlert(AlertDescription.bad_certificate,
+                            "a REALITY server always sends its temporary certificate, and this one sent none");
+                }
+                reality.verifyServerCertificate(certificate.getCertificateAt(0));
+            }
+
+            @Override
+            public TlsCredentials getClientCredentials(CertificateRequest certificateRequest) throws IOException {
+                return authentication.getClientCredentials(certificateRequest);
+            }
+        };
     }
 
     @Override
@@ -37,7 +73,17 @@ class ImpersonateTlsClient extends ProvTlsClient {
      */
     @Override
     public byte[] getEchConfigList() {
-        return impersonator.getEchConfigList(JsseUtils.stripTrailingDot(manager.getPeerHostSNI()));
+        byte[] echConfigList = impersonator.getEchConfigList(JsseUtils.stripTrailingDot(manager.getPeerHostSNI()));
+        if (reality != null && echConfigList != null) {
+            /*
+             * REALITY authenticates the exact bytes of the ClientHello it sends, and the server
+             * checks them against the message it received. Encrypted Client Hello sends a different
+             * ClientHello to the wire than the one it hashes, so the two cannot both be on.
+             */
+            throw new IllegalStateException("a REALITY connection cannot offer Encrypted Client Hello as well;"
+                    + " one of setRealityConfig and setEchConfigProvider has to go");
+        }
+        return echConfigList;
     }
 
     /**
@@ -66,8 +112,9 @@ class ImpersonateTlsClient extends ProvTlsClient {
      * is done here rather than through {@code endpointIdentificationAlgorithm} because that setting
      * would check the real host, which is exactly the name the ClientHelloOuter did not carry.
      * <p>
-     * Wildcards are matched the way {@link ProvX509TrustManager#checkEndpointID} matches them for
-     * HTTPS: leftmost label only, per RFC 9525 section 6.3.
+     * Wildcards are matched the way
+     * {@link ProvX509TrustManager#checkEndpointID(String, X509Certificate, String)} matches them
+     * for HTTPS: leftmost label only, per RFC 9525 section 6.3.
      */
     @Override
     public void checkEchPublicName(String publicName) throws IOException {

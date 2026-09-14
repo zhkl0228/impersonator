@@ -38,4 +38,23 @@ public class JceX25519 implements TlsAgreement
     {
         return domain.calculateECDHAgreement(localKeyPair.getPrivate(), peerPublicKey);
     }
+
+    /**
+     * The shared secret with a public key that is not the handshake peer's, leaving this agreement's
+     * own state alone so the handshake it belongs to still completes. REALITY uses the client's
+     * ephemeral key twice: against the server's long term public key, which is this, and against the
+     * server's key share, which is {@link #calculateSecret()}.
+     *
+     * @throws IllegalStateException if called before {@link #generateEphemeral()}, since there is no
+     *                               ephemeral key to agree with yet
+     */
+    public TlsSecret agreeWith(byte[] peerPublicKey) throws IOException
+    {
+        if (localKeyPair == null)
+        {
+            throw new IllegalStateException("no ephemeral key has been generated yet");
+        }
+
+        return domain.calculateECDHAgreement(localKeyPair.getPrivate(), domain.decodePublicKey(peerPublicKey));
+    }
 }

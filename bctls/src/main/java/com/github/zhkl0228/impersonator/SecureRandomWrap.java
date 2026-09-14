@@ -11,8 +11,16 @@ class SecureRandomWrap extends SecureRandom implements Impersonator {
 
     private final Impersonator impersonator;
 
+    /** Null for an ordinary context; see {@link ImpersonatorApi#newRealityContext}. */
+    private final RealityConfig realityConfig;
+
     SecureRandomWrap(Impersonator impersonator) {
+        this(impersonator, null);
+    }
+
+    SecureRandomWrap(Impersonator impersonator, RealityConfig realityConfig) {
         this.impersonator = impersonator;
+        this.realityConfig = realityConfig;
     }
 
     @Override
@@ -50,6 +58,15 @@ class SecureRandomWrap extends SecureRandom implements Impersonator {
     @Override
     public byte[] getEchConfigList(String host) {
         return impersonator.getEchConfigList(host);
+    }
+
+    /**
+     * This context's REALITY parameters rather than the profile's: the profile has none, because it
+     * may be shared by outbounds that are not REALITY at all.
+     */
+    @Override
+    public RealityConfig getRealityConfig() {
+        return realityConfig;
     }
 
 }

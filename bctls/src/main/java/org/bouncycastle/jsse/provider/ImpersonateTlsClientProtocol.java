@@ -14,8 +14,19 @@ class ImpersonateTlsClientProtocol extends TlsClientProtocol {
 
     private final Impersonator impersonator;
 
-    ImpersonateTlsClientProtocol(Impersonator impersonator) {
+    private final RealityHandshake reality;
+
+    ImpersonateTlsClientProtocol(Impersonator impersonator, RealityHandshake reality) {
         this.impersonator = impersonator;
+        this.reality = reality;
+    }
+
+    /** See {@link ImpersonateProvTlsClientProtocol#onClientHelloEncoded}; the two paths seal alike. */
+    @Override
+    protected void onClientHelloEncoded(byte[] message, int length) throws IOException {
+        if (reality != null) {
+            reality.sealClientHello(clientHello, message, length, clientAgreements);
+        }
     }
 
     @Override

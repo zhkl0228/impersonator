@@ -2231,6 +2231,21 @@ public class TlsClientProtocol
         sendClientHelloMessage();
     }
 
+    /**
+     * The ClientHello as it is about to go out - handshake header, patched length and all - before
+     * it reaches the transcript hash and the wire. A subclass may overwrite bytes in place, which
+     * is how REALITY replaces the 32 byte legacy_session_id at its fixed offset 39 with a
+     * ciphertext whose additional data is this same message; it must not change the length.
+     * <p>
+     * Not called for an Encrypted Client Hello, which sends two different ClientHellos and has its
+     * own path in {@link #sendEchClientHelloMessage}.
+     *
+     * @param message the encoded handshake message; only its first {@code length} bytes are it
+     */
+    protected void onClientHelloEncoded(byte[] message, int length) throws IOException
+    {
+    }
+
     protected void sendClientHelloMessage() throws IOException
     {
         byte[] echConfigList = tlsClient.getEchConfigList();
@@ -2242,6 +2257,8 @@ public class TlsClientProtocol
 
         HandshakeMessageOutput message = new HandshakeMessageOutput(HandshakeType.client_hello);
         clientHello.encode(tlsClientContext, message);
+
+        onClientHelloEncoded(message.getEncodedMessage(clientHello.getBindersSize()), message.size());
 
         message.prepareClientHello(handshakeHash, clientHello.getBindersSize());
 

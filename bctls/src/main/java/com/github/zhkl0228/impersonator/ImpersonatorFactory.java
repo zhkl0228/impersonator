@@ -3,6 +3,7 @@ package com.github.zhkl0228.impersonator;
 import okhttp3.Http2Connection;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
+import org.bouncycastle.tls.crypto.impl.jcajce.RealityJcaTlsCryptoProvider;
 import org.bouncycastle.tls.ClientHello;
 import org.bouncycastle.tls.EchConfig;
 import org.bouncycastle.tls.EchConfigList;
@@ -47,12 +48,16 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
 
     private static final Logger log = LoggerFactory.getLogger(ImpersonatorFactory.class);
 
+    /** The BouncyCastle provider everything here resolves algorithms against; see the static block. */
+    private static final Provider BC_PROVIDER;
+
     static {
         Provider bc = Security.getProvider(BouncyCastleProvider.PROVIDER_NAME);
         if (bc == null) {
             bc = new BouncyCastleProvider();
             Security.addProvider(bc);
         }
+        BC_PROVIDER = bc;
         if(Security.getProvider(BouncyCastleJsseProvider.PROVIDER_NAME) == null) {
             /*
              * Pinned to BouncyCastle rather than left to search the provider list. Providers are
@@ -148,6 +153,32 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
             return context;
         } catch (NoSuchAlgorithmException | NoSuchProviderException | KeyManagementException e) {
             throw new IllegalStateException("newContext", e);
+        }
+    }
+
+    @Override
+    public SSLContext newRealityContext(RealityConfig realityConfig) {
+        if (realityConfig == null) {
+            throw new IllegalArgumentException("a REALITY context needs the server's public key and shortId");
+        }
+        try {
+            /*
+             * Its own JSSE provider instance, carrying the crypto that reads a REALITY server's
+             * temporary certificate - which is not a valid X.509 certificate, so no ordinary parser
+             * will take it. Deliberately not registered with Security: it would then answer for every
+             * TLS connection in the JVM, and it can read nothing but that one kind of certificate.
+             *
+             * The trust manager is the one that checks nothing, because on a REALITY connection
+             * nothing asks it to: the certificate is judged by the authentication key the ClientHello
+             * established, and a chain would be beside the point.
+             */
+            SSLContext context = SSLContext.getInstance("TLSv1.3", new BouncyCastleJsseProvider(false,
+                    new RealityJcaTlsCryptoProvider().setProvider(BC_PROVIDER)));
+            context.init(null, new TrustManager[]{TRUST_ANY_CERTIFICATE},
+                    new SecureRandomWrap(this, realityConfig));
+            return context;
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+            throw new IllegalStateException("newRealityContext", e);
         }
     }
 
@@ -355,6 +386,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     private final boolean supportEch;
 
     private EchConfigProvider echConfigProvider;
+
 
     @Override
     public boolean isEchSupported() {

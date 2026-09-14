@@ -2,6 +2,7 @@ package org.bouncycastle.jsse.provider;
 
 import com.github.zhkl0228.impersonator.Impersonator;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
+import com.github.zhkl0228.impersonator.RealityConfig;
 import org.bouncycastle.tls.TlsClientProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,14 +21,24 @@ class ImpersonateSSLSocketWrap extends ProvSSLSocketWrap {
 
     private final Impersonator impersonator;
 
+    /**
+     * The REALITY half of this connection, or null for an ordinary TLS one. One instance per
+     * connection, built here because it is the one place that makes both halves that need it: the
+     * protocol writes the authentication into the ClientHello, the client checks the certificate it
+     * comes back with, and the key is derived from this connection's own ClientHello.
+     */
+    private final RealityHandshake reality;
+
     ImpersonateSSLSocketWrap(ContextData contextData, Socket s, String host, int port, boolean autoClose, Impersonator impersonator) throws IOException {
         super(contextData, s, host, port, autoClose);
         this.impersonator = impersonator;
+        RealityConfig realityConfig = impersonator.getRealityConfig();
+        this.reality = realityConfig == null ? null : new RealityHandshake(realityConfig);
     }
 
     @Override
     protected TlsClientProtocol newProvTlsClientProtocol(InputStream input, OutputStream output, Closeable socketCloser) {
-        return new ImpersonateProvTlsClientProtocol(input, output, socketCloser, impersonator);
+        return new ImpersonateProvTlsClientProtocol(input, output, socketCloser, impersonator, reality);
     }
 
     static void checkCipherSuites(ContextData contextData, int[] cipherSuites) {
@@ -51,6 +62,6 @@ class ImpersonateSSLSocketWrap extends ProvSSLSocketWrap {
     protected ProvTlsClient newProvTlsClient(ProvSSLParameters sslParameters) {
         int[] cipherSuites = impersonator.getCipherSuites();
         checkCipherSuites(contextData, cipherSuites);
-        return new ImpersonateTlsClient(this, sslParameters, cipherSuites, impersonator);
+        return new ImpersonateTlsClient(this, sslParameters, cipherSuites, impersonator, reality);
     }
 }

@@ -46,6 +46,25 @@ class HandshakeMessageOutput
         return org.bouncycastle.util.Arrays.copyOf(buf, count);
     }
 
+    /**
+     * Patch the length in and hand out the live buffer, for a caller that has to change the encoded
+     * bytes before they reach the transcript hash and the wire: REALITY rewrites the ClientHello's
+     * legacy_session_id with a ciphertext computed over the rest of this very message, so it needs
+     * the message exactly as the server will hash it.
+     * <p>
+     * The buffer is not a copy. Bytes may be overwritten in place, but the length must not change;
+     * {@link #prepareClientHello} writes the same length back in afterwards.
+     *
+     * @return the buffer, whose first {@link #size()} bytes are the handshake message
+     */
+    byte[] getEncodedMessage(int bindersSize) throws IOException
+    {
+        int bodyLength = count - 4 + bindersSize;
+        TlsUtils.checkUint24(bodyLength);
+        TlsUtils.writeUint24(bodyLength, buf, 1);
+        return buf;
+    }
+
     void send(TlsProtocol protocol) throws IOException
     {
         // Patch actual length back in
