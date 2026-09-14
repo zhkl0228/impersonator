@@ -47,9 +47,13 @@ public interface ImpersonatorApi {
      * <p>
      * The certificate a REALITY server sends is a temporary one it signs with a key only this
      * handshake could derive, so it is judged by that rather than by a chain - no trust manager is
-     * consulted, and there is nothing to skip or to trust. Encrypted Client Hello cannot be used on
-     * such a connection: REALITY authenticates the exact bytes of the ClientHello it sends, and ECH
-     * sends two different ones.
+     * consulted, and there is nothing to skip or to trust.
+     * <p>
+     * A real Encrypted Client Hello cannot be used on such a connection: REALITY authenticates the exact
+     * bytes of the ClientHello it sends, and ECH puts a different message on the wire than the one it
+     * hashes. This is about the real thing only - an ECH-capable profile is perfectly usable here as long
+     * as no ECHConfigList is found for the server name, and its GREASE ECH still goes out either way,
+     * being one extension of one ClientHello and part of what makes the profile look like the browser.
      */
     SSLContext newRealityContext(RealityConfig realityConfig);
 

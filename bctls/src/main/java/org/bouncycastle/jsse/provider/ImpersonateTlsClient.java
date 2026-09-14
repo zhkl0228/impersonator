@@ -76,12 +76,18 @@ class ImpersonateTlsClient extends ProvTlsClient {
         byte[] echConfigList = impersonator.getEchConfigList(JsseUtils.stripTrailingDot(manager.getPeerHostSNI()));
         if (reality != null && echConfigList != null) {
             /*
-             * REALITY authenticates the exact bytes of the ClientHello it sends, and the server
-             * checks them against the message it received. Encrypted Client Hello sends a different
-             * ClientHello to the wire than the one it hashes, so the two cannot both be on.
+             * Only a real ECH conflicts, which is why this asks for the config list rather than for
+             * whether the profile supports ECH: REALITY authenticates the exact bytes of the ClientHello
+             * it sends, and Encrypted Client Hello puts a different message on the wire than the one it
+             * hashes. A profile that does ECH is otherwise perfectly usable here - with no provider, or
+             * with one that has nothing for this server name, nothing is offered and nothing collides.
+             *
+             * The GREASE ECH is unaffected and still goes out: it is one extension in one ClientHello,
+             * and a browser profile that stopped sending it would no longer look like the browser.
              */
-            throw new IllegalStateException("a REALITY connection cannot offer Encrypted Client Hello as well;"
-                    + " one of setRealityConfig and setEchConfigProvider has to go");
+            throw new IllegalStateException("this REALITY connection has an ECHConfigList to offer for "
+                    + JsseUtils.stripTrailingDot(manager.getPeerHostSNI()) + ", and REALITY authenticates the"
+                    + " exact ClientHello it sends; drop the ECH provider or the entry for that name");
         }
         return echConfigList;
     }
