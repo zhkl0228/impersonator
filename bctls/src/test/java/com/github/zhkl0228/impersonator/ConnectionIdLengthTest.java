@@ -22,14 +22,23 @@ public class ConnectionIdLengthTest extends TestCase {
 
     private static final int DRAWS = 1000;
 
-    /** neqo's, which is the only one of the three that is a draw at all. */
+    /**
+     * neqo's, which is the only one of the three that is a draw at all.
+     * <p>
+     * The upper end is a bound and not an equality, which the lower end can afford to be: 8 is nine
+     * draws in sixteen and 20 is one in 256, because {@code v & (v >> 4)} is 15 only for {@code v ==
+     * 0xFF}. A thousand draws miss it about one run in fifty - {@code (255/256)^1000}, near enough to
+     * 2% - and this test failed exactly that way, with a highest length of 19. Asserting that nothing
+     * went above 20 catches a formula that produces too much just as well, and is a question a
+     * thousand samples can actually answer.
+     */
     public void testFirefoxDrawsItPerConnection() {
         SortedMap<Integer, Integer> drawn = draw(ImpersonatorFactory.macFirefox());
 
         assertTrue("a length that never varies is the tell this exists to avoid: " + drawn,
                 drawn.size() > 1);
         assertEquals("neqo cannot produce anything below 8", 8, (int) drawn.firstKey());
-        assertEquals("nor anything above 20, which is 5 + 15", 20, (int) drawn.lastKey());
+        assertTrue("nor anything above 20, which is 5 + 15: " + drawn, drawn.lastKey() <= 20);
     }
 
     /**
