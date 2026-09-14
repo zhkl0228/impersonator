@@ -33,8 +33,12 @@ public class DnsOverHttpsEchConfigProvider implements EchConfigProvider {
 
     private static final Logger log = LoggerFactory.getLogger(DnsOverHttpsEchConfigProvider.class);
 
-    /** Addressed by IP so that resolving the resolver cannot recurse back into this provider. */
-    private static final String DEFAULT_RESOLVER = "https://1.1.1.1/dns-query";
+    /**
+     * Addressed by IP so that resolving the resolver cannot recurse back into this provider.
+     * AliDNS answers HTTPS RR queries and is reachable from mainland China, where 1.1.1.1 and
+     * 8.8.8.8 are not.
+     */
+    private static final String DEFAULT_RESOLVER = "https://223.5.5.5/dns-query";
 
     private static final int TYPE_HTTPS = 65;
     private static final int CLASS_IN = 1;

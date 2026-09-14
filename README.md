@@ -58,7 +58,7 @@ extension on every connection, with no configuration:
 `macSafari()` and `ios()` send no ECH extension, because those browsers do not.
 
 Note the side effect: the first connection to a new host issues a DNS-over-HTTPS query to
-`https://1.1.1.1/dns-query`. Answers are cached for the record's TTL, misses included, so this
+`https://223.5.5.5/dns-query`. Answers are cached for the record's TTL, misses included, so this
 happens once per host. To use a different resolver, or to turn the lookup off and keep only the
 GREASE ECH:
 
@@ -67,7 +67,7 @@ ImpersonatorApi api = ImpersonatorFactory.macChrome();
 
 // A different DNS-over-HTTPS resolver. Prefer an IP literal, so that resolving the
 // resolver's own name cannot recurse back into the provider.
-api.setEchConfigProvider(new DnsOverHttpsEchConfigProvider("https://8.8.8.8/dns-query"));
+api.setEchConfigProvider(new DnsOverHttpsEchConfigProvider("https://1.1.1.1/dns-query"));
 
 // Or supply the ECHConfigList yourself, e.g. from `dig +short HTTPS <host>`.
 api.setEchConfigProvider(host -> "example.com".equals(host) ? echConfigList : null);
