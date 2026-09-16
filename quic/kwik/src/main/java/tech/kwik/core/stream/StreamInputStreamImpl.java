@@ -52,6 +52,8 @@ class StreamInputStreamImpl extends StreamInputStream {
     private final Logger log;
     private volatile boolean closed;
     private volatile boolean reset;
+    // Application error code of the peer's RESET_STREAM / RESET_STREAM_AT, reported when a read fails on the reset.
+    private volatile long peerResetErrorCode = -1;
     private volatile Thread blockingReaderThread;
     private final ReceiveBuffer receiveBuffer;
     private final Object addMonitor = new Object();
@@ -175,7 +177,9 @@ class StreamInputStreamImpl extends StreamInputStream {
                 blockingReaderThread = Thread.currentThread();
 
                 if (aborted || closed || reset) {
-                    throw new StreamClosedException(aborted ? "Connection closed" : closed ? "Stream closed" : "Stream reset by peer");
+                    throw new StreamClosedException(aborted ? "Connection closed (stream " + quicStream.streamId + ")"
+                            : closed ? "Stream " + quicStream.streamId + " closed"
+                            : "Stream " + quicStream.streamId + " reset by peer with error code " + peerResetErrorCode);
                 }
 
                 synchronized (addMonitor) {
@@ -301,6 +305,7 @@ class StreamInputStreamImpl extends StreamInputStream {
             finalSize = finalSizeOfReset;
         }
         if (!aborted && !closed && !reset) {
+            peerResetErrorCode = errorCode;
             reset = true;
             // Determine number of bytes that will not be read by the application (due to the reset), but that do occupy space in the flow control window.
             long unusedFlowControlCredits = finalSize - receiveBuffer.readOffset();
@@ -341,6 +346,7 @@ class StreamInputStreamImpl extends StreamInputStream {
                 resetAtReliableSize = reliableSize;
                 resetAt = true;
             }
+            peerResetErrorCode = errorCode;
 
             receiveBuffer.discardDataBeyond(reliableSize);
 

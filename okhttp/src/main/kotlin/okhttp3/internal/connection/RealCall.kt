@@ -23,6 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit.MILLISECONDS
+import java.util.concurrent.TimeUnit.NANOSECONDS
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -428,7 +429,7 @@ class RealCall(
       }
     }
 
-    val result = timeoutExit(e)
+    val result = timeoutExit(e, connected = connection != null)
     if (e != null) {
       eventListener.callFailed(this, result!!)
     } else {
@@ -462,11 +463,22 @@ class RealCall(
     return null
   }
 
-  private fun timeoutExit(cause: IOException?): IOException? {
+  private fun timeoutExit(
+    cause: IOException?,
+    connected: Boolean,
+  ): IOException? {
     if (timeoutEarlyExit) return cause
     if (!timeout.exit()) return cause
 
-    val e = InterruptedIOException("timeout")
+    // Say which phase the call timeout cut short. The cause is mostly the cancellation this timeout caused
+    // ("Canceled", a CANCEL stream reset, a closed socket), so without this a stall while connecting (DNS, TCP,
+    // TLS, a proxy tunnel) reads the same as a server that accepted the request and never answered.
+    val phase = if (connected) "on an established connection" else "before a connection was established"
+    val e =
+      InterruptedIOException(
+        "timeout: call to ${originalRequest.url.host} not done within " +
+          "${NANOSECONDS.toMillis(timeout.timeoutNanos())}ms, $phase",
+      )
     if (cause != null) e.initCause(cause)
     return e
   }
