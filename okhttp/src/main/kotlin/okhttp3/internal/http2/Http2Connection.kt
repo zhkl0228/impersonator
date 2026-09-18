@@ -796,7 +796,7 @@ class Http2Connection internal constructor(
         return
       }
       val rstStream = removeStream(streamId)
-      rstStream?.receiveRstStream(errorCode)
+      rstStream?.receiveRstStream(errorCode, "RST_STREAM from peer")
     }
 
     override fun settings(
@@ -915,9 +915,6 @@ class Http2Connection internal constructor(
       errorCode: ErrorCode,
       debugData: ByteString,
     ) {
-      if (debugData.size > 0) {
-        // TODO: log the debugData
-      }
 
       // Copy the streams first. We don't want to hold a lock when we call receiveRstStream().
       val streamsCopy: Array<Http2Stream>
@@ -926,13 +923,27 @@ class Http2Connection internal constructor(
         isShutdown = true
       }
 
-      // Fail all streams created after the last good stream ID.
+      // Fail all streams created after the last good stream ID. They fail as REFUSED_STREAM whatever the
+      // GOAWAY's own code (callers retry on that), so the message carries what the peer actually sent.
       for (http2Stream in streamsCopy) {
         if (http2Stream.id > lastGoodStreamId && http2Stream.isLocallyInitiated) {
-          http2Stream.receiveRstStream(REFUSED_STREAM)
+          http2Stream.receiveRstStream(
+            REFUSED_STREAM,
+            "GOAWAY from peer: $errorCode, lastGoodStreamId=$lastGoodStreamId, " +
+              "this stream=${http2Stream.id}, debugData=${describeDebugData(debugData)}",
+          )
           removeStream(http2Stream.id)
         }
       }
+    }
+
+    /** The GOAWAY debug data as text when it is printable ASCII (it usually is), else hex; capped at 256 bytes. */
+    private fun describeDebugData(debugData: ByteString): String {
+      if (debugData.size == 0) return "none"
+      val shown = if (debugData.size > 256) debugData.substring(0, 256) else debugData
+      val more = if (debugData.size > 256) "...(${debugData.size} bytes)" else ""
+      val printable = (0 until shown.size).all { shown[it] in 0x20..0x7e }
+      return if (printable) "\"${shown.utf8()}\"$more" else "hex ${shown.hex()}$more"
     }
 
     override fun windowUpdate(

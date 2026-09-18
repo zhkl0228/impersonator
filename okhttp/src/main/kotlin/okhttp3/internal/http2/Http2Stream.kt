@@ -325,10 +325,17 @@ class Http2Stream internal constructor(
     }
   }
 
-  fun receiveRstStream(errorCode: ErrorCode) {
+  /** @param detail what the peer sent, for the [StreamResetException] this stream will fail with. */
+  fun receiveRstStream(
+    errorCode: ErrorCode,
+    detail: String? = null,
+  ) {
     withLock {
       if (this.errorCode == null) {
         this.errorCode = errorCode
+        if (detail != null) {
+          this.errorException = StreamResetException(errorCode, detail)
+        }
         notifyAll()
       }
     }
