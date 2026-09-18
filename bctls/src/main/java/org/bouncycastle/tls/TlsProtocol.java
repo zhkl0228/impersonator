@@ -254,7 +254,8 @@ public abstract class TlsProtocol
         {
             if (!appDataReady)
             {
-                throw new TlsFatalAlert(AlertDescription.handshake_failure);
+                throw new TlsFatalAlert(AlertDescription.handshake_failure,
+                    describeHandshakeClosed("the peer sent close_notify"));
             }
             handleClose(false);
             break;
@@ -857,6 +858,71 @@ public abstract class TlsProtocol
         }
     }
 
+    /**
+     * The detail for a handshake that ended because the connection went away rather than because of
+     * anything the peer said. There is no alert to explain it, so the message has to carry what is
+     * known on this side: how far the handshake got, and (see the subclasses) what was sent. A
+     * middlebox that drops a ClientHello it does not like reads exactly this way.
+     */
+    protected String describeHandshakeClosed(String how)
+        throws IOException
+    {
+        return how + " during the handshake, in state " + getConnectionStateName(connection_state);
+    }
+
+    protected static String getConnectionStateName(short connectionState)
+    {
+        switch (connectionState)
+        {
+        case CS_START:
+            return "CS_START";
+        case CS_CLIENT_HELLO:
+            return "CS_CLIENT_HELLO";
+        case CS_SERVER_HELLO_RETRY_REQUEST:
+            return "CS_SERVER_HELLO_RETRY_REQUEST";
+        case CS_CLIENT_HELLO_RETRY:
+            return "CS_CLIENT_HELLO_RETRY";
+        case CS_SERVER_HELLO:
+            return "CS_SERVER_HELLO";
+        case CS_SERVER_ENCRYPTED_EXTENSIONS:
+            return "CS_SERVER_ENCRYPTED_EXTENSIONS";
+        case CS_SERVER_SUPPLEMENTAL_DATA:
+            return "CS_SERVER_SUPPLEMENTAL_DATA";
+        case CS_SERVER_CERTIFICATE:
+            return "CS_SERVER_CERTIFICATE";
+        case CS_SERVER_CERTIFICATE_STATUS:
+            return "CS_SERVER_CERTIFICATE_STATUS";
+        case CS_SERVER_CERTIFICATE_VERIFY:
+            return "CS_SERVER_CERTIFICATE_VERIFY";
+        case CS_SERVER_KEY_EXCHANGE:
+            return "CS_SERVER_KEY_EXCHANGE";
+        case CS_SERVER_CERTIFICATE_REQUEST:
+            return "CS_SERVER_CERTIFICATE_REQUEST";
+        case CS_SERVER_HELLO_DONE:
+            return "CS_SERVER_HELLO_DONE";
+        case CS_CLIENT_END_OF_EARLY_DATA:
+            return "CS_CLIENT_END_OF_EARLY_DATA";
+        case CS_CLIENT_SUPPLEMENTAL_DATA:
+            return "CS_CLIENT_SUPPLEMENTAL_DATA";
+        case CS_CLIENT_CERTIFICATE:
+            return "CS_CLIENT_CERTIFICATE";
+        case CS_CLIENT_KEY_EXCHANGE:
+            return "CS_CLIENT_KEY_EXCHANGE";
+        case CS_CLIENT_CERTIFICATE_VERIFY:
+            return "CS_CLIENT_CERTIFICATE_VERIFY";
+        case CS_CLIENT_FINISHED:
+            return "CS_CLIENT_FINISHED";
+        case CS_SERVER_SESSION_TICKET:
+            return "CS_SERVER_SESSION_TICKET";
+        case CS_SERVER_FINISHED:
+            return "CS_SERVER_FINISHED";
+        case CS_END:
+            return "CS_END";
+        default:
+            return "UNKNOWN(" + connectionState + ")";
+        }
+    }
+
     protected void safeReadRecord()
         throws IOException
     {
@@ -869,7 +935,8 @@ public abstract class TlsProtocol
 
             if (!appDataReady)
             {
-                throw new TlsFatalAlert(AlertDescription.handshake_failure);
+                throw new TlsFatalAlert(AlertDescription.handshake_failure,
+                    describeHandshakeClosed("the connection was closed without an alert"));
             }
 
             if (!getPeer().requiresCloseNotify())

@@ -2293,6 +2293,59 @@ public class TlsClientProtocol
         writeHandshakeMessage(outer, 0, outer.length);
     }
 
+    /**
+     * Adds the server_name that went out, since that is what anything on the path routes and filters
+     * by. With Encrypted Client Hello the name in the clear is the ECHConfig's public_name, not the
+     * one asked for, and a proxy that resolves the SNI it sniffs will find nothing for a public_name
+     * that has no address of its own and drop the connection, so both names and the config are
+     * reported.
+     */
+    protected String describeHandshakeClosed(String how)
+        throws IOException
+    {
+        StringBuilder sb = new StringBuilder(super.describeHandshakeClosed(how));
+        if (CS_CLIENT_HELLO == connection_state)
+        {
+            sb.append(", before a complete handshake message from the server");
+        }
+        sb.append("; server_name=").append(describeServerNames(
+            TlsExtensionsUtils.getServerNameExtensionClient(clientExtensions)));
+        if (null != echClient)
+        {
+            sb.append(" was sent encrypted in the ClientHelloInner, the ClientHelloOuter carried server_name=")
+                .append(echClient.getConfig().getPublicName())
+                .append(" in the clear; ECH ").append(echClient.getConfig().describe());
+        }
+        return sb.toString();
+    }
+
+    private static String describeServerNames(Vector serverNames)
+    {
+        if (null == serverNames)
+        {
+            return "<none>";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < serverNames.size(); ++i)
+        {
+            ServerName serverName = (ServerName)serverNames.elementAt(i);
+            if (i > 0)
+            {
+                sb.append(", ");
+            }
+            if (NameType.host_name == serverName.getNameType())
+            {
+                sb.append(Strings.fromByteArray(serverName.getNameData()));
+            }
+            else
+            {
+                sb.append("type").append(serverName.getNameType()).append(':')
+                    .append(org.bouncycastle.util.encoders.Hex.toHexString(serverName.getNameData()));
+            }
+        }
+        return sb.toString();
+    }
+
     private static String describeNamedGroups(int[] namedGroups)
     {
         if (null == namedGroups)
