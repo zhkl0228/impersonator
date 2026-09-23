@@ -150,10 +150,14 @@ class RealWebSocket(
       return
     }
 
+    // The caller's listener is kept, unlike upstream, which silences it with EventListener.NONE. The events
+    // of the setup call — dns, connect, secureConnect, connectionAcquired, the upgrade request and its
+    // response — are the only view of where a web socket that never opens is stuck; without them a failure
+    // says how long it took and nothing else. The call ends at the upgrade (timeoutEarlyExit), so what a
+    // listener sees here is the handshake, never the frames that follow.
     val webSocketClient =
       client
         .newBuilder()
-        .eventListener(EventListener.NONE)
         .protocols(ONLY_HTTP1)
         .build()
     val request =
