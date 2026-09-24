@@ -54,7 +54,11 @@ public class EarlyDataStream extends QuicStreamImpl {
      * lets out at this level.
      */
     private final ByteArrayOutputStream earlyDataWritten = new ByteArrayOutputStream();
-    private boolean writingEarlyData = true;
+    /**
+     * Read by the sender thread in {@code getEncryptionLevel}, and cleared by whichever thread settles the
+     * window - since the handshake settles it itself, not the thread that wrote.
+     */
+    private volatile boolean writingEarlyData = true;
     private volatile boolean earlyDataSent;
     private volatile boolean finalFrameSent;
 

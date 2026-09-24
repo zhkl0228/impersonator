@@ -11,6 +11,7 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The 0-RTT window: the period between the ClientHello going out and the handshake finishing, in
@@ -146,6 +147,76 @@ public class EarlyDataWindowTest extends TestCase {
     }
 
     /**
+     * The handshake closes the window by itself: nobody here calls {@code awaitConnected}.
+     * <p>
+     * That is how Hysteria2 uses a connection. It opens its streams with {@code createStream} and reads
+     * them itself, so nothing ever reaches the one place that used to close the window - flupke reading a
+     * frame. On a resumed connection the window then stayed open for the connection's whole life: every
+     * stream was an {@link EarlyDataStream}, and everything written to it went out as 0-RTT long after the
+     * server had discarded its 0-RTT keys. RFC 9001 section 4.9.3: once a client has 1-RTT keys it "MUST
+     * NOT send any more 0-RTT packets".
+     */
+    public void testTheHandshakeClosesTheWindowWithoutAnyoneAwaitingIt() throws Exception {
+        QuicClientConnection connection = resuming();
+        try {
+            connection.startConnect(true);
+            OutputStream out = connection.createStream(true).getOutputStream();
+            out.write("0-RTT window probe".getBytes());
+            out.flush();
+
+            assertTrue("the window must close once the handshake is over, with nobody awaiting it",
+                    windowCloses((QuicClientConnectionImpl) connection));
+
+            QuicStream afterwards = connection.createStream(true);
+            assertFalse("a stream opened after the handshake must not write at the 0-RTT level,"
+                            + " got " + afterwards.getClass().getName(),
+                    afterwards instanceof EarlyDataStream);
+        }
+        finally {
+            connection.close();
+        }
+    }
+
+    /**
+     * A handshake that finishes before anything was written leaves a connection that works, rather than
+     * one refused for offering early data and sending none: when the handshake gets there first, an empty
+     * window means not yet, not never. The refusal is for a caller of {@code awaitConnected} that has had
+     * its chance to write, which is {@link #testOfferingEarlyDataAndSendingNoneIsRefused}.
+     */
+    public void testAHandshakeThatBeatsTheWriterLeavesAWorkingConnection() throws Exception {
+        QuicClientConnection connection = resuming();
+        try {
+            connection.startConnect(true);
+
+            assertTrue("the window must close once the handshake is over",
+                    windowCloses((QuicClientConnectionImpl) connection));
+
+            connection.awaitConnected();
+            QuicStream afterwards = connection.createStream(true);
+            assertFalse("a stream opened after the handshake is an ordinary one, got "
+                    + afterwards.getClass().getName(), afterwards instanceof EarlyDataStream);
+        }
+        finally {
+            connection.close();
+        }
+    }
+
+    /**
+     * Polls, because the window is closed off the receiver thread and nothing announces it. Five
+     * seconds is ample for a resumed handshake with the project's endpoint.
+     */
+    private static boolean windowCloses(QuicClientConnectionImpl connection) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            if (!connection.getStreamManager().isEarlyDataWindowOpen()) {
+                return true;
+            }
+            TimeUnit.MILLISECONDS.sleep(10);
+        }
+        return false;
+    }
+
+    /**
      * A handshake that failed is reported the same way to everyone who asks.
      * <p>
      * Several threads reach {@code awaitConnected} on an HTTP/3 connection - the one writing the
@@ -224,7 +295,7 @@ public class EarlyDataWindowTest extends TestCase {
             // The ticket comes after the handshake and is not tied to anything this end asked for,
             // so it is waited for rather than assumed to be in already.
             for (int i = 0; i < 100 && connection.getNewSessionTickets().isEmpty(); i++) {
-                Thread.sleep(20);
+                TimeUnit.MILLISECONDS.sleep(20);
             }
             List<QuicSessionTicket> tickets = connection.getNewSessionTickets();
             return tickets.isEmpty() ? null : tickets.get(0);

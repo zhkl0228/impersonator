@@ -183,7 +183,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     /**
      * What {@link #awaitConnected()} settled on when it did not succeed, so that the callers after
      * the first are told the same thing rather than re-diagnosing a connection that is no longer in
-     * the state that failed; see {@link #awaitHandshake()}.
+     * the state that failed; see {@link #awaitHandshake(boolean)}.
      */
     private volatile Throwable connectFailure;
     private final List<TlsConstants.CipherSuite> cipherSuites;
@@ -548,7 +548,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      */
     public void awaitConnected() throws IOException {
         synchronized (connectLock) {
-            awaitHandshake();
+            awaitHandshake(true);
         }
     }
 
@@ -557,7 +557,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
      * writing the request and the ones reading the peer's streams - settle the early data once
      * between them rather than each in turn.
      */
-    private void awaitHandshake() throws IOException {
+    private void awaitHandshake(boolean requireEarlyData) throws IOException {
         if (connectCompleted) {
             return;
         }
@@ -577,7 +577,7 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
             throw (RuntimeException) connectFailure;
         }
         try {
-            settleConnection();
+            settleConnection(requireEarlyData);
         }
         catch (IOException | RuntimeException failure) {
             connectFailure = failure;
@@ -588,11 +588,16 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
     /**
      * Waits for the handshake and sends again whatever 0-RTT data the server refused. Called once:
-     * {@link #awaitHandshake()} remembers whether it returned or threw.
+     * {@link #awaitHandshake(boolean)} remembers whether it returned or threw.
+     *
+     * @param requireEarlyData whether a connection that offered early data and wrote none is refused.
+     *                         Asked for by a caller of {@link #awaitConnected()}, who has had its chance to
+     *                         write; not when the handshake itself settles the window, which it may reach
+     *                         before the writer has - an empty window is then not yet, rather than never.
      */
-    private void settleConnection() throws IOException {
+    private void settleConnection(boolean requireEarlyData) throws IOException {
         List<EarlyDataStream> earlyDataStreams = streamManager.closeEarlyDataWindow();
-        if (offeredEarlyData && earlyDataStreams.isEmpty()) {
+        if (requireEarlyData && offeredEarlyData && earlyDataStreams.isEmpty()) {
             // The ClientHello has already offered "early_data"; sending none would make it a claim
             // about this client that is not true.
             throw new IllegalStateException("a connection that offers early data must write some");
@@ -904,6 +909,44 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
             connectionState = Status.Connected;
             handshakeFinishedCondition.countDown();
+            if (offeredEarlyData) {
+                settleWhenHandshakeFinished();
+            }
+    }
+
+    /**
+     * Closes the 0-RTT window and settles its streams now that the handshake is over, whether or not
+     * anyone has called {@link #awaitConnected()}.
+     * <p>
+     * RFC 9001 section 4.9.3: "Once a client has installed 1-RTT keys, it MUST NOT send any more 0-RTT
+     * packets." The window used to be closed only by {@code awaitConnected}, which an HTTP/3 connection
+     * reaches when flupke reads a frame. A caller that works with the QUIC streams directly never does:
+     * Hysteria2 opens its streams with {@code createStream} and reads them itself. On a resumed connection
+     * the window then stayed open for the connection's whole life, every stream it opened was an
+     * {@link EarlyDataStream}, and every byte and every retransmission went out as 0-RTT - long after the
+     * server had discarded its 0-RTT keys and was dropping all of it. Measured against a Hysteria2 node:
+     * a resumed connection sent 415 0-RTT packets after HANDSHAKE_DONE, none of them acknowledged, and
+     * the requests on it never arrived; a fresh connection to the same node sent none and lost none.
+     * <p>
+     * Not on this thread: this is the receiver, and settling may write a refused flight again into a
+     * stream's send buffer, which blocks while the buffer is full - and only the receiver processing
+     * acknowledgements empties it. The window is empty here, not wrong, when the handshake beat the
+     * writer to it; see {@link #settleConnection(boolean)}.
+     */
+    private void settleWhenHandshakeFinished() {
+        Thread settler = new Thread(() -> {
+            try {
+                synchronized (connectLock) {
+                    awaitHandshake(false);
+                }
+            }
+            catch (IOException | RuntimeException failure) {
+                // awaitHandshake has kept it for everyone who asks; this is the one place nobody does.
+                log.error("Settling the 0-RTT window after the handshake failed", failure);
+            }
+        }, "kwik-early-data-settle");
+        settler.setDaemon(true);
+        settler.start();
     }
 
     @Override
