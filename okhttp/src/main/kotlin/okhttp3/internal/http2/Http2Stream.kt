@@ -20,6 +20,7 @@ import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.util.ArrayDeque
+import java.util.concurrent.TimeUnit.NANOSECONDS
 import okhttp3.Headers
 import okhttp3.internal.concurrent.Lockable
 import okhttp3.internal.concurrent.assertLockNotHeld
@@ -75,8 +76,8 @@ class Http2Stream internal constructor(
     FramingSink(
       finished = outFinished,
     )
-  internal val readTimeout = StreamTimeout()
-  internal val writeTimeout = StreamTimeout()
+  internal val readTimeout = StreamTimeout("read")
+  internal val writeTimeout = StreamTimeout("write")
 
   /**
    * The reason why this stream was closed, or null if it closed normally or has not yet been
@@ -728,14 +729,25 @@ class Http2Stream internal constructor(
    * The Okio timeout watchdog will call [timedOut] if the timeout is reached. In that case we close
    * the stream (asynchronously) which will notify the waiting thread.
    */
-  internal inner class StreamTimeout : AsyncTimeout() {
+  internal inner class StreamTimeout(
+    private val direction: String,
+  ) : AsyncTimeout() {
     override fun timedOut() {
       closeLater(ErrorCode.CANCEL)
       connection.sendDegradedPingLater()
     }
 
+    /**
+     * Says which stream, which peer and how long it waited. The bare "timeout" this used to carry named
+     * nothing, and a per-stream timeout is easy to mistake for the call timeout in a log: production traces
+     * showed only `SocketTimeoutException: timeout` for a peer that took the request and never sent response
+     * headers.
+     */
     override fun newTimeoutException(cause: IOException?): IOException =
-      SocketTimeoutException("timeout").apply {
+      SocketTimeoutException(
+        "$direction timed out on stream $id of ${connection.peerName} " +
+          "after ${NANOSECONDS.toMillis(timeoutNanos())}ms",
+      ).apply {
         if (cause != null) {
           initCause(cause)
         }

@@ -41,6 +41,39 @@ public class Http2ResetMessageTest extends TestCase {
                 + " this stream=3, debugData=\"too_many_requests\")", e.getMessage());
     }
 
+    /** The peer takes the request and never answers: the per-stream read timeout says so, and on which stream. */
+    public void testReadTimeoutNamesTheStreamAndPeer() throws Exception {
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread peer = new Thread(() -> {
+                try (Socket s = server.accept()) {
+                    DataInputStream in = new DataInputStream(s.getInputStream());
+                    in.readFully(new byte[24]);
+                    writeFrame(s.getOutputStream(), TYPE_SETTINGS, 0, 0, new byte[0]);
+                    readUntilEof(in);       // take the request, answer nothing
+                } catch (IOException ignored) {
+                    // the client hung up
+                }
+            }, "h2-peer");
+            peer.setDaemon(true);
+            peer.start();
+
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .protocols(Collections.singletonList(Protocol.H2_PRIOR_KNOWLEDGE))
+                    .readTimeout(300, TimeUnit.MILLISECONDS)
+                    .retryOnConnectionFailure(false)
+                    .build();
+            Request request = new Request.Builder().url("http://127.0.0.1:" + server.getLocalPort() + "/").build();
+            try (Response response = client.newCall(request).execute()) {
+                fail("expected the read to time out, got HTTP " + response.code());
+            } catch (java.net.SocketTimeoutException e) {
+                assertEquals("read timed out on stream 3 of 127.0.0.1 after 300ms", e.getMessage());
+            } finally {
+                client.dispatcher().executorService().shutdown();
+                client.connectionPool().evictAll();
+            }
+        }
+    }
+
     public void testRstStreamSaysItCameFromThePeer() throws Exception {
         byte[] rst = ByteBuffer.allocate(4).putInt(ErrorCode.REFUSED_STREAM.getHttpCode()).array();
         StreamResetException e = requestAgainst(TYPE_RST_STREAM, 3, rst);

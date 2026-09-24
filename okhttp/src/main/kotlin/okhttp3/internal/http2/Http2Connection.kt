@@ -80,6 +80,9 @@ class Http2Connection internal constructor(
   internal val listener: Listener = builder.listener
   internal val streams = mutableMapOf<Int, Http2Stream>()
   internal val connectionName: String = builder.connectionName
+
+  /** The peer alone, without [connectionName]'s "OkHttp " prefix, for messages a person reads. */
+  internal val peerName: String = builder.peerName
   internal var lastGoodStreamId = 0
 
   /** http://tools.ietf.org/html/draft-ietf-httpbis-http2-17#section-5.1.1 */
@@ -645,6 +648,7 @@ class Http2Connection internal constructor(
   ) {
     internal lateinit var socket: BufferedSocket
     internal lateinit var connectionName: String
+    internal lateinit var peerName: String
     internal var listener = Listener.REFUSE_INCOMING_STREAMS
     internal var pushObserver = PushObserver.CANCEL
     internal var pingIntervalMillis: Int = 0
@@ -656,6 +660,7 @@ class Http2Connection internal constructor(
       peerName: String,
     ) = apply {
       this.socket = socket
+      this.peerName = peerName
       this.connectionName =
         when {
           client -> "$okHttpName $peerName"
