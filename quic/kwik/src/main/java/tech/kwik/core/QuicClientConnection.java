@@ -113,7 +113,20 @@ public interface QuicClientConnection extends QuicConnection {
         QuicStream send(boolean bidirectional, byte[] data, boolean closeOutput) throws IOException;
     }
 
+    /**
+     * Keeps the connection alive for {@code seconds} in total - not a PING every {@code seconds}: kwik pings at half
+     * the idle timeout, and only while more than one such interval of the time is left, so anything up to half the
+     * idle timeout sends nothing. For a PING at an interval for as long as the connection lives, see
+     * {@link #keepAliveEvery}.
+     */
     void keepAlive(int seconds);
+
+    /**
+     * Sends a PING every {@code interval} for as long as the connection lives, so a connection kept for reuse never
+     * goes idle between uses. Only once connected, only once, and only with an interval shorter than the idle
+     * timeout, which it could not otherwise hold off.
+     */
+    void keepAliveEvery(Duration interval);
 
     List<QuicSessionTicket> getNewSessionTickets();
 

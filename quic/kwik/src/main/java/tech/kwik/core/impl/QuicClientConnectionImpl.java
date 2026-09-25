@@ -156,7 +156,8 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     private volatile byte[] token;
     private final CountDownLatch handshakeFinishedCondition = new CountDownLatch(1);
     private volatile TransportParameters peerTransportParams;
-    private KeepAliveActor keepAliveActor;
+    /** Set from the caller's thread, stopped from whichever thread ends the connection. */
+    private volatile KeepAliveActor keepAliveActor;
     private final String applicationProtocol;
     private final List<QuicSessionTicket> newSessionTickets = Collections.synchronizedList(new ArrayList<>());
     /**
@@ -726,6 +727,24 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
         }
     }
 
+    @Override
+    public void keepAliveEvery(Duration interval) {
+        if (connectionState != Status.Connected) {
+            throw new IllegalStateException("keep alive can only be set when connected");
+        }
+        if (keepAliveActor != null) {
+            throw new IllegalStateException("keep alive is already set");
+        }
+        if (interval.toMillis() <= 0) {
+            throw new IllegalArgumentException("keep-alive interval must be positive: " + interval);
+        }
+        if (idleTimer.isEnabled() && interval.toMillis() >= idleTimer.getIdleTimeout()) {
+            throw new IllegalArgumentException("a PING every " + interval.toMillis() + "ms cannot keep alive a "
+                    + "connection that goes idle after " + idleTimer.getIdleTimeout() + "ms");
+        }
+        keepAliveActor = KeepAliveActor.every(quicVersion, interval, sender, () -> connectionState == Status.Connected);
+    }
+
     public void ping() {
         if (connectionState == Status.Connected) {
             sender.send(new PingFrame(quicVersion.getVersion()), App);
@@ -1187,6 +1206,12 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
 
     @Override
     protected void preTerminateHook() {
+        // Every way the connection ends comes through here - the peer closing it, the idle timeout, a stateless
+        // reset, a local error - where immediateCloseWithError only covers this side closing it.
+        KeepAliveActor keepAlive = keepAliveActor;
+        if (keepAlive != null) {
+            keepAlive.shutdown();
+        }
         handshakeFinishedCondition.countDown();
         receiver.shutdown();
         if (receiverThread != null) {
