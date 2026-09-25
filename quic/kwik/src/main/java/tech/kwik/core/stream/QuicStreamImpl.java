@@ -20,6 +20,7 @@ package tech.kwik.core.stream;
 
 import tech.kwik.core.QuicConstants;
 import tech.kwik.core.QuicStream;
+import tech.kwik.core.StreamClosedException;
 import tech.kwik.core.frame.StreamFrame;
 import tech.kwik.core.impl.QuicConnectionImpl;
 import tech.kwik.core.impl.Role;
@@ -239,6 +240,30 @@ public class QuicStreamImpl implements QuicStream {
     void abort() {
         outputStream.abort();
         inputStream.abort();
+    }
+
+    /**
+     * The exception for I/O on this stream once its connection has ended, saying how it ended as the connection
+     * recorded it: closed by the peer (with its error code and reason), closed by this side, the idle timeout, a
+     * stateless reset, or a local error - whose exception becomes the cause. A bare "Connection closed (stream 8)"
+     * was all production had for a Hysteria2 request that failed 43ms in, with nothing to tell the peer closing
+     * the connection from an idle timeout.
+     *
+     * @param what what failed, e.g. {@code Connection closed (stream 8)}
+     */
+    StreamClosedException connectionEnded(String what) {
+        StreamClosedException ended = new StreamClosedException(what + ": " + connectionTermination());
+        Throwable cause = connection.getTerminationCause();
+        if (cause != null) {
+            ended.initCause(cause);
+        }
+        return ended;
+    }
+
+    /** How the connection ended, as it recorded it; see {@link #connectionEnded}. */
+    String connectionTermination() {
+        String reason = connection.getTerminationReason();
+        return reason != null ? reason : "nothing recorded why the connection ended";
     }
 
     void updateConnectionFlowControl(long bytesRead) {

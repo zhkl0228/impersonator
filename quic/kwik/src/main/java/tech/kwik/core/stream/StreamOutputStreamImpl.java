@@ -119,7 +119,8 @@ class StreamOutputStreamImpl extends StreamOutputStream implements FlowControlUp
         }
         catch (InterruptedException e) {
             String msg = "write failed because stream " + quicStream.streamId + " was "
-                    + (closed ? "closed" : (reset ? "reset with error code " + resetErrorCode : "aborted"));
+                    + (closed ? "closed" : (reset ? "reset with error code " + resetErrorCode
+                    : "aborted: " + quicStream.connectionTermination()));
             throw new InterruptedIOException(msg);
         }
 
@@ -165,7 +166,7 @@ class StreamOutputStreamImpl extends StreamOutputStream implements FlowControlUp
                     + (closed ? "already closed" : "is reset with error code " + resetErrorCode));
         }
         if (aborted) {
-            throw new IOException("output of stream " + quicStream.streamId + " aborted because connection is closed");
+            throw quicStream.connectionEnded("output of stream " + quicStream.streamId + " aborted because connection is closed");
         }
     }
 

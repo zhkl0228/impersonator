@@ -176,9 +176,11 @@ class StreamInputStreamImpl extends StreamInputStream {
             try {
                 blockingReaderThread = Thread.currentThread();
 
-                if (aborted || closed || reset) {
-                    throw new StreamClosedException(aborted ? "Connection closed (stream " + quicStream.streamId + ")"
-                            : closed ? "Stream " + quicStream.streamId + " closed"
+                if (aborted) {
+                    throw quicStream.connectionEnded("Connection closed (stream " + quicStream.streamId + ")");
+                }
+                if (closed || reset) {
+                    throw new StreamClosedException(closed ? "Stream " + quicStream.streamId + " closed"
                             : "Stream " + quicStream.streamId + " reset by peer with error code " + peerResetErrorCode);
                 }
 
