@@ -29,7 +29,11 @@ public class Http2ResetMessageTest extends TestCase {
     private static final int TYPE_HEADERS = 0x1;
     private static final int TYPE_RST_STREAM = 0x3;
     private static final int TYPE_SETTINGS = 0x4;
+    private static final int TYPE_PING = 0x6;
     private static final int TYPE_GOAWAY = 0x7;
+    private static final int TYPE_WINDOW_UPDATE = 0x8;
+    private static final int FLAG_ACK = 0x1;
+    private static final int FLAG_END_HEADERS = 0x4;
 
     public void testGoAwayCarriesItsOwnCodeAndDebugData() throws Exception {
         byte[] debug = "too_many_requests".getBytes(StandardCharsets.US_ASCII);
@@ -41,15 +45,76 @@ public class Http2ResetMessageTest extends TestCase {
                 + " this stream=3, debugData=\"too_many_requests\")", e.getMessage());
     }
 
-    /** The peer takes the request and never answers: the per-stream read timeout says so, and on which stream. */
+    /**
+     * The peer takes the request and never answers, not even a PING: the per-stream read timeout says so, on which
+     * stream, what the peer sent after the stream opened, and that the connection itself went quiet.
+     */
     public void testReadTimeoutNamesTheStreamAndPeer() throws Exception {
+        String message = readTimeoutAgainst(false, false);
+        assertTrue(message, message.matches("read timed out on stream 3 of 127\\.0\\.0\\.1 after 300ms;"
+                + " after the stream opened the peer sent SETTINGS\\(stream 0, 0 bytes\\)\\+\\d+ms;"
+                + " it did not answer a PING within 1000ms"));
+    }
+
+    /**
+     * The peer acknowledges the request and answers a PING, but sends no response headers: the connection is
+     * fine and the peer has the request, which the message says.
+     */
+    public void testReadTimeoutSaysThePeerStillAnswers() throws Exception {
+        String message = readTimeoutAgainst(true, false);
+        assertTrue(message, message.matches("read timed out on stream 3 of 127\\.0\\.0\\.1 after 300ms;"
+                + " after the stream opened the peer sent SETTINGS\\(stream 0, 0 bytes\\)\\+\\d+ms,"
+                + " WINDOW_UPDATE\\(stream 3, 4 bytes\\)\\+\\d+ms; it answered a PING in \\d+ms"));
+    }
+
+    /** The same for a body that stops coming after the response headers. */
+    public void testBodyReadTimeoutSaysThePeerStillAnswers() throws Exception {
+        String message = readTimeoutAgainst(true, true);
+        assertTrue(message, message.matches("read timed out on stream 3 of 127\\.0\\.0\\.1 after 300ms;"
+                + " after the stream opened the peer sent SETTINGS\\(stream 0, 0 bytes\\)\\+\\d+ms,"
+                + " WINDOW_UPDATE\\(stream 3, 4 bytes\\)\\+\\d+ms, HEADERS\\(stream 3, 1 bytes\\)\\+\\d+ms;"
+                + " it answered a PING in \\d+ms"));
+    }
+
+    /**
+     * One h2c request against a peer that sends its SETTINGS only once the request is in, so every frame it
+     * sends falls after the stream opened.
+     *
+     * @param answers         acknowledge the request with a WINDOW_UPDATE and answer PINGs; otherwise stay silent
+     * @param responseHeaders send the response headers and then no body, so the body read times out instead
+     * @return the read timeout's message
+     */
+    private static String readTimeoutAgainst(boolean answers, boolean responseHeaders) throws Exception {
         try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
             Thread peer = new Thread(() -> {
                 try (Socket s = server.accept()) {
                     DataInputStream in = new DataInputStream(s.getInputStream());
-                    in.readFully(new byte[24]);
-                    writeFrame(s.getOutputStream(), TYPE_SETTINGS, 0, 0, new byte[0]);
-                    readUntilEof(in);       // take the request, answer nothing
+                    OutputStream out = s.getOutputStream();
+                    in.readFully(new byte[24]);                   // client connection preface
+                    while (true) {
+                        int[] header = readFrameHeader(in);
+                        in.readFully(new byte[header[0]]);
+                        if (header[1] == TYPE_HEADERS) {
+                            break;
+                        }
+                    }
+                    writeFrame(out, TYPE_SETTINGS, 0, 0, new byte[0]);
+                    if (!answers) {
+                        readUntilEof(in);                         // answer nothing, not even a PING
+                        return;
+                    }
+                    writeFrame(out, TYPE_WINDOW_UPDATE, 0, 3, ByteBuffer.allocate(4).putInt(1).array());
+                    if (responseHeaders) {
+                        writeFrame(out, TYPE_HEADERS, FLAG_END_HEADERS, 3, new byte[]{(byte) 0x88}); // :status 200
+                    }
+                    while (true) {
+                        int[] header = readFrameHeader(in);
+                        byte[] payload = new byte[header[0]];
+                        in.readFully(payload);
+                        if (header[1] == TYPE_PING && (header[2] & FLAG_ACK) == 0) {
+                            writeFrame(out, TYPE_PING, FLAG_ACK, 0, payload);
+                        }
+                    }
                 } catch (IOException ignored) {
                     // the client hung up
                 }
@@ -64,9 +129,14 @@ public class Http2ResetMessageTest extends TestCase {
                     .build();
             Request request = new Request.Builder().url("http://127.0.0.1:" + server.getLocalPort() + "/").build();
             try (Response response = client.newCall(request).execute()) {
-                fail("expected the read to time out, got HTTP " + response.code());
+                if (!responseHeaders) {
+                    fail("expected the response headers to time out, got HTTP " + response.code());
+                }
+                response.body().string();
+                fail("expected the body to time out");
+                return null;
             } catch (java.net.SocketTimeoutException e) {
-                assertEquals("read timed out on stream 3 of 127.0.0.1 after 300ms", e.getMessage());
+                return e.getMessage();
             } finally {
                 client.dispatcher().executorService().shutdown();
                 client.connectionPool().evictAll();
@@ -132,12 +202,12 @@ public class Http2ResetMessageTest extends TestCase {
         out.flush();
     }
 
-    /** {length, type} */
+    /** {length, type, flags} */
     private static int[] readFrameHeader(DataInputStream in) throws IOException {
         byte[] h = new byte[9];
         in.readFully(h);
         int length = (h[0] & 0xff) << 16 | (h[1] & 0xff) << 8 | (h[2] & 0xff);
-        return new int[]{length, h[3] & 0xff};
+        return new int[]{length, h[3] & 0xff, h[4] & 0xff};
     }
 
     private static void readUntilEof(InputStream in) throws IOException {

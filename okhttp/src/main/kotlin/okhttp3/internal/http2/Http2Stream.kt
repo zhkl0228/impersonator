@@ -50,6 +50,10 @@ class Http2Stream internal constructor(
   // Internal state is guarded by `this`. No long-running or potentially blocking operations are
   // performed while the lock is held.
 
+  /** When this stream opened, and how many frames the connection had read by then; see [Http2Connection.describeStreamTimeout]. */
+  internal val openedAtNanos = System.nanoTime()
+  internal val framesReadAtOpen = connection.readerRunnable.reader.framesRead()
+
   /** The bytes consumed and acknowledged by the stream. */
   val readBytes: WindowCounter = WindowCounter(id)
 
@@ -147,24 +151,28 @@ class Http2Stream internal constructor(
    */
   @Throws(IOException::class)
   fun takeHeaders(callerIsIdle: Boolean = false): Headers {
-    withLock {
-      while (headersQueue.isEmpty() && errorCode == null) {
-        val doReadTimeout = callerIsIdle || doReadTimeout()
-        if (doReadTimeout) {
-          readTimeout.enter()
-        }
-        try {
-          waitForIo()
-        } finally {
+    try {
+      withLock {
+        while (headersQueue.isEmpty() && errorCode == null) {
+          val doReadTimeout = callerIsIdle || doReadTimeout()
           if (doReadTimeout) {
-            readTimeout.exitAndThrowIfTimedOut()
+            readTimeout.enter()
+          }
+          try {
+            waitForIo()
+          } finally {
+            if (doReadTimeout) {
+              readTimeout.exitAndThrowIfTimedOut()
+            }
           }
         }
+        if (headersQueue.isNotEmpty()) {
+          return headersQueue.removeFirst()
+        }
+        throw errorException ?: StreamResetException(errorCode!!)
       }
-      if (headersQueue.isNotEmpty()) {
-        return headersQueue.removeFirst()
-      }
-      throw errorException ?: StreamResetException(errorCode!!)
+    } catch (e: StreamTimeoutException) {
+      throw e.withConnectionState(connection.describeStreamTimeout(this)) // Outside the lock, see there.
     }
   }
 
@@ -388,6 +396,18 @@ class Http2Stream internal constructor(
     ): Long {
       require(byteCount >= 0L) { "byteCount < 0: $byteCount" }
 
+      try {
+        return readOrWait(sink, byteCount)
+      } catch (e: StreamTimeoutException) {
+        throw e.withConnectionState(connection.describeStreamTimeout(this@Http2Stream)) // Outside the lock, see there.
+      }
+    }
+
+    @Throws(IOException::class)
+    private fun readOrWait(
+      sink: Buffer,
+      byteCount: Long,
+    ): Long {
       while (true) {
         var tryAgain = false
         var readBytesDelivered = -1L
@@ -744,7 +764,7 @@ class Http2Stream internal constructor(
      * headers.
      */
     override fun newTimeoutException(cause: IOException?): IOException =
-      SocketTimeoutException(
+      StreamTimeoutException(
         "$direction timed out on stream $id of ${connection.peerName} " +
           "after ${NANOSECONDS.toMillis(timeoutNanos())}ms",
       ).apply {
@@ -757,5 +777,22 @@ class Http2Stream internal constructor(
     fun exitAndThrowIfTimedOut() {
       if (exit()) throw newTimeoutException(null)
     }
+  }
+
+  /**
+   * What [StreamTimeout] throws. Its own type so the read paths can tell it from a socket timeout the connection
+   * failed with and, once outside the stream's lock, add what the connection shows; see
+   * [Http2Connection.describeStreamTimeout].
+   */
+  internal class StreamTimeoutException(
+    message: String,
+  ) : SocketTimeoutException(message) {
+    fun withConnectionState(state: String): StreamTimeoutException =
+      StreamTimeoutException("$message; $state").also {
+        if (cause != null) {
+          it.initCause(cause)
+        }
+        it.stackTrace = stackTrace
+      }
   }
 }

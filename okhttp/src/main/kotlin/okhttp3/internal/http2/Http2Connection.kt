@@ -32,6 +32,7 @@ import okhttp3.internal.closeQuietly
 import okhttp3.internal.concurrent.Lockable
 import okhttp3.internal.concurrent.TaskRunner
 import okhttp3.internal.concurrent.assertLockNotHeld
+import okhttp3.internal.concurrent.awaitNanos
 import okhttp3.internal.concurrent.notifyAll
 import okhttp3.internal.concurrent.wait
 import okhttp3.internal.concurrent.withLock
@@ -115,6 +116,10 @@ class Http2Connection internal constructor(
 
   /** Consider this connection to be unhealthy if a degraded pong isn't received by this time. */
   private var degradedPongDeadlineNs = 0L
+
+  /** When the last degraded ping went out and when its pong came back, see [describeStreamTimeout]. */
+  private var degradedPingSentNs = 0L
+  private var degradedPongReceivedNs = 0L
 
   internal val flowControlListener: FlowControlListener = builder.flowControlListener
 
@@ -634,11 +639,67 @@ class Http2Connection internal constructor(
     withLock {
       if (degradedPongsReceived < degradedPingsSent) return // Already awaiting a degraded pong.
       degradedPingsSent++
-      degradedPongDeadlineNs = System.nanoTime() + DEGRADED_PONG_TIMEOUT_NS
+      degradedPingSentNs = System.nanoTime()
+      degradedPongDeadlineNs = degradedPingSentNs + DEGRADED_PONG_TIMEOUT_NS
     }
     writerQueue.execute("$connectionName ping") {
       writePing(false, DEGRADED_PING, 0)
     }
+  }
+
+  /**
+   * What the connection shows about [stream], whose peer sent nothing in time, for the timeout's message: what
+   * the peer sent on the connection after the stream opened, and whether it still answers a PING.
+   *
+   * A bare timeout cannot say whether the peer ever had the request. Production had one whose response headers
+   * never came, the same through a tunnel and over a direct connection, and nothing told the two cases apart.
+   * The PING does: it is the one [sendDegradedPingLater] sends for every stream timeout, written after the
+   * request on the same ordered byte stream, so a pong means the peer had the whole request and left it
+   * unanswered, and no pong means the bytes are held up somewhere between here and the peer.
+   *
+   * Waits for the pong at most until its deadline, [DEGRADED_PONG_TIMEOUT_NS] after the ping. The caller must not
+   * hold the stream's lock: the reader thread delivering that stream's late headers would block on it, and the
+   * pong queued behind them would look lost.
+   */
+  internal fun describeStreamTimeout(stream: Http2Stream): String {
+    stream.assertLockNotHeld()
+    val (count, frames) = readerRunnable.reader.framesReadAfter(stream.framesReadAtOpen)
+    val sent =
+      if (count == 0L) {
+        "the peer sent nothing after the stream opened"
+      } else {
+        val dropped = count - frames.size
+        "after the stream opened the peer sent " +
+          (if (dropped > 0L) "$dropped frames, then " else "") +
+          frames.joinToString { frame ->
+            "${Http2.formattedType(frame.type)}(stream ${frame.streamId}, ${frame.length} bytes)" +
+              "+${TimeUnit.NANOSECONDS.toMillis(frame.atNanos - stream.openedAtNanos)}ms"
+          }
+      }
+    sendDegradedPingLater() // Normally sent already by the timeout; this only covers the caller getting here first.
+    val ping =
+      withLock {
+        val awaited = degradedPingsSent
+        var interrupted = false
+        while (degradedPongsReceived < awaited && !isShutdown && !interrupted) {
+          val remainingNs = degradedPongDeadlineNs - System.nanoTime()
+          if (remainingNs <= 0L) break
+          try {
+            awaitNanos(remainingNs)
+          } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt() // Retain interrupted status.
+            interrupted = true
+          }
+        }
+        when {
+          degradedPongsReceived >= awaited ->
+            "it answered a PING in ${TimeUnit.NANOSECONDS.toMillis(degradedPongReceivedNs - degradedPingSentNs)}ms"
+          isShutdown -> "the connection shut down before a PING was answered"
+          interrupted -> "interrupted while awaiting the answer to a PING"
+          else -> "it did not answer a PING within ${TimeUnit.NANOSECONDS.toMillis(DEGRADED_PONG_TIMEOUT_NS.toLong())}ms"
+        }
+      }
+    return "$sent; $ping"
   }
 
   class Builder(
@@ -895,6 +956,8 @@ class Http2Connection internal constructor(
 
             DEGRADED_PING -> {
               degradedPongsReceived++
+              degradedPongReceivedNs = System.nanoTime()
+              notifyAll() // For describeStreamTimeout.
             }
 
             AWAIT_PING -> {

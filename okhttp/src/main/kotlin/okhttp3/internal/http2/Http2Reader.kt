@@ -73,6 +73,38 @@ class Http2Reader(
     hpackReader.setHeaderTableSizeSetting(headerTableSizeSetting)
   }
 
+  /**
+   * The headers of the last [RECENT_FRAMES] frames read, oldest first. A stream whose peer never answered uses
+   * them to say what the peer sent on the connection meanwhile, see [Http2Connection.describeStreamTimeout].
+   * Guarded by itself, together with [framesRead]: the reader thread appends, the thread whose stream timed out
+   * reads.
+   */
+  private val recentFrames = ArrayDeque<ReceivedFrame>(RECENT_FRAMES)
+
+  /** Every frame read so far, including those [recentFrames] no longer keeps. */
+  private var framesRead = 0L
+
+  /** A frame's header as it was read, and when. */
+  class ReceivedFrame internal constructor(
+    val type: Int,
+    val streamId: Int,
+    val length: Int,
+    val atNanos: Long,
+  )
+
+  /** How many frames have been read so far. */
+  fun framesRead(): Long = synchronized(recentFrames) { framesRead }
+
+  /**
+   * The frames read after the first [since], as many of them as are still kept, oldest first; and how many were
+   * read after the first [since] in all.
+   */
+  fun framesReadAfter(since: Long): Pair<Long, List<ReceivedFrame>> =
+    synchronized(recentFrames) {
+      val count = framesRead - since
+      count to recentFrames.takeLast(minOf(count, recentFrames.size.toLong()).toInt())
+    }
+
   @Throws(IOException::class)
   fun readConnectionPreface(handler: Handler) {
     if (client) {
@@ -119,6 +151,13 @@ class Http2Reader(
     val type = source.readByte() and 0xff
     val flags = source.readByte() and 0xff
     val streamId = source.readInt() and 0x7fffffff // Ignore reserved bit.
+    synchronized(recentFrames) {
+      framesRead++
+      if (recentFrames.size == RECENT_FRAMES) {
+        recentFrames.removeFirst()
+      }
+      recentFrames.addLast(ReceivedFrame(type, streamId, length, System.nanoTime()))
+    }
     if (type != TYPE_WINDOW_UPDATE && logger.isLoggable(FINE)) {
       logger.fine(frameLog(true, streamId, length, type, flags))
     }
@@ -591,6 +630,9 @@ class Http2Reader(
 
   companion object {
     val logger: Logger = Logger.getLogger(Http2::class.java.name)
+
+    /** How many frame headers [recentFrames] keeps. */
+    private const val RECENT_FRAMES = 16
 
     @Throws(IOException::class)
     fun lengthWithoutPadding(
