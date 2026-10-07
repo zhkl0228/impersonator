@@ -1,14 +1,15 @@
 package org.bouncycastle.tls;
 
+import java.io.IOException;
+import java.util.Hashtable;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Vector;
+
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.tls.crypto.TlsDHConfig;
 import org.bouncycastle.tls.crypto.TlsECConfig;
 import org.bouncycastle.util.Integers;
-
-import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Vector;
 
 /**
  * Base class for a TLS server.
@@ -43,6 +44,21 @@ public abstract class AbstractTlsServer
         super(crypto);
     }
 
+    /**
+     * Whether to echo a client's "status_request" extension (<i>RFC 6066 sec. 8</i>) in the
+     * extended server hello, so that a stapled OCSP response can be sent. Echoing it makes
+     * {@link #getCertificateStatus()} be called with
+     * {@link SecurityParameters#getStatusRequestVersion()} of 1; it does not oblige the server to
+     * actually supply a response.
+     * <p>
+     * This governs (D)TLS 1.2 and earlier, where the echo is what announces the "certificate_status"
+     * message. TLS 1.3 has no echo to send - the response rides in a per-{@link CertificateEntry}
+     * extension - so there {@link #getCertificateStatus()} is called whenever the client offered
+     * "status_request", whatever this returns, and returning null from it is how a TLS 1.3 server
+     * declines to staple.
+     *
+     * @return true (the default) to echo "status_request" when the client offered it.
+     */
     protected boolean allowCertificateStatus()
     {
         return true;
@@ -53,6 +69,15 @@ public abstract class AbstractTlsServer
         return true;
     }
 
+    /**
+     * Whether to echo a client's "status_request_v2" extension (<i>RFC 6961 sec. 2.2</i>) in the
+     * extended server hello. When the client offered both, echoing this one takes precedence over
+     * "status_request", and {@link #getCertificateStatus()} is then called with
+     * {@link SecurityParameters#getStatusRequestVersion()} of 2 &ndash; so a server overriding
+     * this must be prepared to return a {@link CertificateStatusType#ocsp_multi} status.
+     *
+     * @return false (the default) to leave "status_request_v2" unanswered.
+     */
     protected boolean allowMultiCertStatus()
     {
         return false;
@@ -333,6 +358,14 @@ public abstract class AbstractTlsServer
         this.truncatedHMacOffered = false;
         this.clientSentECPointFormats = false;
         this.certificateStatusRequest = null;
+        /*
+         * NOTE: processClientExtensions only assigns these two when the ClientHello carried any
+         * extensions at all, so a handshake that carries none would otherwise inherit the previous
+         * one's - and echo an extension this client never offered, which RFC 5246 sec. 7.4.1.4 has it
+         * abort over with unsupported_extension.
+         */
+        this.statusRequestV2 = null;
+        this.trustedCAKeys = null;
         this.selectedCipherSuite = -1;
         this.selectedProtocolName = null;
         this.serverExtensions.clear();
@@ -526,14 +559,12 @@ public abstract class AbstractTlsServer
 
         if (isTLSv13)
         {
-            if (null != this.certificateStatusRequest && allowCertificateStatus())
-            {
-                /*
-                 * TODO[tls13] RFC 8446 4.4.2.1. OCSP Status and SCT Extensions.
-                 * 
-                 * OCSP information is carried in an extension for a CertificateEntry.
-                 */
-            }
+            /*
+             * RFC 8446 4.4.2.1. There is no "status_request" echo to add here: the response travels
+             * in a "status_request" extension of the CertificateEntry containing the certificate it
+             * answers for, which TlsServerProtocol attaches from getCertificateStatus(). Nor is
+             * "status_request_v2" honoured - RFC 8446 sec. 4.2.1 leaves it out of TLS 1.3.
+             */
         }
         else
         {
@@ -567,7 +598,6 @@ public abstract class AbstractTlsServer
                     new short[]{ ECPointFormat.uncompressed });
             }
 
-            // TODO[tls13] See RFC 8446 4.4.2.1
             if (null != this.statusRequestV2 && allowMultiCertStatus())
             {
                 /*

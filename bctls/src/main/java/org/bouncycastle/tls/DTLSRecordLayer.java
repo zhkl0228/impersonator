@@ -663,16 +663,25 @@ class DTLSRecordLayer
         }
         catch (TlsFatalAlert fatalAlert)
         {
-            if (AlertDescription.bad_record_mac == fatalAlert.getAlertDescription())
+            /*
+             * RFC 9147 4.5.2. Unlike TLS, DTLS is resilient in the face of invalid records (e.g., invalid
+             * formatting, length, MAC, etc.). In general, invalid records SHOULD be silently discarded, thus
+             * preserving the association [...] generating fatal alerts is NOT RECOMMENDED for such transports,
+             * both to increase the reliability of DTLS service and to avoid the risk of spoofing attacks sending
+             * traffic to unrelated third parties.
+             *
+             * RFC 9146 6. DTLS implementations MUST silently discard records with bad MACs or that are otherwise
+             * invalid.
+             *
+             * An internal_error is not a verdict on the record: it means the implementation itself has hit
+             * something it did not anticipate, so it is not safe to proceed and the alert is propagated.
+             */
+            if (AlertDescription.internal_error == fatalAlert.getAlertDescription())
             {
-                /*
-                 * RFC 9146 6. DTLS implementations MUST silently discard records with bad MACs or that are otherwise
-                 * invalid.
-                 */
-                return -1;
+                throw fatalAlert;
             }
 
-            throw fatalAlert;
+            return -1;
         }
 
         if (decoded.len > this.plaintextLimit)

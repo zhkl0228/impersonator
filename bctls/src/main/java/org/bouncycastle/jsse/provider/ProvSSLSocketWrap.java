@@ -1,7 +1,7 @@
 package org.bouncycastle.jsse.provider;
 
-import java.io.Closeable;
 import java.io.IOException;
+import java.io.Closeable;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.SequenceInputStream;
@@ -637,16 +637,21 @@ class ProvSSLSocketWrap
             }
             finally
             {
-                if (this.handshakeTimeoutInput != null)
-                {
-                    this.handshakeTimeoutInput.deactivate();
-                }
+                settleHandshakeTimeout();
             }
         }
         else if (protocol.isHandshaking())
         {
             protocol.setResumableHandshake(resumable);
-            protocol.resumeHandshake();
+
+            try
+            {
+                protocol.resumeHandshake();
+            }
+            finally
+            {
+                settleHandshakeTimeout();
+            }
         }
         else
         {
@@ -741,6 +746,27 @@ class ProvSSLSocketWrap
         }
 
         return dummySession;
+    }
+
+    /**
+     * Settle the handshake timeout, if one is armed, now that a handshake attempt has returned. A
+     * handshake still in progress was interrupted (resumably) rather than finished, so the deadline
+     * is left armed for the resumption and only the caller's SO_TIMEOUT is restored - otherwise a
+     * caller retrying after a per-read timeout would get an unbounded handshake.
+     */
+    private void settleHandshakeTimeout()
+    {
+        if (this.handshakeTimeoutInput != null)
+        {
+            if (this.protocol != null && this.protocol.isHandshaking())
+            {
+                this.handshakeTimeoutInput.suspend();
+            }
+            else
+            {
+                this.handshakeTimeoutInput.deactivate();
+            }
+        }
     }
 
     synchronized void handshakeIfNecessary(boolean resumable) throws IOException

@@ -1,10 +1,7 @@
-package org.bouncycastle.tls;
+package org.bouncycastle.tls.crypto;
 
 import java.io.IOException;
 
-import org.bouncycastle.tls.crypto.TlsAgreement;
-import org.bouncycastle.tls.crypto.TlsCrypto;
-import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.util.Arrays;
 
 public class TlsHybridAgreement

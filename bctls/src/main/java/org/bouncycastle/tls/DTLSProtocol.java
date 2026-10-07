@@ -1,7 +1,5 @@
 package org.bouncycastle.tls;
 
-import org.bouncycastle.util.Arrays;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -9,6 +7,8 @@ import java.io.OutputStream;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Vector;
+
+import org.bouncycastle.util.Arrays;
 
 public abstract class DTLSProtocol
 {

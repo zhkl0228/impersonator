@@ -1,16 +1,17 @@
 package org.bouncycastle.tls;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Vector;
+
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.tls.crypto.TlsStreamSigner;
 import org.bouncycastle.util.Arrays;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.Hashtable;
-import java.util.Map;
-import java.util.Vector;
 
 public class DTLSClientProtocol
     extends DTLSProtocol

@@ -1,11 +1,12 @@
 package org.bouncycastle.tls;
 
-import org.bouncycastle.util.Arrays;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Hashtable;
 import java.util.Map;
+
+import org.bouncycastle.util.Arrays;
 
 public class ServerHello
 {

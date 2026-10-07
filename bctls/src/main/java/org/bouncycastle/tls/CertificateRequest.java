@@ -1,17 +1,18 @@
 package org.bouncycastle.tls;
 
-import org.bouncycastle.asn1.ASN1Encoding;
-import org.bouncycastle.asn1.ASN1Primitive;
-import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.util.Arrays;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Hashtable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Vector;
+
+import org.bouncycastle.asn1.ASN1Encoding;
+import org.bouncycastle.asn1.ASN1Primitive;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.util.Arrays;
 
 /**
  * Parsing and encoding of a <i>CertificateRequest</i> struct from RFC 4346:

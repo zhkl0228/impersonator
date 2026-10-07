@@ -1,22 +1,52 @@
 package org.bouncycastle.jsse.provider;
 
+import java.io.IOException;
+import java.security.Principal;
+import java.security.cert.X509Certificate;
+import java.util.Collections;
+import java.util.Hashtable;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.jsse.BCSNIHostName;
 import org.bouncycastle.jsse.BCSNIServerName;
 import org.bouncycastle.jsse.BCX509Key;
 import org.bouncycastle.jsse.provider.SignatureSchemeInfo.PerConnection;
-import org.bouncycastle.tls.*;
+import org.bouncycastle.tls.AlertDescription;
+import org.bouncycastle.tls.AlertLevel;
+import org.bouncycastle.tls.CertificateRequest;
+import org.bouncycastle.tls.CertificateStatusRequest;
+import org.bouncycastle.tls.CertificateStatusRequestItemV2;
+import org.bouncycastle.tls.CertificateStatusType;
+import org.bouncycastle.tls.DefaultTlsClient;
+import org.bouncycastle.tls.IdentifierType;
+import org.bouncycastle.tls.OCSPStatusRequest;
+import org.bouncycastle.tls.ProtocolName;
+import org.bouncycastle.tls.ProtocolVersion;
+import org.bouncycastle.tls.SecurityParameters;
+import org.bouncycastle.tls.ServerName;
+import org.bouncycastle.tls.SessionParameters;
+import org.bouncycastle.tls.SignatureAlgorithm;
+import org.bouncycastle.tls.SignatureAndHashAlgorithm;
+import org.bouncycastle.tls.TlsAuthentication;
+import org.bouncycastle.tls.TlsContext;
+import org.bouncycastle.tls.TlsCredentials;
+import org.bouncycastle.tls.TlsDHGroupVerifier;
+import org.bouncycastle.tls.TlsExtensionsUtils;
+import org.bouncycastle.tls.TlsFatalAlert;
+import org.bouncycastle.tls.TlsServerCertificate;
+import org.bouncycastle.tls.TlsSession;
+import org.bouncycastle.tls.TlsUtils;
+import org.bouncycastle.tls.TrustedAuthority;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.IPAddress;
 import org.bouncycastle.util.encoders.Hex;
-
-import java.io.IOException;
-import java.security.Principal;
-import java.security.cert.X509Certificate;
-import java.util.*;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 class ProvTlsClient
     extends DefaultTlsClient
@@ -349,8 +379,11 @@ class ProvTlsClient
                 String authType = JsseUtils.getAuthTypeServer(
                     context.getSecurityParametersHandshake().getKeyExchangeAlgorithm());
 
-                jsseSecurityParameters.statusResponses = JsseUtils.getStatusResponses(
-                    serverCertificate.getCertificateStatus());
+                /*
+                 * The status responses (if any) must be set before the checkServerTrusted call: the TrustManager
+                 * accesses them during chain validation via getStatusResponses on the handshake session.
+                 */
+                jsseSecurityParameters.statusResponses = JsseUtils.getStatusResponses(context, serverCertificate);
 
                 manager.checkServerTrusted(chain, authType);
             }
@@ -901,7 +934,7 @@ class ProvTlsClient
         return JsseUtils.createCredentialedSigner(context, getCrypto(), x509Key, null);
     }
 
-    private void handleKeyManagerMisses(LinkedHashMap<String, SignatureSchemeInfo> keyTypeMap, String selectedKeyType)
+    private void handleKeyManagerMisses(Map<String, SignatureSchemeInfo> keyTypeMap, String selectedKeyType)
     {
         for (Map.Entry<String, SignatureSchemeInfo> entry : keyTypeMap.entrySet())
         {

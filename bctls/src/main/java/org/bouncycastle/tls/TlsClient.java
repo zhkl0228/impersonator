@@ -1,6 +1,7 @@
 package org.bouncycastle.tls;
 
 import java.io.IOException;
+import java.util.Hashtable;
 import java.util.Map;
 import java.util.Vector;
 

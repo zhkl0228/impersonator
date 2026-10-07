@@ -159,17 +159,26 @@ class NamedGroupInfo
         NamedGroup.ffdhe2048,
         NamedGroup.ffdhe3072,
         NamedGroup.ffdhe4096,
+        NamedGroup.SecP256r1MLKEM768,
+        NamedGroup.SecP384r1MLKEM1024,
         NamedGroup.X25519MLKEM768,
+        /*
+         * NOTE: The pure ML-KEM groups (MLKEM512, MLKEM768, MLKEM1024) are deliberately not
+         * offered by default, following TLS working group feedback that a key exchange should
+         * retain a classical component. They remain available - FipsUtils.isFipsNamedGroup
+         * accepts them, so a caller can name one through the "jdk.tls.namedGroups" property or
+         * BCSSLParameters.setNamedGroups, in FIPS mode as well - just not without asking.
+         */
     };
 
     static class PerConnection
     {
-        private final LinkedHashMap<Integer, NamedGroupInfo> local;
+        private final Map<Integer, NamedGroupInfo> local;
         private final Vector localEarly;
         private final boolean localECDSA;
         private final AtomicReference<List<NamedGroupInfo>> peer;
 
-        PerConnection(LinkedHashMap<Integer, NamedGroupInfo> local, Vector localEarly, boolean localECDSA)
+        PerConnection(Map<Integer, NamedGroupInfo> local, Vector localEarly, boolean localECDSA)
         {
             if (local == null)
             {
@@ -243,17 +252,17 @@ class NamedGroupInfo
         ProtocolVersion latest = ProtocolVersion.getLatestTLS(activeProtocolVersions);
         ProtocolVersion earliest = ProtocolVersion.getEarliestTLS(activeProtocolVersions);
 
-        return createPerConnection(perContext, sslParameters, earliest, latest);
+        return createPerConnection(perContext, sslParameters, earliest, latest, true);
     }
 
     static PerConnection createPerConnectionServer(PerContext perContext, ProvSSLParameters sslParameters,
         ProtocolVersion negotiatedVersion)
     {
-        return createPerConnection(perContext, sslParameters, negotiatedVersion, negotiatedVersion);
+        return createPerConnection(perContext, sslParameters, negotiatedVersion, negotiatedVersion, false);
     }
 
     private static PerConnection createPerConnection(PerContext perContext, ProvSSLParameters sslParameters,
-        ProtocolVersion earliest, ProtocolVersion latest)
+        ProtocolVersion earliest, ProtocolVersion latest, boolean isClient)
     {
         String[] namedGroups = sslParameters.getNamedGroups();
 
@@ -288,7 +297,9 @@ class NamedGroupInfo
 
         boolean localECDSA = hasAnyECDSA(local);
 
+        // NOTE: Early key shares are only ever used by a client offering TLS 1.3
         Vector localEarly = null;
+        if (isClient && post13Active)
         {
             String[] earlyKeyShares = sslParameters.getEarlyKeyShares();
 
@@ -312,9 +323,9 @@ class NamedGroupInfo
                     Integer earlyCandidate = Integers.valueOf(earlyCandidates[i]);
 
                     NamedGroupInfo earlyNamedGroupInfo = local.get(earlyCandidate);
-                    if (earlyNamedGroupInfo == null || !earlyNamedGroupInfo.isEnabled())
+                    if (earlyNamedGroupInfo == null)
                     {
-                        LOG.warning("Candidate early key share not an enabled named group: "
+                        LOG.warning("Candidate early key share not an offered named group for this connection: "
                             + NamedGroup.getName(earlyCandidates[i]));
                         continue;
                     }
@@ -654,6 +665,11 @@ class NamedGroupInfo
         if (count < result.length)
         {
             result = Arrays.copyOf(result, count);
+        }
+        // NOTE: Only complain about an empty result if attempting to configure a non-empty list
+        if (names.length > 0 && count < 1)
+        {
+            LOG.warning("'" + description + "' contained no usable NamedGroup values; no early key_share will be offered");
         }
         return result;
     }

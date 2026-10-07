@@ -1,12 +1,13 @@
 package org.bouncycastle.tls;
 
-import org.bouncycastle.tls.crypto.TlsCrypto;
-import org.bouncycastle.util.Integers;
-
 import java.io.IOException;
+import java.util.Hashtable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Vector;
+
+import org.bouncycastle.tls.crypto.TlsCrypto;
+import org.bouncycastle.util.Integers;
 
 /**
  * Base class for a TLS client.

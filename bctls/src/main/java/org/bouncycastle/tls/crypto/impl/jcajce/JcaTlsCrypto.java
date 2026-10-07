@@ -412,7 +412,7 @@ public class JcaTlsCrypto
         BigInteger[] ng = srpConfig.getExplicitNG();
         final SRP6VerifierGenerator verifierGenerator = new SRP6VerifierGenerator();
 
-        verifierGenerator.init(ng[0], ng[1], createHash(CryptoHashAlgorithm.sha1));
+        verifierGenerator.init(ng[0], ng[1], createHash(CryptoHashAlgorithm.sha1), this.getSecureRandom());
 
         return new TlsSRP6VerifierGenerator()
         {
@@ -1036,6 +1036,21 @@ public class JcaTlsCrypto
                     {
                         // ANDMGF1 has vanished from the Sun PKCS11 provider.
                         algorithmName = upperAlg.replace("ANDMGF1", "SSA-PSS");
+                        try
+                        {
+                            dummySigner = helper.createSignature(algorithmName);
+                        }
+                        catch (NoSuchAlgorithmException e2)
+                        {
+                            // SunMSCAPI only registers the generic name - the digest is carried by the parameter.
+                            algorithmName = "RSASSA-PSS";
+                            dummySigner = helper.createSignature(algorithmName);
+                        }
+                    }
+                    else if (upperAlg.endsWith("WITHRSASSA-PSS"))
+                    {
+                        // SunMSCAPI only registers the generic name - the digest is carried by the parameter.
+                        algorithmName = "RSASSA-PSS";
                         dummySigner = helper.createSignature(algorithmName);
                     }
                     else

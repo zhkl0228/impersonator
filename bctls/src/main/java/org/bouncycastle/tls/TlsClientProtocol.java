@@ -1,13 +1,5 @@
 package org.bouncycastle.tls;
 
-import org.bouncycastle.tls.crypto.TlsAgreement;
-import org.bouncycastle.tls.crypto.TlsCrypto;
-import org.bouncycastle.tls.crypto.TlsSecret;
-import org.bouncycastle.tls.crypto.TlsStreamSigner;
-import org.bouncycastle.util.Arrays;
-import org.bouncycastle.util.Integers;
-import org.bouncycastle.util.Strings;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -17,6 +9,14 @@ import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Vector;
+
+import org.bouncycastle.tls.crypto.TlsAgreement;
+import org.bouncycastle.tls.crypto.TlsCrypto;
+import org.bouncycastle.tls.crypto.TlsSecret;
+import org.bouncycastle.tls.crypto.TlsStreamSigner;
+import org.bouncycastle.util.Arrays;
+import org.bouncycastle.util.Integers;
+import org.bouncycastle.util.Strings;
 
 public class TlsClientProtocol
     extends TlsProtocol
@@ -1189,9 +1189,13 @@ public class TlsClientProtocol
         securityParameters.extendedMasterSecret = true;
 
         /*
-         * TODO[tls13] RFC 8446 4.4.2.1. OCSP Status and SCT Extensions.
-         * 
-         * OCSP information is carried in an extension for a CertificateEntry.
+         * TODO[tls13] RFC 8446 4.4.2.1. SCT Extensions.
+         *
+         * OCSP information is carried in an extension of the CertificateEntry the certificate it
+         * answers for is in, so there is nothing to echo here and no "certificate_status" message to
+         * expect; a version of 1 records only that we asked, which is what has the entries read for
+         * staples when the Certificate message arrives. "status_request_v2" is not honoured at all -
+         * RFC 8446 sec. 4.2.1 leaves it out of TLS 1.3.
          */
         securityParameters.statusRequestVersion = clientExtensions.containsKey(TlsExtensionsUtils.EXT_status_request) ? 1 : 0;
 
@@ -1758,9 +1762,10 @@ public class TlsClientProtocol
         if (!securityParameters.isResumedSession())
         {
             /*
-             * TODO[tls13] RFC 8446 4.4.2.1. OCSP Status and SCT Extensions.
-             * 
-             * OCSP information is carried in an extension for a CertificateEntry.
+             * TODO[tls13] RFC 8446 4.4.2.1. SCT Extensions.
+             *
+             * OCSP information is carried in an extension of the CertificateEntry the certificate it
+             * answers for is in; see the note in process13ServerHello.
              */
             securityParameters.statusRequestVersion = clientExtensions.containsKey(TlsExtensionsUtils.EXT_status_request)
                 ? 1 : 0;

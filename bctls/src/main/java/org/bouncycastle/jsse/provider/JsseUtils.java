@@ -1,5 +1,25 @@
 package org.bouncycastle.jsse.provider;
 
+import java.io.IOException;
+import java.security.Key;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.Hashtable;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Vector;
+
+import javax.security.auth.x500.X500Principal;
+
 import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -11,9 +31,35 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
-import org.bouncycastle.jsse.*;
+import org.bouncycastle.jsse.BCSNIHostName;
+import org.bouncycastle.jsse.BCSNIMatcher;
+import org.bouncycastle.jsse.BCSNIServerName;
+import org.bouncycastle.jsse.BCStandardConstants;
+import org.bouncycastle.jsse.BCX509ExtendedTrustManager;
+import org.bouncycastle.jsse.BCX509Key;
 import org.bouncycastle.jsse.java.security.BCCryptoPrimitive;
-import org.bouncycastle.tls.*;
+import org.bouncycastle.tls.AlertDescription;
+import org.bouncycastle.tls.AlertLevel;
+import org.bouncycastle.tls.Certificate;
+import org.bouncycastle.tls.CertificateEntry;
+import org.bouncycastle.tls.CertificateStatus;
+import org.bouncycastle.tls.CertificateStatusType;
+import org.bouncycastle.tls.ClientCertificateType;
+import org.bouncycastle.tls.ExtensionType;
+import org.bouncycastle.tls.IdentifierType;
+import org.bouncycastle.tls.KeyExchangeAlgorithm;
+import org.bouncycastle.tls.NamedGroup;
+import org.bouncycastle.tls.ProtocolName;
+import org.bouncycastle.tls.ProtocolVersion;
+import org.bouncycastle.tls.SecurityParameters;
+import org.bouncycastle.tls.ServerName;
+import org.bouncycastle.tls.SignatureAndHashAlgorithm;
+import org.bouncycastle.tls.TlsContext;
+import org.bouncycastle.tls.TlsCredentialedDecryptor;
+import org.bouncycastle.tls.TlsCredentialedSigner;
+import org.bouncycastle.tls.TlsServerCertificate;
+import org.bouncycastle.tls.TlsUtils;
+import org.bouncycastle.tls.TrustedAuthority;
 import org.bouncycastle.tls.crypto.TlsCertificate;
 import org.bouncycastle.tls.crypto.TlsCryptoParameters;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaDefaultTlsCredentialedSigner;
@@ -21,14 +67,6 @@ import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCertificate;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
 import org.bouncycastle.tls.crypto.impl.jcajce.JceDefaultTlsCredentialedDecryptor;
 import org.bouncycastle.util.encoders.Hex;
-
-import javax.security.auth.x500.X500Principal;
-import java.io.IOException;
-import java.security.Key;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.cert.X509Certificate;
-import java.util.*;
 
 abstract class JsseUtils
 {
@@ -431,10 +469,12 @@ abstract class JsseUtils
         {
             JcaTlsCertificate certificate = new JcaTlsCertificate(crypto, chain[i]);
 
-            // TODO[tls13] Support various extensions
-            Map<Integer, byte[]> extensions = null;
-
-            certificateEntryList[i] = new CertificateEntry(certificate, extensions);
+            /*
+             * TODO[tls13] Support various extensions. The OCSP staples of RFC 8446 sec. 4.4.2.1 are
+             * attached by the protocol layer from getCertificateStatus() - see
+             * TlsUtils.add13CertificateStatus.
+             */
+            certificateEntryList[i] = new CertificateEntry(certificate, null);
         }
 
         return new Certificate(certificateRequestContext, certificateEntryList);
@@ -573,6 +613,58 @@ abstract class JsseUtils
             }
         }
         return null;
+    }
+
+    static List<byte[]> getStatusResponses(TlsContext context, TlsServerCertificate serverCertificate)
+        throws IOException
+    {
+        if (TlsUtils.isTLSv13(context))
+        {
+            /*
+             * RFC 8446 4.4.2.1: TLS 1.3 has no CertificateStatus handshake message - the server's
+             * OCSP information rides in an extension of each CertificateEntry.
+             */
+            return getStatusResponses13(serverCertificate);
+        }
+
+        return getStatusResponses(serverCertificate.getCertificateStatus());
+    }
+
+    /**
+     * The stapled responses from a TLS 1.3 Certificate message, where RFC 8446 sec. 4.4.2.1 carries
+     * each one in a "status_request" extension of the CertificateEntry it belongs to rather than in a
+     * CertificateStatus handshake message. The reading of those extensions - including ignoring a
+     * staple the client never asked for - belongs to the TLS layer, which hands them over per
+     * certificate through {@link TlsServerCertificate#getCertificateStatusAt(int)}.
+     * <p/>
+     * The result is positional: element <code>i</code> answers for certificate <code>i</code> of the
+     * chain, with a zero-length element where an entry carried no staple. That is the contract
+     * {@link ProvX509TrustManager} relies on when it pairs the responses with the chain - appending
+     * only the staples that are present would attribute an intermediate's response to the
+     * end-entity.
+     *
+     * @return the responses, or null if no entry carried one.
+     */
+    static List<byte[]> getStatusResponses13(TlsServerCertificate serverCertificate) throws IOException
+    {
+        int count = serverCertificate.getCertificate().getLength();
+
+        ArrayList<byte[]> statusResponses = new ArrayList<byte[]>(count);
+
+        boolean anyStatusResponse = false;
+        for (int i = 0; i < count; ++i)
+        {
+            CertificateStatus certificateStatus = serverCertificate.getCertificateStatusAt(i);
+
+            byte[] statusResponse = null == certificateStatus
+                ?   TlsUtils.EMPTY_BYTES
+                :   getStatusResponse(certificateStatus.getOCSPResponse());
+
+            anyStatusResponse |= (statusResponse.length > 0);
+            statusResponses.add(statusResponse);
+        }
+
+        return anyStatusResponse ? Collections.unmodifiableList(statusResponses) : null;
     }
 
     static X500Principal[] getTrustedIssuers(Vector<TrustedAuthority> trustedCAKeys) throws IOException

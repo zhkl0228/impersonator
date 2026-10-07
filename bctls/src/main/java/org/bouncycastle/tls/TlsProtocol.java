@@ -1,15 +1,23 @@
 package org.bouncycastle.tls;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InterruptedIOException;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Vector;
+
 import org.bouncycastle.tls.crypto.TlsCrypto;
 import org.bouncycastle.tls.crypto.TlsSecret;
 import org.bouncycastle.util.Arrays;
 import org.bouncycastle.util.Integers;
-
-import java.io.*;
-import java.nio.ByteBuffer;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Vector;
 
 public abstract class TlsProtocol
     implements TlsCloseable
@@ -131,6 +139,7 @@ public abstract class TlsProtocol
     final Object recordWriteLock = new Object();
 
     private int maxHandshakeMessageSize = -1;
+    private Timeout handshakeTimeout = null;
 
     TlsHandshakeHash handshakeHash;
 
@@ -420,7 +429,30 @@ public abstract class TlsProtocol
                 throw new TlsFatalAlert(AlertDescription.internal_error);
             }
 
+            checkHandshakeTimeout();
+
             safeReadRecord();
+        }
+    }
+
+    /**
+     * Abandon the handshake once {@link TlsPeer#getHandshakeTimeoutMillis()} has elapsed since
+     * {@link #beginHandshake(boolean)}.
+     * <p>
+     * NOTE: this bounds the handshake at record boundaries only. A plain {@link InputStream} has no
+     * timed read, so a peer that stalls part way through a record blocks in the read itself, where
+     * only the transport's own read timeout can intervene (the (BC)JSSE provider supplies one for
+     * blocking sockets, shrinking SO_TIMEOUT to the remaining handshake budget).
+     */
+    private void checkHandshakeTimeout() throws IOException
+    {
+        if (Timeout.hasExpired(handshakeTimeout, System.currentTimeMillis()))
+        {
+            TlsTimeoutException cause = new TlsTimeoutException("Handshake timed out");
+
+            handleException(AlertDescription.internal_error, "Handshake timed out", cause);
+
+            throw cause;
         }
     }
 
@@ -431,6 +463,7 @@ public abstract class TlsProtocol
         TlsPeer peer = getPeer();
 
         this.maxHandshakeMessageSize = TlsUtils.getMaxHandshakeMessageSize(peer);
+        this.handshakeTimeout = Timeout.forWaitMillis(peer.getHandshakeTimeoutMillis(), System.currentTimeMillis());
 
         this.handshakeHash = new DeferredHash(context);
         this.connection_state = CS_START;
@@ -471,6 +504,7 @@ public abstract class TlsProtocol
         this.selectedPSK13 = false;
         this.receivedChangeCipherSpec = false;
         this.expectSessionTicket = false;
+        this.handshakeTimeout = null;
     }
 
     protected void completeHandshake()
@@ -523,7 +557,12 @@ public abstract class TlsProtocol
                     .setPeerCertificate(securityParameters.getPeerCertificate())
                     .setPSKIdentity(securityParameters.getPSKIdentity())
                     .setSRPIdentity(securityParameters.getSRPIdentity())
-                    // TODO Consider filtering extensions that aren't relevant to resumed sessions
+                    /*
+                     * TODO Consider filtering extensions that aren't relevant to resumed sessions.
+                     * NOTE: the "status_request" / "status_request_v2" echoes are filtered where a
+                     * server replays these on an abbreviated handshake - see
+                     * TlsExtensionsUtils.removeStatusRequestExtensions.
+                     */
                     .setServerExtensions(this.serverExtensions)
                     .build();
 

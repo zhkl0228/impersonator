@@ -3,8 +3,10 @@ package org.bouncycastle.tls.crypto.impl.jcajce.srp;
 import java.math.BigInteger;
 import java.security.SecureRandom;
 
+import org.bouncycastle.crypto.CryptoServicesRegistrar;
 import org.bouncycastle.tls.crypto.SRP6Group;
 import org.bouncycastle.tls.crypto.TlsHash;
+import org.bouncycastle.util.BigIntegers;
 
 /**
  * Implements the server side SRP-6a protocol. Note that this class is stateful, and therefore NOT threadsafe.
@@ -66,7 +68,7 @@ public class SRP6Server
     {
         BigInteger k = SRP6Util.calculateK(digest, N, g);
         this.b = selectPrivateValue();
-        this.B = k.multiply(v).mod(N).add(g.modPow(b, N)).mod(N);
+        this.B = k.multiply(v).mod(N).add(g.modPow(blindExponent(b), N)).mod(N);
 
         return B;
     }
@@ -93,7 +95,22 @@ public class SRP6Server
 
     private BigInteger calculateS()
     {
-        return v.modPow(u, N).multiply(A).mod(N).modPow(b, N);
+        return v.modPow(u, N).multiply(A).mod(N).modPow(blindExponent(b), N);
+    }
+
+    /**
+     * Add a random multiple of N-1 to a private exponent, so that the variable-time
+     * BigInteger.modPow applied to it sees a different exponent on each call. Raising any value
+     * coprime to the prime N to the power N-1 gives 1 by Fermat's little theorem, so the result is
+     * unchanged. The multiple is of N-1 rather than of the order of g because the base blinded in
+     * calculateS carries a client-supplied value that need not lie in the subgroup g generates, and
+     * for a safe prime an odd multiple of that order would give the wrong answer for the values
+     * that do not.
+     */
+    private BigInteger blindExponent(BigInteger e)
+    {
+        return BigIntegers.createBlindedExponent(e, N.subtract(BigIntegers.ONE),
+            CryptoServicesRegistrar.getSecureRandom(random));
     }
 
     /**
@@ -113,8 +130,8 @@ public class SRP6Server
         }
 
         // Compute the own client evidence message 'M1'
-        BigInteger computedM1 = SRP6Util.calculateM1(digest, N, A, B, S);
-        if (computedM1.equals(clientM1))
+        byte[] computedM1 = SRP6Util.calculateM1Encoded(digest, N, A, B, S);
+        if (SRP6Util.constantTimeEquals(computedM1, clientM1))
         {
             this.M1 = clientM1;
             return true;

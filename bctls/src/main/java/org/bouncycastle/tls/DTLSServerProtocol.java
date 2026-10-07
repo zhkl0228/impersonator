@@ -1,14 +1,15 @@
 package org.bouncycastle.tls;
 
-import org.bouncycastle.tls.crypto.TlsCrypto;
-import org.bouncycastle.tls.crypto.TlsSecret;
-import org.bouncycastle.util.Arrays;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Hashtable;
 import java.util.Map;
 import java.util.Vector;
+
+import org.bouncycastle.tls.crypto.TlsCrypto;
+import org.bouncycastle.tls.crypto.TlsSecret;
+import org.bouncycastle.util.Arrays;
 
 public class DTLSServerProtocol
     extends DTLSProtocol
@@ -596,6 +597,11 @@ public class DTLSServerProtocol
                 :   server.getServerExtensions();
 
             state.serverExtensions = TlsExtensionsUtils.ensureExtensionsInitialised(sessionServerExtensions);
+
+            if (resumedSession)
+            {
+                TlsExtensionsUtils.removeStatusRequestExtensions(state.serverExtensions);
+            }
         }
 
         server.getServerExtensionsForConnection(state.serverExtensions);

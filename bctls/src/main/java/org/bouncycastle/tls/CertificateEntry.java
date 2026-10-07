@@ -1,8 +1,9 @@
 package org.bouncycastle.tls;
 
-import org.bouncycastle.tls.crypto.TlsCertificate;
-
+import java.util.Hashtable;
 import java.util.Map;
+
+import org.bouncycastle.tls.crypto.TlsCertificate;
 
 public class CertificateEntry
 {
