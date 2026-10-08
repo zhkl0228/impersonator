@@ -2,19 +2,11 @@ package com.github.zhkl0228.impersonator.http3;
 
 import com.github.zhkl0228.impersonator.DnsOverHttpsEchConfigProvider;
 import com.github.zhkl0228.impersonator.ImpersonatorFactory;
-
 import junit.framework.TestCase;
 import tech.kwik.agent15.ech.EchException;
-import tech.kwik.flupke.Http3Client;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -92,8 +84,8 @@ public class EchOverHttp3Test extends TestCase {
         assertEquals("the provider that supplied the config should hear about the rejection",
                 1, rejections.get());
         assertEquals("the ClientHelloOuter went to the ECHConfig's public name",
-                HOST, publicNames.get(0));
-        byte[] published = retryConfigs.get(0);
+                HOST, publicNames.getFirst());
+        byte[] published = retryConfigs.getFirst();
         assertNotNull("Cloudflare publishes retry_configs", published);
 
         String body = Http3Get.body(Http3ClientFactory.create().setEchConfigProvider(host -> published), TRACE_URL);
@@ -193,7 +185,7 @@ public class EchOverHttp3Test extends TestCase {
      * client being impersonated never sends, so this refuses rather than quietly changing the
      * fingerprint - the same reasoning as on the TCP path.
      */
-    public void testAClientHelloWithNoEchSlotRefusesAnEchConfigList() throws Exception {
+    public void testAClientHelloWithNoEchSlotRefusesAnEchConfigList() {
         byte[] echConfigList = DnsOverHttpsEchConfigProvider.getInstance().getEchConfigList(HOST);
         assertNotNull(HOST + " should publish an ECHConfigList", echConfigList);
 
