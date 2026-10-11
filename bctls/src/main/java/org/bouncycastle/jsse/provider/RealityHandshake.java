@@ -46,6 +46,14 @@ final class RealityHandshake {
     private static final Logger log = LoggerFactory.getLogger(RealityHandshake.class);
 
     /**
+     * BouncyCastle for the AES-GCM seal and the HMAC over the temporary certificate, held as an instance
+     * of this class loader's own class rather than looked up by name: the JVM-wide name "BC" can
+     * resolve to a provider a previous deployment of the same web application left behind (see
+     * ImpersonatorFactory's static block).
+     */
+    private static final java.security.Provider BC = new BouncyCastleProvider();
+
+    /**
      * Where legacy_session_id sits in the ClientHello handshake message, counted from the handshake
      * type byte: 4 (handshake header) + 2 (legacy_version) + 32 (random) + 1 (the length byte).
      * Xray writes the same constant as {@code hello.Raw[39:]}; it is fixed because everything
@@ -209,7 +217,7 @@ final class RealityHandshake {
     private byte[] seal(byte[] plaintext, byte[] nonce, byte[] additionalData, int additionalDataLength)
             throws IOException {
         try {
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding", BouncyCastleProvider.PROVIDER_NAME);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding", BC);
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(authKey, "AES"),
                     new GCMParameterSpec(128, nonce));
             cipher.updateAAD(additionalData, 0, additionalDataLength);
@@ -267,7 +275,7 @@ final class RealityHandshake {
 
     private byte[] hmacSha512(byte[] data) throws IOException {
         try {
-            Mac mac = Mac.getInstance("HmacSHA512", BouncyCastleProvider.PROVIDER_NAME);
+            Mac mac = Mac.getInstance("HmacSHA512", BC);
             mac.init(new SecretKeySpec(authKey, "HmacSHA512"));
             return mac.doFinal(data);
         } catch (GeneralSecurityException e) {

@@ -29,7 +29,6 @@ import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
 import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.Security;
@@ -51,13 +50,27 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
     /** The BouncyCastle provider everything here resolves algorithms against; see the static block. */
     private static final Provider BC_PROVIDER;
 
+    /** The JSSE provider every {@link #newSSLContext} is built on; see the static block. */
+    private static final Provider JSSE_PROVIDER;
+
     static {
-        Provider bc = Security.getProvider(BouncyCastleProvider.PROVIDER_NAME);
-        if (bc == null) {
-            bc = new BouncyCastleProvider();
-            Security.addProvider(bc);
+        /*
+         * Both providers are instances of this class loader's own classes, held here and handed to
+         * SSLContext.getInstance directly - never looked up by name. The Security provider list is
+         * JVM-wide and outlives a web application: after a hot redeploy the name "BCJSSE" still
+         * resolves to the instance the previous deployment registered, whose class loader is closed.
+         * Classes it had already loaded keep working, the first one it had not (2026-10-11:
+         * org.bouncycastle.jsse.provider.SSLSocketUtil, from ProvSSLSocketFactory.createSocket) fails
+         * with NoClassDefFoundError on every connection until the JVM restarts.
+         *
+         * They are still registered when nothing is under those names yet, for code elsewhere that
+         * does look them up by name; nothing in this library depends on that registration.
+         */
+        BC_PROVIDER = new BouncyCastleProvider();
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(BC_PROVIDER);
         }
-        BC_PROVIDER = bc;
+        JSSE_PROVIDER = new BouncyCastleJsseProvider(BC_PROVIDER);
         if(Security.getProvider(BouncyCastleJsseProvider.PROVIDER_NAME) == null) {
             /*
              * Pinned to BouncyCastle rather than left to search the provider list. Providers are
@@ -70,7 +83,7 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
              * HelloRetryRequest. Pinning keeps the handshake the same on every JDK, which is the
              * whole point of impersonating one browser.
              */
-            Security.addProvider(new BouncyCastleJsseProvider(bc));
+            Security.addProvider(JSSE_PROVIDER);
         }
     }
 
@@ -148,10 +161,10 @@ public abstract class ImpersonatorFactory implements Impersonator, ImpersonatorA
                         DEFAULT_TRUST_MANAGER
                 };
             }
-            SSLContext context = SSLContext.getInstance("TLSv1.3", BouncyCastleJsseProvider.PROVIDER_NAME);
+            SSLContext context = SSLContext.getInstance("TLSv1.3", JSSE_PROVIDER);
             context.init(km, tm, new SecureRandomWrap(this));
             return context;
-        } catch (NoSuchAlgorithmException | NoSuchProviderException | KeyManagementException e) {
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
             throw new IllegalStateException("newContext", e);
         }
     }
