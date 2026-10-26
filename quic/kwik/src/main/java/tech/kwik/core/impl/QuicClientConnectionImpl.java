@@ -711,6 +711,11 @@ public class QuicClientConnectionImpl extends QuicConnectionImpl implements Quic
     }
 
     private void abortHandshake() {
+        if (isTerminated()) {
+            // Ended already, which is what woke the caller: closed during the handshake. Failed here would overwrite
+            // the Closed that ending leaves, and there is nothing left to stop
+            return;
+        }
         connectionState = Status.Failed;
         sender.stop();
         terminate();

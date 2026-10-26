@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -137,6 +138,8 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
     protected volatile FlowControl flowController;
 
     protected volatile Status connectionState;
+    /** Whether {@link #terminate()} has run */
+    private final AtomicBoolean terminated = new AtomicBoolean();
 
     /**
      * Why this connection stopped being usable, or null while it still is.
@@ -745,6 +748,13 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
             // "An endpoint that has not established state, such as a server that detects an error in an Initial packet,
             //  does not enter the closing state."
             postProcessingActions.add(() -> terminate());
+            // Those actions run once a received packet has been processed. Called outside that - the application
+            // closing a connection whose handshake is still in Initial packets - nothing runs them until a packet
+            // arrives, and from a server that never answered none does: the receiver and sender threads then ran for
+            // good (gzsocks, 2026-10-26: a connection closed that way kept them for days, and with them the class
+            // loader of a web app redeployed since). So terminate in any case by when the closing state would end.
+            int pto = getSender().getPto();
+            schedule(() -> terminate(), 3 * pto, TimeUnit.MILLISECONDS);
         }
 
         log.getQLog().emitConnectionClosedEvent(Instant.now(), error, errorReason);
@@ -927,9 +937,13 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
 
     /**
      * Closes the connection by discarding all connection state. Do not call directly, should be called after
-     * closing state or draining state ends.
+     * closing state or draining state ends. Only the first call does anything: a close during the handshake both
+     * queues it behind the packet being processed and schedules it (see immediateCloseWithError).
      */
     protected final void terminate() {
+        if (!terminated.compareAndSet(false, true)) {
+            return;
+        }
         preTerminateHook();
         // https://www.rfc-editor.org/rfc/rfc9000.html#section-10.2
         // "Once its closing or draining state ends, an endpoint SHOULD discard all connection state."
@@ -937,6 +951,11 @@ public abstract class QuicConnectionImpl implements QuicConnection, PacketProces
         getSender().shutdown(this::postTerminateHook);
         connectionState = Status.Closed;
         scheduler.shutdown();
+    }
+
+    /** Whether {@link #terminate()} has run, or is running */
+    protected boolean isTerminated() {
+        return terminated.get();
     }
 
     protected void preTerminateHook() {}
